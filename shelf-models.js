@@ -285,6 +285,119 @@ function listRequiredComponents(shelf) {
     .map(([component, quantity]) => ({ component, quantity }));
 }
 
+function serializeShelfToString(shelf) {
+  const rodEntries = Array.from(shelf.rods.entries())
+    .sort((a, b) => a[1].position.x - b[1].position.x);
+  
+  const rodStrings = rodEntries.map(([rodId, rodData]) => {
+    const attachmentStrings = rodData.attachmentPoints.map(point => {
+      if (point.plateId) {
+        const plate = shelf.plates.get(point.plateId);
+        return plate ? plate.size.toString() : '*';
+      }
+      return '*';
+    });
+    
+    return `${rodData.position.x}:${rodData.pattern}[${attachmentStrings.join(',')}]`;
+  });
+  
+  return rodStrings.join(' ');
+}
+
+function parseShelfFromString(shelfString) {
+  const shelf = createEmptyShelf();
+  
+  if (!shelfString.trim()) {
+    return shelf;
+  }
+  
+  const rodStrings = shelfString.trim().split(' ');
+  const plateConnections = [];
+  
+  // First pass: create rods and track plate requirements
+  for (const rodString of rodStrings) {
+    const match = rodString.match(/^(\d+):([^[]+)\[([^\]]*)\]$/);
+    if (!match) {
+      throw new Error(`Invalid rod format: ${rodString}`);
+    }
+    
+    const [, xPos, pattern, attachmentsStr] = match;
+    const x = parseInt(xPos);
+    const attachments = attachmentsStr ? attachmentsStr.split(',') : [];
+    
+    // Validate pattern exists
+    const rodPattern = AVAILABLE_ROD_PATTERNS.find(p => p.id === pattern);
+    if (!rodPattern) {
+      throw new Error(`Unknown rod pattern: ${pattern}`);
+    }
+    
+    // Create rod
+    const rodId = addRod({ x, z: 0 }, pattern, shelf);
+    
+    // Track plates needed
+    attachments.forEach((attachment, index) => {
+      if (attachment !== '*') {
+        const plateSize = parseInt(attachment);
+        if (isNaN(plateSize)) {
+          throw new Error(`Invalid plate size: ${attachment}`);
+        }
+        
+        plateConnections.push({
+          rodId,
+          attachmentIndex: index,
+          plateSize,
+          level: shelf.rods.get(rodId).attachmentPoints[index].y
+        });
+      }
+    });
+  }
+  
+  // Second pass: create plates by matching connections at same level
+  const processedConnections = new Set();
+  
+  for (let i = 0; i < plateConnections.length; i++) {
+    if (processedConnections.has(i)) continue;
+    
+    const conn1 = plateConnections[i];
+    
+    // Find matching connection at same level
+    for (let j = i + 1; j < plateConnections.length; j++) {
+      if (processedConnections.has(j)) continue;
+      
+      const conn2 = plateConnections[j];
+      
+      if (conn1.level === conn2.level && conn1.plateSize === conn2.plateSize) {
+        // Create plate between these two connections
+        const rod1 = shelf.rods.get(conn1.rodId);
+        const rod2 = shelf.rods.get(conn2.rodId);
+        
+        // Ensure rod1 is to the left of rod2
+        const [leftConn, rightConn] = rod1.position.x < rod2.position.x 
+          ? [conn1, conn2] : [conn2, conn1];
+        
+        const plateId = addPlate(leftConn.rodId, rightConn.rodId, leftConn.level, leftConn.plateSize, shelf);
+        
+        if (plateId) {
+          processedConnections.add(i);
+          processedConnections.add(j);
+          break;
+        }
+      }
+    }
+  }
+  
+  // Check for unmatched plate connections
+  const unmatchedConnections = plateConnections.filter((_, index) => !processedConnections.has(index));
+  if (unmatchedConnections.length > 0) {
+    const unmatched = unmatchedConnections.map(conn => 
+      `${conn.plateSize}mm at level ${conn.level}cm`
+    ).join(', ');
+    throw new Error(`Unmatched plate connections: ${unmatched}`);
+  }
+  
+  return shelf;
+}
+
 function validateShelfConfiguration(shelf) {
   const errors = [];
   
@@ -406,5 +519,7 @@ export {
   updateRodPattern,
   findElementAtCursor,
   listRequiredComponents,
-  validateShelfConfiguration
+  validateShelfConfiguration,
+  serializeShelfToString,
+  parseShelfFromString
 };

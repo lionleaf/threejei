@@ -78,6 +78,11 @@
             <h4>Shopping List:</h4>
             <div id="componentList">No components</div>
         </div>
+        <div class="control-group">
+            <h4>Shelf String:</h4>
+            <textarea id="shelfString" rows="3" style="width:200px; font-family: monospace; font-size: 12px;" placeholder="Empty shelf"></textarea>
+            <button onclick="loadFromString()">Load from String</button>
+        </div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -87,6 +92,8 @@
             addRod, 
             addPlate, 
             listRequiredComponents,
+            serializeShelfToString,
+            parseShelfFromString,
             CONSTANTS 
         } from './shelf-models.js';
 
@@ -203,6 +210,11 @@
                     `${item.quantity}x ${item.component}`
                 ).join('<br>');
             }
+            
+            // Update shelf string
+            const shelfString = serializeShelfToString(currentShelf);
+            document.getElementById('shelfString').value = shelfString || '';
+            document.getElementById('shelfString').placeholder = shelfString ? '' : 'Empty shelf';
         }
 
         // Interactive functions
@@ -258,6 +270,24 @@
             }
             
             alert('Cannot add plate - need at least 2 rods with matching attachment levels');
+        }
+
+        window.loadFromString = function() {
+            const shelfString = document.getElementById('shelfString').value.trim();
+            
+            try {
+                currentShelf = parseShelfFromString(shelfString);
+                nextRodX = 0;
+                
+                // Update nextRodX to be after the rightmost rod
+                for (const [rodId, rodData] of currentShelf.rods) {
+                    nextRodX = Math.max(nextRodX, rodData.position.x + CONSTANTS.ROD_HORIZONTAL_SPACING);
+                }
+                
+                visualizeShelf();
+            } catch (error) {
+                alert(`Error parsing shelf string: ${error.message}`);
+            }
         }
 
         // Initial setup and animation

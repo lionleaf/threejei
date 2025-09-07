@@ -9,6 +9,8 @@ import {
   calculateRodHeight,
   listRequiredComponents,
   validateShelfConfiguration,
+  serializeShelfToString,
+  parseShelfFromString,
   AVAILABLE_ROD_PATTERNS,
   AVAILABLE_PLATE_SPECS,
   CONSTANTS
@@ -245,6 +247,103 @@ testRunner.test('validateShelfConfiguration - invalid rod pattern', () => {
   expect(validation.valid).toBeFalsy();
   expect(validation.errors).toHaveLength(1);
   expect(validation.errors[0]).toContain('has invalid pattern');
+});
+
+testRunner.test('serializeShelfToString - empty shelf', () => {
+  const shelf = createEmptyShelf();
+  
+  const serialized = serializeShelfToString(shelf);
+  
+  expect(serialized).toBe('');
+});
+
+testRunner.test('serializeShelfToString - single rod no plates', () => {
+  const shelf = createEmptyShelf();
+  addRod({ x: 0, z: 0 }, "3P_22", shelf);
+  
+  const serialized = serializeShelfToString(shelf);
+  
+  expect(serialized).toBe('0:3P_22[*,*,*]');
+});
+
+testRunner.test('serializeShelfToString - two rods with plate', () => {
+  const shelf = createEmptyShelf();
+  const rod1 = addRod({ x: 0, z: 0 }, "3P_22", shelf);
+  const rod2 = addRod({ x: 600, z: 0 }, "3P_22", shelf);
+  addPlate(rod1, rod2, 20, 670, shelf);
+  
+  const serialized = serializeShelfToString(shelf);
+  
+  expect(serialized).toBe('0:3P_22[*,670,*] 600:3P_22[*,670,*]');
+});
+
+testRunner.test('parseShelfFromString - empty string', () => {
+  const shelf = parseShelfFromString('');
+  
+  expect(shelf.rods.size).toBe(0);
+  expect(shelf.plates.size).toBe(0);
+});
+
+testRunner.test('parseShelfFromString - single rod', () => {
+  const shelf = parseShelfFromString('0:3P_22[*,*,*]');
+  
+  expect(shelf.rods.size).toBe(1);
+  expect(shelf.plates.size).toBe(0);
+  
+  const rod = Array.from(shelf.rods.values())[0];
+  expect(rod.pattern).toBe('3P_22');
+  expect(rod.position.x).toBe(0);
+  expect(rod.attachmentPoints).toHaveLength(3);
+});
+
+testRunner.test('parseShelfFromString - two rods with plate', () => {
+  const shelf = parseShelfFromString('0:3P_22[*,670,*] 600:3P_22[*,670,*]');
+  
+  expect(shelf.rods.size).toBe(2);
+  expect(shelf.plates.size).toBe(1);
+  
+  const plate = Array.from(shelf.plates.values())[0];
+  expect(plate.size).toBe(670);
+  expect(plate.connections).toHaveLength(2);
+});
+
+testRunner.test('parseShelfFromString - invalid format throws error', () => {
+  let errorThrown = false;
+  try {
+    parseShelfFromString('invalid-format');
+  } catch (error) {
+    errorThrown = true;
+    expect(error.message).toContain('Invalid rod format');
+  }
+  expect(errorThrown).toBeTruthy();
+});
+
+testRunner.test('parseShelfFromString - unknown pattern throws error', () => {
+  let errorThrown = false;
+  try {
+    parseShelfFromString('0:INVALID_PATTERN[*,*]');
+  } catch (error) {
+    errorThrown = true;
+    expect(error.message).toContain('Unknown rod pattern');
+  }
+  expect(errorThrown).toBeTruthy();
+});
+
+testRunner.test('serializeShelfToString + parseShelfFromString - round trip', () => {
+  const originalShelf = createEmptyShelf();
+  const rod1 = addRod({ x: 0, z: 0 }, "3P_22", originalShelf);
+  const rod2 = addRod({ x: 600, z: 0 }, "4P_223", originalShelf);
+  addPlate(rod1, rod2, 20, 670, originalShelf);
+  
+  const serialized = serializeShelfToString(originalShelf);
+  const parsedShelf = parseShelfFromString(serialized);
+  
+  expect(parsedShelf.rods.size).toBe(originalShelf.rods.size);
+  expect(parsedShelf.plates.size).toBe(originalShelf.plates.size);
+  
+  const originalComponents = listRequiredComponents(originalShelf);
+  const parsedComponents = listRequiredComponents(parsedShelf);
+  expect(parsedComponents).toEqual(originalComponents);
 });
 
 const success = testRunner.run();

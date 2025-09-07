@@ -23,6 +23,7 @@ The configurator must work within specific size constraints and available compon
 - Always re-read this file after a task is complete before starting the next, as the human might have modified it since last
 - Update this context file as you learn more about the project structure, requirements, or constraints
 - Don't complete a task until you have verified it. For code each task needs test coverage and the tests need to execute and pass
+- ALWAYS tag a task as WIP before starting working on it
 
 ### Code Style & Conventions
 - Follow existing codebase conventions and patterns
@@ -179,6 +180,177 @@ Plates used: 1x 670mm
 - [x] Write the tests for a new function that's not yet implemented listing the required components (rods and plate dimension strings)  (TDD)
 - [x] Implement the function that lists the components
 - [x] Use the three.js file (index.html) to visualize a shelf based given the data model
+- [x] Implement a string based unique representation for a shelf configuration, and the ability to instantiate a shelf from such a string. Suggestion is to simply list the rods from left to right and tag which attachmentpoints have a shelf. It should be human readable and editable by hand, and ideally map clearly to the different rod designs
+
+### Phase 3: Editor
+- [x] Make a plan for how to do interactive editing in three.js, make it delightful and use hover effects to show previews of what is about to happen. Describe the design
+
+## Interactive 3D Editing Design Plan
+
+### Core Interaction Philosophy
+- **Direct Manipulation**: Click and drag objects in 3D space for immediate feedback
+- **Progressive Disclosure**: Show hints and options contextually based on cursor position
+- **Preview-First**: Always show what will happen before committing changes
+- **Undo-Friendly**: Every action should be easily reversible
+
+### Visual Feedback System
+
+#### Hover States
+1. **Rod Hover**:
+   - Highlight entire rod with subtle glow effect
+   - Show attachment point indicators as pulsing spheres
+   - Display tooltip: rod pattern and available attachment levels
+   - Preview possible plate connections with dotted lines to nearby rods
+
+2. **Plate Hover**:
+   - Highlight plate with edge glow
+   - Show connection points with small indicators
+   - Display tooltip: plate size and span information
+   - Option to show "delete" indicator (red X)
+
+3. **Empty Space Hover**:
+   - Show grid snap positions for new rods (faint vertical lines)
+   - Display ghost rod preview at cursor position with current selected pattern
+   - Show "+" cursor to indicate add mode
+
+#### Selection States
+1. **Rod Selected**:
+   - Bright outline around rod
+   - All attachment points become interactive (clickable spheres)
+   - Show pattern selector overlay near rod
+   - Highlight valid plate connection targets
+
+2. **Plate Selected**:
+   - Bright outline around plate
+   - Show resize handles at both ends
+   - Display size options as floating buttons (670/1270/1870)
+   - Show delete confirmation button
+
+#### Preview System
+1. **Plate Addition Preview**:
+   - When hovering over attachment point: show ghost plate extending to compatible rods
+   - Different colors for different plate sizes
+   - Validate in real-time (red = invalid, green = valid, yellow = warning)
+
+2. **Rod Modification Preview**:
+   - When changing pattern: show new attachment points as ghosts
+   - Affected plates highlighted in warning color
+   - Show which plates will be removed/repositioned
+
+### Interaction Modes
+
+#### Mode 1: Browse Mode (Default)
+- Camera orbits around shelf
+- Hover effects show information
+- Click selects objects
+- Double-click enters edit mode for selected object
+
+#### Mode 2: Rod Edit Mode
+- Triggered by selecting a rod
+- Pattern selector appears as floating UI
+- Attachment points become interactive
+- Click attachment point to add/remove plates
+- Drag rod to reposition (snaps to grid)
+
+#### Mode 3: Plate Edit Mode  
+- Triggered by selecting a plate
+- Size selector appears as floating buttons
+- Drag handles to resize (snaps to valid rod positions)
+- Context menu for delete/duplicate
+
+#### Mode 4: Add Mode
+- Triggered by toolbar button or keyboard shortcut
+- Cursor shows ghost objects
+- Click empty space to add rod
+- Click attachment point to add plate
+- ESC to cancel
+
+### UI Elements
+
+#### Floating Context Menus
+- Appear near selected objects
+- Semi-transparent backgrounds
+- Smooth fade-in/out animations
+- Auto-hide when clicking elsewhere
+
+#### Ghost Objects
+- 50% transparency
+- Different colors for different states:
+  - Blue: valid placement
+  - Red: invalid placement  
+  - Yellow: warning (will affect other objects)
+  - Green: confirmed action
+
+#### Snap Grid
+- Subtle grid lines on floor
+- Bright dots at valid rod positions (600mm intervals)
+- Attachment level indicators on rods
+
+### Delightful Details
+
+#### Animations
+- Smooth transitions between states (300ms ease-in-out)
+- Objects "grow" into place when added
+- Plates "slide" when resizing
+- Rods "stretch/shrink" when changing patterns
+- Camera automatically frames new content
+
+#### Visual Polish
+- Subtle drop shadows under all objects
+- Materials that respond to lighting
+- Attachment points that pulse when interactive
+- Connection lines that fade in/out smoothly
+
+#### Accessibility
+- Keyboard shortcuts for all actions
+- Clear visual hierarchy
+- High contrast mode option
+- Screen reader compatible tooltips
+
+### Technical Implementation Strategy
+
+#### Event Handling
+- Three.js Raycaster for precise 3D cursor detection  
+- Custom hover/click state management
+- Debounced hover events to prevent flickering
+- Event delegation for performance
+
+#### State Management
+- Separate visual state from data model
+- Undo/redo stack with action serialization
+- Real-time validation with visual feedback
+- Optimistic UI updates with rollback capability
+
+#### Performance Optimizations
+- Object pooling for frequently created/destroyed elements
+- Frustum culling for large shelves
+- Level-of-detail for complex rod patterns
+- Cached geometry for common shapes
+
+### User Workflows
+
+#### Add First Rod
+1. User clicks "Add Rod" or hits 'R' key
+2. Ghost rod follows cursor in 3D space
+3. Snap indicators show valid positions
+4. Click to place, rod animates into position
+5. Pattern selector appears for immediate customization
+
+#### Add Plate Between Rods
+1. User hovers over rod attachment point
+2. Ghost plates extend to all compatible rods
+3. Different colors show different plate sizes
+4. Click target rod to create plate
+5. Plate slides into position with smooth animation
+
+#### Modify Existing Configuration  
+1. User clicks existing rod
+2. Rod highlights, pattern selector appears
+3. Preview shows how changes affect connected plates
+4. User confirms change, animations show transformation
+5. Invalid plates are removed with fade-out effect
+
+This design prioritizes discoverability, immediate feedback, and the joy of direct manipulation while maintaining the structural integrity of the shelf system.
 
 ## Testing & Quality
 - Run linting and type checking before committing changes
