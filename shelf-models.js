@@ -285,6 +285,115 @@ function listRequiredComponents(shelf) {
     .map(([component, quantity]) => ({ component, quantity }));
 }
 
+function validateShelfConfiguration(shelf) {
+  const errors = [];
+  
+  // Check if shelf is empty
+  if (shelf.rods.size === 0) {
+    return { valid: true, errors: [], warnings: ['Shelf has no components'] };
+  }
+  
+  // Validate each plate connection
+  for (const [plateId, plate] of shelf.plates) {
+    // Check if plate has exactly 2 connections
+    if (plate.connections.length !== 2) {
+      errors.push(`Plate ${plateId} has ${plate.connections.length} connections, expected 2`);
+      continue;
+    }
+    
+    const [startConnection, endConnection] = plate.connections;
+    const startRod = shelf.rods.get(startConnection[0]);
+    const endRod = shelf.rods.get(endConnection[0]);
+    
+    // Check if connected rods exist
+    if (!startRod) {
+      errors.push(`Plate ${plateId} references non-existent rod ${startConnection[0]}`);
+      continue;
+    }
+    if (!endRod) {
+      errors.push(`Plate ${plateId} references non-existent rod ${endConnection[0]}`);
+      continue;
+    }
+    
+    // Check if attachment points exist
+    if (startConnection[1] >= startRod.attachmentPoints.length) {
+      errors.push(`Plate ${plateId} references invalid attachment point on rod ${startConnection[0]}`);
+      continue;
+    }
+    if (endConnection[1] >= endRod.attachmentPoints.length) {
+      errors.push(`Plate ${plateId} references invalid attachment point on rod ${endConnection[0]}`);
+      continue;
+    }
+    
+    // Check if attachment points are at same vertical level
+    const startY = startRod.attachmentPoints[startConnection[1]].y;
+    const endY = endRod.attachmentPoints[endConnection[1]].y;
+    if (startY !== endY) {
+      errors.push(`Plate ${plateId} connects attachment points at different levels: ${startY}cm vs ${endY}cm`);
+    }
+    
+    // Check if horizontal spacing matches plate specification
+    const horizontalDistance = Math.abs(endRod.position.x - startRod.position.x);
+    const plateSpec = AVAILABLE_PLATE_SPECS.find(spec => spec.length === plate.size);
+    if (plateSpec) {
+      const expectedDistance = plateSpec.spans * CONSTANTS.ROD_HORIZONTAL_SPACING;
+      if (horizontalDistance !== expectedDistance) {
+        errors.push(`Plate ${plateId} (${plate.size}mm) spans ${horizontalDistance}mm but should span ${expectedDistance}mm`);
+      }
+    } else {
+      errors.push(`Plate ${plateId} has invalid size ${plate.size}mm`);
+    }
+  }
+  
+  // Check for valid rod patterns
+  for (const [rodId, rod] of shelf.rods) {
+    const pattern = AVAILABLE_ROD_PATTERNS.find(p => p.id === rod.pattern);
+    if (!pattern) {
+      errors.push(`Rod ${rodId} has invalid pattern: ${rod.pattern}`);
+      continue;
+    }
+    
+    // Check if attachment points match pattern
+    const expectedPositions = calculateAttachmentPositions(pattern);
+    if (rod.attachmentPoints.length !== expectedPositions.length) {
+      errors.push(`Rod ${rodId} has ${rod.attachmentPoints.length} attachment points, expected ${expectedPositions.length}`);
+      continue;
+    }
+    
+    for (let i = 0; i < expectedPositions.length; i++) {
+      if (rod.attachmentPoints[i].y !== expectedPositions[i]) {
+        errors.push(`Rod ${rodId} attachment point ${i} at ${rod.attachmentPoints[i].y}cm, expected ${expectedPositions[i]}cm`);
+      }
+    }
+  }
+  
+  // Warnings
+  const warnings = [];
+  
+  // Check for unused attachment points
+  let totalAttachmentPoints = 0;
+  let usedAttachmentPoints = 0;
+  for (const [rodId, rod] of shelf.rods) {
+    totalAttachmentPoints += rod.attachmentPoints.length;
+    usedAttachmentPoints += rod.attachmentPoints.filter(point => point.plateId).length;
+  }
+  
+  if (usedAttachmentPoints < totalAttachmentPoints * 0.3) {
+    warnings.push(`Only ${Math.round(usedAttachmentPoints/totalAttachmentPoints*100)}% of attachment points are used`);
+  }
+  
+  // Check for structural stability (need at least 2 rods for any plates)
+  if (shelf.plates.size > 0 && shelf.rods.size < 2) {
+    errors.push('Plates require at least 2 rods for support');
+  }
+  
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings
+  };
+}
+
 export { 
   AVAILABLE_ROD_PATTERNS,
   AVAILABLE_PLATE_SPECS,
@@ -296,5 +405,6 @@ export {
   addPlate,
   updateRodPattern,
   findElementAtCursor,
-  listRequiredComponents
+  listRequiredComponents,
+  validateShelfConfiguration
 };

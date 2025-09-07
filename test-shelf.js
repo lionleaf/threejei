@@ -8,6 +8,7 @@ import {
   calculateAttachmentPositions,
   calculateRodHeight,
   listRequiredComponents,
+  validateShelfConfiguration,
   AVAILABLE_ROD_PATTERNS,
   AVAILABLE_PLATE_SPECS,
   CONSTANTS
@@ -183,6 +184,67 @@ testRunner.test('listRequiredComponents - mixed rods and plates', () => {
   expect(components[1].quantity).toBe(2);
   expect(components[2].component).toBe("rod-4P_223");
   expect(components[2].quantity).toBe(1);
+});
+
+testRunner.test('validateShelfConfiguration - empty shelf', () => {
+  const shelf = createEmptyShelf();
+  
+  const validation = validateShelfConfiguration(shelf);
+  
+  expect(validation.valid).toBeTruthy();
+  expect(validation.errors).toHaveLength(0);
+  expect(validation.warnings).toHaveLength(1);
+  expect(validation.warnings[0]).toBe('Shelf has no components');
+});
+
+testRunner.test('validateShelfConfiguration - valid configuration', () => {
+  const shelf = createEmptyShelf();
+  const rod1 = addRod({ x: 0, z: 0 }, "3P_22", shelf);
+  const rod2 = addRod({ x: 600, z: 0 }, "3P_22", shelf);
+  addPlate(rod1, rod2, 20, 670, shelf);
+  
+  const validation = validateShelfConfiguration(shelf);
+  
+  expect(validation.valid).toBeTruthy();
+  expect(validation.errors).toHaveLength(0);
+});
+
+testRunner.test('validateShelfConfiguration - misaligned attachment points', () => {
+  const shelf = createEmptyShelf();
+  const rod1 = addRod({ x: 0, z: 0 }, "3P_22", shelf);
+  const rod2 = addRod({ x: 600, z: 0 }, "2P_2", shelf);
+  
+  // Manually create invalid plate (this should normally be prevented by addPlate)
+  const plateId = `plate-${shelf.metadata.nextId++}`;
+  const plateData = {
+    size: 670,
+    connections: [
+      [rod1, 1], // 20cm level on rod1
+      [rod2, 0]  // 0cm level on rod2 - misaligned!
+    ],
+    bounds: { x: [0, 600], y: 20, width: 600, height: 20 }
+  };
+  shelf.plates.set(plateId, plateData);
+  
+  const validation = validateShelfConfiguration(shelf);
+  
+  expect(validation.valid).toBeFalsy();
+  expect(validation.errors).toHaveLength(1);
+  expect(validation.errors[0]).toContain('connects attachment points at different levels');
+});
+
+testRunner.test('validateShelfConfiguration - invalid rod pattern', () => {
+  const shelf = createEmptyShelf();
+  const rodId = addRod({ x: 0, z: 0 }, "3P_22", shelf);
+  
+  // Manually corrupt the rod pattern
+  shelf.rods.get(rodId).pattern = "INVALID_PATTERN";
+  
+  const validation = validateShelfConfiguration(shelf);
+  
+  expect(validation.valid).toBeFalsy();
+  expect(validation.errors).toHaveLength(1);
+  expect(validation.errors[0]).toContain('has invalid pattern');
 });
 
 const success = testRunner.run();

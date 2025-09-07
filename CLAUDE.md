@@ -174,11 +174,11 @@ Plates used: 1x 670mm
 3. Different rod patterns allowed but attachment alignment required for plates
 4. Empty attachment points are valid (skipped connections annotated with ─)
 
-### Phase 2: Core Logic
-- [ ] Implement component validation
-- [ ] Write the tests for a new function that's not yet implemented listing the required components (rods and plate dimension strings)  (TDD)
-- [ ] Implement the function that lists the components
-- [ ] Use the three.js file (index.html) to visualize a shelf based given the data model
+### Phase 2: Core Logic  
+- [x] Implement component validation
+- [x] Write the tests for a new function that's not yet implemented listing the required components (rods and plate dimension strings)  (TDD)
+- [x] Implement the function that lists the components
+- [x] Use the three.js file (index.html) to visualize a shelf based given the data model
 
 ## Testing & Quality
 - Run linting and type checking before committing changes

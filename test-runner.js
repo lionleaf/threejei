@@ -75,6 +75,20 @@ function expect(actual) {
       if (actual) {
         throw new Error(`Expected value to be falsy, but got ${actual}`);
       }
+    },
+    
+    toContain(expected) {
+      if (Array.isArray(actual)) {
+        if (!actual.includes(expected)) {
+          throw new Error(`Expected array to contain ${expected}`);
+        }
+      } else if (typeof actual === 'string') {
+        if (!actual.includes(expected)) {
+          throw new Error(`Expected string to contain ${expected}`);
+        }
+      } else {
+        throw new Error('toContain only works with arrays and strings');
+      }
     }
   };
 }
