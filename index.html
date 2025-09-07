@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Three.js Shelf Visualizer</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #222;
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            display: block;
+        }
+        .controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 20px;
+            border-radius: 5px;
+            z-index: 100;
+        }
+        .control-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        input[type="number"], input[type="range"] {
+            width: 150px;
+            margin-bottom: 5px;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <h3>Shelf Parameters</h3>
+        <div class="control-group">
+            <label>Number of Plates:</label>
+            <input type="number" id="plateCount" value="3" min="1" max="10">
+        </div>
+        <div id="plateControls">
+            <!-- Individual plate controls will be generated here -->
+        </div>
+        <div class="control-group">
+            <label>Plate Depth (mm):</label>
+            <input type="range" id="plateDepth" min="200" max="500" step="50" value="300">
+            <span id="plateDepthValue">300</span>
+        </div>
+        <div class="control-group">
+            <label>Plate Thickness:</label>
+            <input type="range" id="plateThickness" min="0.05" max="0.3" step="0.01" value="0.1">
+            <span id="plateThicknessValue">0.1</span>
+        </div>
+        <div class="control-group">
+            <label>Shelf Spacing (mm):</label>
+            <input type="range" id="shelfSpacing" min="100" max="400" step="25" value="200">
+            <span id="shelfSpacingValue">200</span>
+        </div>
+        <button onclick="updateShelf()">Update Shelf</button>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Scene setup
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setClearColor(0x222222);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.body.appendChild(renderer.domElement);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+        scene.add(ambientLight);
+        
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(10, 10, 5);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.mapSize.width = 2048;
+        directionalLight.shadow.mapSize.height = 2048;
+        scene.add(directionalLight);
+
+        // Materials
+        const plateMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+        const rodMaterial = new THREE.MeshLambertMaterial({ color: 0x666666 });
+
+        // Shelf group
+        let shelfGroup = new THREE.Group();
+        scene.add(shelfGroup);
+
+        // Camera controls
+        camera.position.set(1, 1, 1);
+        camera.lookAt(0, 0, 0);
+
+        // Shelf creation functions
+        function createPlate(width, depth, thickness) {
+            const geometry = new THREE.BoxGeometry(width, thickness, depth);
+            const mesh = new THREE.Mesh(geometry, plateMaterial);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            return mesh;
+        }
+
+        function createRod(length, diameter) {
+            const geometry = new THREE.CylinderGeometry(diameter / 2, diameter / 2, length, 8);
+            const mesh = new THREE.Mesh(geometry, rodMaterial);
+            mesh.castShadow = true;
+            return mesh;
+        }
+
+        const validPlateWidths = [200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1850];
+        
+        function snapToValidWidth(width) {
+            return validPlateWidths.reduce((prev, curr) => 
+                Math.abs(curr - width) < Math.abs(prev - width) ? curr : prev
+            );
+        }
+        
+        function generatePlateControls() {
+            const plateCount = parseInt(document.getElementById('plateCount').value);
+            const plateControls = document.getElementById('plateControls');
+            plateControls.innerHTML = '';
+            
+            for (let i = 0; i < plateCount; i++) {
+                const controlDiv = document.createElement('div');
+                controlDiv.className = 'control-group';
+                controlDiv.innerHTML = `
+                    <label>Plate ${i + 1} Length (mm):</label>
+                    <input type="range" id="plate${i}Width" min="200" max="1850" step="50" value="800" onchange="snapPlateWidth(${i})">
+                    <span id="plate${i}WidthValue">800mm</span>
+                `;
+                plateControls.appendChild(controlDiv);
+            }
+        }
+        
+        function snapPlateWidth(plateIndex) {
+            const input = document.getElementById(`plate${plateIndex}Width`);
+            const value = parseFloat(input.value);
+            const snappedValue = snapToValidWidth(value);
+            input.value = snappedValue;
+            document.getElementById(`plate${plateIndex}WidthValue`).textContent = snappedValue + 'mm';
+            buildShelf();
+        }
+
+        function calculateRequiredRodLength(plateCount, shelfSpacing, plateThickness) {
+            const totalHeight = (plateCount - 1) * shelfSpacing + plateCount * plateThickness * 1000;
+            const availableRodLengths = [200, 300, 500, 700, 1000];
+            
+            // Find the smallest rod that fits
+            for (let length of availableRodLengths) {
+                if (totalHeight <= length) {
+                    return length;
+                }
+            }
+            return 1000; // Default to longest if nothing fits
+        }
+
+        function buildShelf() {
+            // Clear existing shelf
+            while(shelfGroup.children.length > 0) {
+                shelfGroup.remove(shelfGroup.children[0]);
+            }
+
+            // Get parameters (convert mm to meters for 3D visualization)
+            const plateCount = parseInt(document.getElementById('plateCount').value);
+            const plateDepth = parseFloat(document.getElementById('plateDepth').value) / 1000;
+            const plateThickness = parseFloat(document.getElementById('plateThickness').value);
+            const shelfSpacing = parseFloat(document.getElementById('shelfSpacing').value) / 1000;
+            
+            // Calculate required rod length automatically
+            const requiredRodLength = calculateRequiredRodLength(plateCount, shelfSpacing * 1000, plateThickness);
+            const rodLength = requiredRodLength / 1000; // Convert to meters
+            const rodDiameter = 0.05; // Fixed rod diameter
+
+            // Find maximum plate width to determine rod span
+            let maxPlateWidth = 0;
+            for (let i = 0; i < plateCount; i++) {
+                const plateWidthEl = document.getElementById(`plate${i}Width`);
+                if (plateWidthEl) {
+                    const width = parseFloat(plateWidthEl.value);
+                    maxPlateWidth = Math.max(maxPlateWidth, width);
+                }
+            }
+            maxPlateWidth = maxPlateWidth / 1000; // Convert to meters
+
+            // Calculate rod positions at 400mm intervals
+            const rodSpacing = 0.4; // 400mm in meters
+            const numRodPairs = Math.ceil(maxPlateWidth / rodSpacing) + 1;
+            
+            // Create vertical rods at 400mm intervals
+            for (let i = 0; i < numRodPairs; i++) {
+                const xPos = (i * rodSpacing) - (maxPlateWidth / 2);
+                
+                // Front rods
+                const frontRod = createRod(rodLength, rodDiameter);
+                frontRod.position.set(xPos, 0, -plateDepth/2);
+                shelfGroup.add(frontRod);
+                
+                // Back rods
+                const backRod = createRod(rodLength, rodDiameter);
+                backRod.position.set(xPos, 0, plateDepth/2);
+                shelfGroup.add(backRod);
+            }
+
+            // Create plates with individual widths
+            for (let i = 0; i < plateCount; i++) {
+                const plateWidthEl = document.getElementById(`plate${i}Width`);
+                const plateWidth = plateWidthEl ? parseFloat(plateWidthEl.value) / 1000 : 0.8;
+                
+                const plate = createPlate(plateWidth, plateDepth, plateThickness);
+                const yPos = -rodLength/2 + plateThickness/2 + i * shelfSpacing;
+                plate.position.set(0, yPos, 0);
+                shelfGroup.add(plate);
+            }
+        }
+
+        function updateShelf() {
+            buildShelf();
+        }
+
+        // Update display values
+        function updateDisplayValues() {
+            document.getElementById('plateDepthValue').textContent = document.getElementById('plateDepth').value + 'mm';
+            document.getElementById('plateThicknessValue').textContent = document.getElementById('plateThickness').value;
+            document.getElementById('shelfSpacingValue').textContent = document.getElementById('shelfSpacing').value + 'mm';
+            
+            // Update individual plate width displays
+            const plateCount = parseInt(document.getElementById('plateCount').value);
+            for (let i = 0; i < plateCount; i++) {
+                const plateWidthEl = document.getElementById(`plate${i}Width`);
+                const plateWidthValueEl = document.getElementById(`plate${i}WidthValue`);
+                if (plateWidthEl && plateWidthValueEl) {
+                    plateWidthValueEl.textContent = plateWidthEl.value + 'mm';
+                }
+            }
+        }
+
+        // Event listeners for real-time updates
+        document.querySelectorAll('input[type="range"]').forEach(input => {
+            input.addEventListener('input', () => {
+                updateDisplayValues();
+                buildShelf();
+            });
+        });
+
+        document.getElementById('plateCount').addEventListener('input', () => {
+            generatePlateControls();
+            buildShelf();
+        });
+
+        // Initial shelf build
+        generatePlateControls();
+        updateDisplayValues();
+        buildShelf();
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            shelfGroup.rotation.y += 0.005;
+            
+            renderer.render(scene, camera);
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>
