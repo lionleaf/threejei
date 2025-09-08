@@ -217,19 +217,45 @@ function addPlate(startRodId, endRodId, attachmentLevel, plateSize, shelf) {
   
   if (!startRod || !endRod) return null;
   
-  const startAttachmentIndex = startRod.attachmentPoints.findIndex(p => p.y === attachmentLevel);
-  const endAttachmentIndex = endRod.attachmentPoints.findIndex(p => p.y === attachmentLevel);
+  // Find all rods that this plate will span across
+  const startX = startRod.position.x;
+  const endX = endRod.position.x;
   
-  if (startAttachmentIndex === -1 || endAttachmentIndex === -1) return null;
+  // Get all rods between start and end (inclusive)
+  const spanningRods = [];
+  for (const [rodId, rodData] of shelf.rods) {
+    const rodX = rodData.position.x;
+    if (rodX >= Math.min(startX, endX) && rodX <= Math.max(startX, endX)) {
+      spanningRods.push({ id: rodId, data: rodData, x: rodX });
+    }
+  }
+  
+  // Sort by X position
+  spanningRods.sort((a, b) => a.x - b.x);
+  
+  // Check that all required rods exist and have attachment points
+  const connections = [];
+  for (const rod of spanningRods) {
+    const attachmentIndex = rod.data.attachmentPoints.findIndex(p => p.y === attachmentLevel);
+    if (attachmentIndex === -1) {
+      console.warn(`Rod ${rod.id} doesn't have attachment point at ${attachmentLevel}cm`);
+      return null;
+    }
+    
+    // Check if attachment point is already occupied
+    if (rod.data.attachmentPoints[attachmentIndex].plateId) {
+      console.warn(`Rod ${rod.id} attachment point already occupied by plate ${rod.data.attachmentPoints[attachmentIndex].plateId}`);
+      return null;
+    }
+    
+    connections.push([rod.id, attachmentIndex]);
+  }
   
   const plateId = `plate-${shelf.metadata.nextId++}`;
   
   const plateData = {
     size: plateSize,
-    connections: [
-      [startRodId, startAttachmentIndex],
-      [endRodId, endAttachmentIndex]
-    ],
+    connections: connections,
     bounds: { x: [0, 0], y: 0, width: 0, height: 20 }
   };
   
@@ -239,13 +265,35 @@ function addPlate(startRodId, endRodId, attachmentLevel, plateSize, shelf) {
     return null;
   }
   
-  startRod.attachmentPoints[startAttachmentIndex].plateId = plateId;
-  endRod.attachmentPoints[endAttachmentIndex].plateId = plateId;
+  // Mark all attachment points as occupied
+  for (const [rodId, attachmentIndex] of connections) {
+    const rod = shelf.rods.get(rodId);
+    rod.attachmentPoints[attachmentIndex].plateId = plateId;
+  }
   
   shelf.plates.set(plateId, plateData);
   updateSpatialIndex(shelf);
   
   return plateId;
+}
+
+function removePlate(plateId, shelf) {
+  const plateData = shelf.plates.get(plateId);
+  if (!plateData) return false;
+  
+  // Clear all attachment point references
+  for (const [rodId, attachmentIndex] of plateData.connections) {
+    const rod = shelf.rods.get(rodId);
+    if (rod && rod.attachmentPoints[attachmentIndex]) {
+      rod.attachmentPoints[attachmentIndex].plateId = null;
+    }
+  }
+  
+  // Remove plate from shelf
+  shelf.plates.delete(plateId);
+  updateSpatialIndex(shelf);
+  
+  return true;
 }
 
 function createEmptyShelf() {
@@ -516,6 +564,7 @@ export {
   createEmptyShelf,
   addRod,
   addPlate,
+  removePlate,
   updateRodPattern,
   findElementAtCursor,
   listRequiredComponents,

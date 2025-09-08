@@ -185,6 +185,23 @@ Plates used: 1x 670mm
 ### Phase 3: Editor
 - [x] Make a plan for how to do interactive editing in three.js, make it delightful and use hover effects to show previews of what is about to happen. Describe the design
 
+### Phase 4: Visual Quality & Controls
+- [x] Implement PBR (Physically Based Rendering) materials for realistic lighting
+- [x] Add wood textures for plates and rod materials for authenticity
+- [x] Implement camera controls (orbit, pan, zoom) for better navigation
+- [x] Add environmental lighting and shadows for depth perception
+- [x] Optimize rendering performance with proper material settings
+
+### Phase 5: Interactive Editing
+- [x] Implement raycasting and mouse interaction system for 3D object selection
+- [x] Add hover effects with visual feedback for rods and plates
+- [x] Create plate addition system by clicking attachment points
+- [x] Implement rod pattern modification through click interface
+- [x] Add plate deletion and resizing through direct manipulation
+- [x] Implement visual preview system for pending actions
+- [x] Add smooth animations for all editing operations
+- [x] Add empty space click detection for inserting new rods with ghost rod previews
+
 ## Interactive 3D Editing Design Plan
 
 ### Core Interaction Philosophy

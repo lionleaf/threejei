@@ -46,51 +46,115 @@
         button:hover {
             background: #45a049;
         }
+        .editing-panel {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            z-index: 200;
+            min-width: 300px;
+            display: none;
+        }
+        .editing-panel h4 {
+            margin-top: 0;
+            color: #4CAF50;
+        }
+        .editing-panel button {
+            margin: 5px;
+        }
+        .cancel-btn {
+            background: #f44336;
+        }
+        .cancel-btn:hover {
+            background: #d32f2f;
+        }
+        #componentList {
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .component-category {
+            margin-bottom: 10px;
+        }
+        .component-category h5 {
+            margin: 0 0 5px 0;
+            color: #4CAF50;
+            font-size: 13px;
+        }
+        .component-item {
+            margin-left: 10px;
+            padding: 2px 0;
+            font-family: monospace;
+        }
+        .component-count {
+            color: #FFB74D;
+            font-weight: bold;
+        }
+        .controls h4 {
+            color: #4CAF50;
+            margin: 10px 0 5px 0;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
     <div class="controls">
-        <h3>Shelf Configurator</h3>
+        <button onclick="resetToBasic()">Reset Shelf</button>
+        
         <div class="control-group">
-            <button onclick="addSampleShelf()">Load Sample Configuration</button>
-            <button onclick="clearShelf()">Clear Shelf</button>
+            <h4>Components Used</h4>
+            <div id="componentList">
+                <!-- Component list will be populated by JavaScript -->
+            </div>
         </div>
-        <div class="control-group">
-            <label>Add Rod:</label>
-            <select id="rodPattern">
-                <option value="2P_2">2P_2 (2 points, 20cm gap)</option>
-                <option value="3P_22">3P_22 (3 points, 20+20cm)</option>
-                <option value="3P_23">3P_23 (3 points, 20+30cm)</option>
-                <option value="4P_223">4P_223 (4 points, 20+20+30cm)</option>
-            </select>
-            <button onclick="addRodAtPosition()">Add Rod</button>
+    </div>
+    
+    <!-- Hidden elements for system functionality -->
+    <select id="rodPattern" style="display:none;">
+        <option value="3P_22">3P_22</option>
+    </select>
+    <select id="plateSize" style="display:none;">
+        <option value="670">670mm</option>
+    </select>
+    <textarea id="shelfString" style="display:none;"></textarea>
+    
+    <!-- Editing panels -->
+    <div id="rodEditPanel" class="editing-panel">
+        <h4>Edit Rod Pattern</h4>
+        <p>Current pattern: <span id="currentPattern"></span></p>
+        <p>Select new pattern:</p>
+        <div id="rodPatternOptions">
+            <!-- Pattern options will be populated by JavaScript -->
         </div>
-        <div class="control-group">
-            <label>Add Plate:</label>
-            <select id="plateSize">
-                <option value="670">670mm (1 span)</option>
-                <option value="1270">1270mm (2 spans)</option>
-                <option value="1870">1870mm (3 spans)</option>
-            </select>
-            <button onclick="addPlateAtLevel()">Add Plate</button>
-        </div>
-        <div class="control-group">
-            <h4>Shopping List:</h4>
-            <div id="componentList">No components</div>
-        </div>
-        <div class="control-group">
-            <h4>Shelf String:</h4>
-            <textarea id="shelfString" rows="3" style="width:200px; font-family: monospace; font-size: 12px;" placeholder="Empty shelf"></textarea>
-            <button onclick="loadFromString()">Load from String</button>
-        </div>
+        <button onclick="cancelRodEdit()" class="cancel-btn">Cancel</button>
+        <button onclick="deleteRod()" class="cancel-btn">Delete Rod</button>
+    </div>
+    
+    <div id="plateEditPanel" class="editing-panel">
+        <h4>Edit Plate</h4>
+        <p>Current size: <span id="currentPlateSize"></span>mm</p>
+        <p>Select new size:</p>
+        <button onclick="changePlateSize(670)">670mm</button>
+        <button onclick="changePlateSize(1270)">1270mm</button>
+        <button onclick="changePlateSize(1870)">1870mm</button>
+        <br>
+        <button onclick="cancelPlateEdit()" class="cancel-btn">Cancel</button>
+        <button onclick="deletePlate()" class="cancel-btn">Delete Plate</button>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script>
     <script type="module">
         import { 
             createEmptyShelf, 
             addRod, 
-            addPlate, 
+            addPlate,
+            removePlate,
             listRequiredComponents,
             serializeShelfToString,
             parseShelfFromString,
@@ -104,135 +168,400 @@
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setClearColor(0x222222);
+        renderer.setClearColor(0x444444); // Darker gray for interior setting
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        
+        // Performance optimizations
+        renderer.shadowMap.autoUpdate = false; // Manually update shadows only when needed
+        renderer.physicallyCorrectLights = true; // Better PBR lighting
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.2;
+        renderer.outputEncoding = THREE.sRGBEncoding;
+        
         document.body.appendChild(renderer.domElement);
 
-        // Lighting
-        const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+        // Enhanced lighting for PBR materials
+        const ambientLight = new THREE.AmbientLight(0x404040, 0.4); // Reduced ambient for better contrast
         scene.add(ambientLight);
         
+        // Main directional light (room lighting from above and front)
         const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        directionalLight.position.set(5, 10, 5);
+        directionalLight.position.set(5, 8, 8); // From above and front for wall-mounted shelf
         directionalLight.castShadow = true;
         directionalLight.shadow.mapSize.width = 2048;
         directionalLight.shadow.mapSize.height = 2048;
+        directionalLight.shadow.camera.near = 0.1;
+        directionalLight.shadow.camera.far = 50;
+        directionalLight.shadow.camera.left = -3;
+        directionalLight.shadow.camera.right = 3;
+        directionalLight.shadow.camera.top = 2;
+        directionalLight.shadow.camera.bottom = -1;
         scene.add(directionalLight);
+        
+        // Fill light from the side for better wall-mounted visibility
+        const fillLight = new THREE.DirectionalLight(0x87ceeb, 0.4); // Sky blue
+        fillLight.position.set(-8, 2, 6); // From left side for wall-mounted
+        scene.add(fillLight);
+        
+        // Additional ceiling light for wall-mounted realism
+        const ceilingLight = new THREE.DirectionalLight(0xffffff, 0.3);
+        ceilingLight.position.set(0, 10, 3); // Directly above
+        scene.add(ceilingLight);
+        
+        // Add environment map for reflections
+        const pmremGenerator = new THREE.PMREMGenerator(renderer);
+        const envTexture = pmremGenerator.fromScene(new THREE.Scene()).texture;
+        scene.environment = envTexture;
 
-        // Materials
-        const plateMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
-        const rodMaterial = new THREE.MeshLambertMaterial({ color: 0x666666 });
-        const attachmentMaterial = new THREE.MeshLambertMaterial({ color: 0x444444 });
+        // Create procedural wood texture for plates
+        function createWoodTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const context = canvas.getContext('2d');
+            
+            // Base wood color
+            context.fillStyle = '#8B4513';
+            context.fillRect(0, 0, 512, 512);
+            
+            // Add wood grain lines
+            context.strokeStyle = '#654321';
+            context.lineWidth = 2;
+            for (let i = 0; i < 20; i++) {
+                const y = Math.random() * 512;
+                const waveHeight = 10 + Math.random() * 20;
+                context.beginPath();
+                context.moveTo(0, y);
+                for (let x = 0; x < 512; x++) {
+                    const waveY = y + Math.sin(x * 0.02) * waveHeight;
+                    context.lineTo(x, waveY);
+                }
+                context.stroke();
+            }
+            
+            // Add wood texture variation
+            const imageData = context.getImageData(0, 0, 512, 512);
+            const data = imageData.data;
+            for (let i = 0; i < data.length; i += 4) {
+                const variation = (Math.random() - 0.5) * 30;
+                data[i] = Math.max(0, Math.min(255, data[i] + variation));     // R
+                data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + variation)); // G  
+                data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + variation)); // B
+            }
+            context.putImageData(imageData, 0, 0);
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.RepeatWrapping;
+            texture.repeat.set(4, 1); // Repeat texture along length
+            return texture;
+        }
+        
+        const woodTexture = createWoodTexture();
+
+        // PBR Materials for realistic rendering
+        const plateMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0xffffff,           // White to show texture properly
+            map: woodTexture,          // Wood texture
+            roughness: 0.8,            // Slightly rough wood surface
+            metalness: 0.0,            // Non-metallic
+        });
+        
+        const rodMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0x444444,           // Dark gray metal
+            roughness: 0.3,            // Smooth metal
+            metalness: 0.8,            // Metallic
+            envMapIntensity: 1.0
+        });
+        
+        const attachmentMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0x888888,           // Light gray metal
+            roughness: 0.4,            // Slightly rough metal
+            metalness: 0.9,            // Very metallic
+            envMapIntensity: 1.2
+        });
+
+        // Wall background for wall-mounted shelf
+        const wallGeometry = new THREE.PlaneGeometry(6, 4);
+        const wallMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0xf8f8f8, // Light wall color
+            roughness: 0.8,
+            metalness: 0.0
+        });
+        const wall = new THREE.Mesh(wallGeometry, wallMaterial);
+        wall.position.set(0, 0.5, -0.5); // Behind the shelf
+        wall.receiveShadow = true;
+        scene.add(wall);
 
         // Shelf group
         let shelfGroup = new THREE.Group();
         scene.add(shelfGroup);
 
-        // Camera controls
-        camera.position.set(2, 1.5, 2);
-        camera.lookAt(0, 0, 0);
+        // Camera controls - position for wall-mounted shelf view (in meters)
+        camera.position.set(1.8, 0.4, 2.2); // Closer, more centered on wall-mounted shelf
+        camera.lookAt(0.6, 0.4, 0); // Look towards center of wall-mounted shelf
+        
+        // Add interactive camera controls
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.target.set(0.6, 0.4, 0); // Center on wall-mounted shelf
+        controls.enableDamping = true; // Smooth camera movement
+        controls.dampingFactor = 0.05;
+        controls.enableZoom = true;
+        controls.enableRotate = true;
+        controls.enablePan = true;
+        controls.minDistance = 0.8; // Minimum zoom distance (closer for wall-mounted)
+        controls.maxDistance = 8; // Maximum zoom distance
+        controls.minPolarAngle = Math.PI * 0.1; // Prevent looking too far up
+        controls.maxPolarAngle = Math.PI * 0.8; // Prevent looking too far down
+        controls.update();
 
-        // Constants for visualization (convert from mm to meters)
-        const SCALE = 0.001; // mm to meters
-        const PLATE_DEPTH = 300 * SCALE; // 300mm depth
-        const PLATE_THICKNESS = 18 * SCALE; // 18mm thickness
-        const ROD_DIAMETER = 12 * SCALE; // 12mm diameter
-        const ATTACHMENT_SIZE = 20 * SCALE; // 20mm attachment point size
+        // Constants for visualization (proper metric units - everything in meters)
+        const CM_TO_M = 0.01; // Convert cm to meters
+        const MM_TO_M = 0.001; // Convert mm to meters
+        const PLATE_DEPTH = 300 * MM_TO_M; // 300mm = 0.3m depth
+        const PLATE_THICKNESS = 18 * MM_TO_M; // 18mm = 0.018m thickness
+        const ROD_DIAMETER = 12 * MM_TO_M; // 12mm = 0.012m diameter
+        const ATTACHMENT_SIZE = 20 * MM_TO_M; // 20mm = 0.02m attachment point size
 
         // 3D object creation functions
-        function createPlate3D(plateSize, yPosition) {
-            const width = plateSize * SCALE;
-            const geometry = new THREE.BoxGeometry(width, PLATE_THICKNESS, PLATE_DEPTH);
+        function createPlate3D(plateData, rods, animate = false) {
+            // Get the actual rod positions for this plate
+            const startConnection = plateData.connections[0];
+            const endConnection = plateData.connections[plateData.connections.length - 1];
+            
+            const startRod = rods.get(startConnection[0]);
+            const endRod = rods.get(endConnection[0]);
+            
+            if (!startRod || !endRod) return new THREE.Group(); // Safety check
+            
+            // Calculate correct plate position based on attachment hole alignment
+            // All plates have 35mm padding on each end
+            const PLATE_PADDING = 35; // mm
+            
+            // Position the plate so its first attachment hole (at 35mm from left edge) 
+            // aligns with the leftmost rod position
+            const leftmostRodX = startRod.position.x; // mm
+            const plateLeftEdge = leftmostRodX - PLATE_PADDING; // mm
+            const plateCenterX = (plateLeftEdge + plateData.size / 2) * MM_TO_M; // Convert to meters
+            
+            // Use the actual plate size from the data
+            const plateWidth = plateData.size * MM_TO_M; // Use actual plate size in mm converted to meters
+            
+            // Use the actual attachment point height
+            const startAttachmentIndex = startConnection[1];
+            const yPosition = startRod.attachmentPoints[startAttachmentIndex].y * CM_TO_M; // Convert cm to meters
+            
+            // Debug: Plate ${plateData.size}mm positioned with left edge at ${plateLeftEdge}mm, center at ${plateCenterX * 1000}mm
+            
+            // Create plate with actual size and correct position
+            const geometry = new THREE.BoxGeometry(plateWidth, PLATE_THICKNESS, PLATE_DEPTH);
             const mesh = new THREE.Mesh(geometry, plateMaterial);
-            mesh.position.y = yPosition * SCALE;
+            mesh.position.set(plateCenterX, yPosition, 0);
             mesh.castShadow = true;
             mesh.receiveShadow = true;
+            
+            // Apply entrance animation
+            if (animate) {
+                animateObjectIn(mesh);
+            }
+            
             return mesh;
         }
 
-        function createRod3D(rodData) {
+        function createRod3D(rodData, rodId, animate = false) {
             const group = new THREE.Group();
             const maxY = Math.max(...rodData.attachmentPoints.map(p => p.y));
-            const rodHeight = (maxY + 50) * SCALE; // Add 50mm padding
+            const minY = Math.min(...rodData.attachmentPoints.map(p => p.y));
+            const rodHeight = (maxY - minY + 10) * CM_TO_M; // Add 10cm padding above and below, convert to meters
+            const rodCenterY = ((maxY + minY) / 2) * CM_TO_M; // Convert cm to meters
             
-            // Main rod
-            const rodGeometry = new THREE.CylinderGeometry(ROD_DIAMETER/2, ROD_DIAMETER/2, rodHeight, 8);
-            const rodMesh = new THREE.Mesh(rodGeometry, rodMaterial);
-            rodMesh.position.y = (rodHeight / 2) - 25 * SCALE;
-            rodMesh.castShadow = true;
-            group.add(rodMesh);
+            // Create rod pair (front and back) like in the real pictures
+            const frontZ = -PLATE_DEPTH/2;
+            const backZ = PLATE_DEPTH/2;
             
-            // Attachment points
-            rodData.attachmentPoints.forEach(point => {
-                const attachGeometry = new THREE.SphereGeometry(ATTACHMENT_SIZE/2, 8, 6);
-                const attachMesh = new THREE.Mesh(attachGeometry, attachmentMaterial);
-                attachMesh.position.y = point.y * SCALE;
-                group.add(attachMesh);
+            // Front rod
+            const frontRodGeometry = new THREE.CylinderGeometry(ROD_DIAMETER/2, ROD_DIAMETER/2, rodHeight, 8);
+            const frontRodMesh = new THREE.Mesh(frontRodGeometry, rodMaterial);
+            frontRodMesh.position.set(0, rodCenterY, frontZ);
+            frontRodMesh.castShadow = true;
+            group.add(frontRodMesh);
+            
+            // Back rod
+            const backRodGeometry = new THREE.CylinderGeometry(ROD_DIAMETER/2, ROD_DIAMETER/2, rodHeight, 8);
+            const backRodMesh = new THREE.Mesh(backRodGeometry, rodMaterial);
+            backRodMesh.position.set(0, rodCenterY, backZ);
+            backRodMesh.castShadow = true;
+            group.add(backRodMesh);
+            
+            // Register rod meshes for interaction
+            interactiveObjects.rods.set(frontRodMesh, rodId);
+            interactiveObjects.rods.set(backRodMesh, rodId);
+            
+            // Attachment points on both front and back rods - small visual indicators only
+            // Debug: Creating rod attachment points at heights: ${rodData.attachmentPoints.map(p => p.y).join(', ')}cm
+            rodData.attachmentPoints.forEach((point, pointIndex) => {
+                const attachGeometry = new THREE.SphereGeometry(ATTACHMENT_SIZE * 0.3, 6, 4); // Small visual indicators
+                const material = point.plateId ? 
+                    new THREE.MeshStandardMaterial({ 
+                        color: 0xff4444,  // Red if occupied
+                        roughness: 0.3,
+                        metalness: 0.8,
+                        emissive: 0x220000 // Slight red glow
+                    }) : 
+                    new THREE.MeshStandardMaterial({ 
+                        color: 0x888888,  // Gray if empty
+                        roughness: 0.4,
+                        metalness: 0.9
+                    });
+                
+                // Front attachment point
+                const frontAttachMesh = new THREE.Mesh(attachGeometry, material);
+                frontAttachMesh.position.set(0, point.y * CM_TO_M, frontZ); // Convert cm to meters
+                group.add(frontAttachMesh);
+                
+                // Back attachment point
+                const backAttachMesh = new THREE.Mesh(attachGeometry, material);
+                backAttachMesh.position.set(0, point.y * CM_TO_M, backZ); // Convert cm to meters
+                group.add(backAttachMesh);
+                
+                // Note: Attachment points are now visual only, not interactive
+                // Plate creation is handled by clicking in plate zones instead
             });
             
-            group.position.x = rodData.position.x * SCALE;
-            group.position.z = rodData.position.z * SCALE;
+            group.position.x = rodData.position.x * MM_TO_M; // Convert mm to meters
+            group.position.z = rodData.position.z * MM_TO_M; // Convert mm to meters
+            
+            // Apply entrance animation
+            if (animate) {
+                animateRodGrow(group, rodHeight);
+            }
+            
             return group;
         }
 
         // Main shelf visualization function
         function visualizeShelf() {
-            // Clear existing visualization
+            // Clear existing visualization and interactive mappings
             while(shelfGroup.children.length > 0) {
                 shelfGroup.remove(shelfGroup.children[0]);
             }
+            
+            // Clear interactive object mappings
+            interactiveObjects.rods.clear();
+            interactiveObjects.plates.clear();
+            interactiveObjects.attachmentPoints.clear();
 
-            // Render rods
+            // Render rods with interactive registration
             for (const [rodId, rodData] of currentShelf.rods) {
-                const rod3D = createRod3D(rodData);
+                const rod3D = createRod3D(rodData, rodId); // Pass rodId for registration
                 shelfGroup.add(rod3D);
             }
 
-            // Render plates
+            // Render plates with interactive registration
             for (const [plateId, plateData] of currentShelf.plates) {
-                const plate3D = createPlate3D(plateData.size, plateData.bounds.y);
-                plate3D.position.x = ((plateData.bounds.x[0] + plateData.bounds.x[1]) / 2) * SCALE;
+                const plate3D = createPlate3D(plateData, currentShelf.rods);
+                
+                // Register plate for interaction
+                interactiveObjects.plates.set(plate3D, plateId);
+                
                 shelfGroup.add(plate3D);
             }
 
             updateComponentList();
+            
+            // Show floating plus signs for shelf extension
+            setTimeout(() => showFloatingPlusSigns(), 100); // Slight delay for better performance
+            
+            // Update shadows after shelf changes
+            renderer.shadowMap.needsUpdate = true;
         }
 
-        function updateComponentList() {
-            const components = listRequiredComponents(currentShelf);
-            const listDiv = document.getElementById('componentList');
-            
-            if (components.length === 0) {
-                listDiv.textContent = 'No components';
-            } else {
-                listDiv.innerHTML = components.map(item => 
-                    `${item.quantity}x ${item.component}`
-                ).join('<br>');
-            }
-            
-            // Update shelf string
-            const shelfString = serializeShelfToString(currentShelf);
-            document.getElementById('shelfString').value = shelfString || '';
-            document.getElementById('shelfString').placeholder = shelfString ? '' : 'Empty shelf';
-        }
 
         // Interactive functions
         window.addSampleShelf = function() {
             currentShelf = createEmptyShelf();
             
-            // Create a sample configuration: 3P_22 pattern with plates
-            const rod1 = addRod({ x: 0, z: 0 }, "3P_22", currentShelf);
-            const rod2 = addRod({ x: 600, z: 0 }, "3P_22", currentShelf);
+            // Create a configuration matching the shelf examples - 3-rod system with mixed heights
+            const rod1 = addRod({ x: 0, z: 0 }, "4P_223", currentShelf);      // Left rod: 4 points
+            const rod2 = addRod({ x: 600, z: 0 }, "4P_223", currentShelf);    // Middle rod: 4 points  
+            const rod3 = addRod({ x: 1200, z: 0 }, "3P_22", currentShelf);    // Right rod: 3 points
             
-            addPlate(rod1, rod2, 20, 670, currentShelf);
-            addPlate(rod1, rod2, 40, 670, currentShelf);
+            // Add plates at different levels (matching the SketchUp example)
+            addPlate(rod1, rod2, 20, 670, currentShelf);   // Top shelf left section
+            addPlate(rod2, rod3, 20, 670, currentShelf);   // Top shelf right section
+            addPlate(rod1, rod2, 40, 670, currentShelf);   // Middle shelf left section
+            addPlate(rod1, rod2, 70, 670, currentShelf);   // Bottom shelf left section
             
             visualizeShelf();
         }
 
-        window.clearShelf = function() {
+        window.addPhysicalShelf = function() {
             currentShelf = createEmptyShelf();
+            
+            // Create a configuration matching the physical wall-mounted shelf
+            // Simpler configuration with consistent rod heights
+            const rod1 = addRod({ x: 0, z: 0 }, "3P_22", currentShelf);       // Left rod: 3 points (0, 20, 40cm)
+            const rod2 = addRod({ x: 600, z: 0 }, "3P_22", currentShelf);     // Middle rod: 3 points  
+            const rod3 = addRod({ x: 1200, z: 0 }, "3P_22", currentShelf);    // Right rod: 3 points
+            
+            // Debug: Attachment points at 0cm, 20cm, 40cm for all rods
+            
+            // Add plates creating a grid-like structure
+            addPlate(rod1, rod2, 0, 670, currentShelf);    // Bottom shelf left (0cm level)
+            addPlate(rod2, rod3, 0, 670, currentShelf);    // Bottom shelf right (0cm level)
+            addPlate(rod1, rod2, 20, 670, currentShelf);   // Middle shelf left (20cm level)
+            addPlate(rod2, rod3, 20, 670, currentShelf);   // Middle shelf right (20cm level)
+            addPlate(rod1, rod2, 40, 670, currentShelf);   // Top shelf left (40cm level)
+            addPlate(rod2, rod3, 40, 670, currentShelf);   // Top shelf right (40cm level)
+            
+            visualizeShelf();
+        }
+
+        window.loadSketchupExample = function() {
+            // Load using string format - this matches the complex shelf in the SketchUp image
+            const shelfString = '0:4P_223[670,670,670,*] 600:4P_223[670,670,670,*] 1200:3P_22[670,*,*]';
+            document.getElementById('shelfString').value = shelfString;
+            loadFromString();
+        }
+
+        window.loadPlateSizeDemo = function() {
+            currentShelf = createEmptyShelf();
+            
+            // Create rods at standard positions for all three plate sizes
+            // Standard rod spacing is 600mm apart
+            const rod1 = addRod({ x: 0, z: 0 }, "3P_22", currentShelf);        // Rod at 0mm
+            const rod2 = addRod({ x: 600, z: 0 }, "3P_22", currentShelf);      // Rod at 600mm  
+            const rod3 = addRod({ x: 1200, z: 0 }, "3P_22", currentShelf);     // Rod at 1200mm
+            const rod4 = addRod({ x: 1800, z: 0 }, "3P_22", currentShelf);     // Rod at 1800mm
+            
+            // Add plates of different sizes at different levels to demonstrate alignment
+            // Each plate should have its attachment holes align perfectly with the rods
+            addPlate(rod1, rod2, 0, 670, currentShelf);    // 670mm plate: holes at 35mm and 635mm from left edge
+            addPlate(rod1, rod3, 20, 1270, currentShelf);  // 1270mm plate: holes at 35mm, 635mm, and 1235mm from left edge
+            addPlate(rod1, rod4, 40, 1870, currentShelf);  // 1870mm plate: holes at 35mm, 635mm, 1305mm, and 1835mm from left edge
+            
+            visualizeShelf();
+            
+            console.log("Plate size demo loaded with proper 35mm padding alignment:");
+            console.log("- Bottom (0cm): 670mm plate with attachment holes at rods 0mm and 600mm");
+            console.log("- Middle (20cm): 1270mm plate with attachment holes at rods 0mm, 600mm, and 1200mm");
+            console.log("- Top (40cm): 1870mm plate with attachment holes at rods 0mm, 600mm, 1200mm, and 1800mm");
+            console.log("- All plates positioned with 35mm padding extending beyond leftmost rod");
+        }
+
+        window.resetToBasic = function() {
+            currentShelf = createEmptyShelf();
+            
+            // Create a basic 2-rod, 3-shelf configuration
+            const rod1 = addRod({ x: 0, z: 0 }, "3P_22", currentShelf);
+            const rod2 = addRod({ x: 600, z: 0 }, "3P_22", currentShelf);
+            
+            // Add plates at all three levels
+            addPlate(rod1, rod2, 0, 670, currentShelf);   // Bottom
+            addPlate(rod1, rod2, 20, 670, currentShelf);  // Middle
+            addPlate(rod1, rod2, 40, 670, currentShelf);  // Top
+            
             visualizeShelf();
         }
 
@@ -289,15 +618,2329 @@
                 alert(`Error parsing shelf string: ${error.message}`);
             }
         }
+        
+        // Global functions for editing panels
+        window.cancelRodEdit = function() {
+            cancelRodEdit();
+        }
+        
+        window.cancelPlateEdit = function() {
+            cancelPlateEdit();
+        }
+        
+        window.deleteRod = function() {
+            deleteRod();
+        }
+        
+        window.deletePlate = function() {
+            deletePlate();
+        }
+        
+        window.changePlateSize = function(size) {
+            changePlateSize(size);
+        }
+
+        // Interactive editing system
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        let hoveredObject = null;
+        let selectedObject = null;
+        let interactionMode = 'browse'; // 'browse', 'add-rod', 'add-plate'
+        
+        // Store references to interactive objects
+        const interactiveObjects = {
+            rods: new Map(), // Three.js object -> rod ID
+            plates: new Map(), // Three.js object -> plate ID
+            attachmentPoints: new Map() // Three.js object -> {rodId, pointIndex}
+        };
+        
+        // Hover effect materials
+        const hoverMaterial = new THREE.MeshStandardMaterial({
+            color: 0x4CAF50,
+            roughness: 0.6,
+            metalness: 0.1,
+            transparent: true,
+            opacity: 0.8
+        });
+        
+        const selectedMaterial = new THREE.MeshStandardMaterial({
+            color: 0x2196F3,
+            roughness: 0.5,
+            metalness: 0.2,
+            emissive: 0x004d40,
+            emissiveIntensity: 0.1
+        });
+        
+        // Store original materials
+        const originalMaterials = new WeakMap();
+        
+        // Preview objects for visual feedback
+        let previewObjects = [];
+        let ghostRod = null;
+        let floatingPlusSigns = [];
+        
+        function clearPreviews() {
+            previewObjects.forEach(obj => {
+                shelfGroup.remove(obj);
+            });
+            previewObjects = [];
+            
+            if (ghostRod) {
+                shelfGroup.remove(ghostRod);
+                ghostRod = null;
+            }
+        }
+        
+        function clearFloatingPlusSigns() {
+            floatingPlusSigns.forEach(sign => {
+                shelfGroup.remove(sign);
+            });
+            floatingPlusSigns = [];
+        }
+        
+        function showPlatePreview(rodId, pointIndex) {
+            clearPreviews();
+            clearFloatingPlusSigns(); // Hide plus signs when showing plate preview
+            
+            const rodData = currentShelf.rods.get(rodId);
+            if (!rodData) return;
+            
+            const attachmentY = rodData.attachmentPoints[pointIndex].y;
+            
+            // Get the best plate configuration for this position
+            const plateConfig = findBestPlateConfiguration(rodId, attachmentY);
+            
+            if (plateConfig) {
+                if (plateConfig.type === 'impossible') {
+                    // Show red preview for impossible placement
+                    const redPreview = createImpossiblePlatePreview(rodData, attachmentY);
+                    if (redPreview) {
+                        shelfGroup.add(redPreview);
+                        previewObjects.push(redPreview);
+                    }
+                    
+                } else if (plateConfig.type === 'merge') {
+                    // Show preview for merged plate
+                    const startRodData = currentShelf.rods.get(plateConfig.startRodId);
+                    const endRodData = currentShelf.rods.get(plateConfig.endRodId);
+                    
+                    if (startRodData && endRodData) {
+                        // Create preview plate for the merged result
+                        const previewPlate = createPreviewPlate(startRodData, endRodData, attachmentY, plateConfig.newPlateSize, 'merge');
+                        if (previewPlate) {
+                            shelfGroup.add(previewPlate);
+                            previewObjects.push(previewPlate);
+                        }
+                        
+                        // Add connection indicators for all intermediate rods
+                        if (plateConfig.spans > 1) {
+                            for (let span = 1; span < plateConfig.spans; span++) {
+                                const intermediateX = startRodData.position.x + (span * 600);
+                                const indicator = createSpanIndicator(intermediateX, attachmentY);
+                                if (indicator) {
+                                    shelfGroup.add(indicator);
+                                    previewObjects.push(indicator);
+                                }
+                            }
+                        }
+                    }
+                    
+                } else if (plateConfig.type === 'standalone') {
+                    // Show preview for standalone plate
+                    const endRodData = currentShelf.rods.get(plateConfig.endRodId);
+                    if (endRodData) {
+                        const previewPlate = createPreviewPlate(rodData, endRodData, attachmentY, plateConfig.plateSize, 'standalone');
+                        if (previewPlate) {
+                            shelfGroup.add(previewPlate);
+                            previewObjects.push(previewPlate);
+                        }
+                        
+                        // Add visual indicators for spans > 1
+                        if (plateConfig.spans > 1) {
+                            for (let span = 1; span < plateConfig.spans; span++) {
+                                const intermediateX = rodData.position.x + (span * 600);
+                                const intermediateRod = findRodAtPosition(intermediateX);
+                                if (intermediateRod) {
+                                    const indicator = createSpanIndicator(intermediateX, attachmentY);
+                                    if (indicator) {
+                                        shelfGroup.add(indicator);
+                                        previewObjects.push(indicator);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        function createPreviewPlate(startRod, endRod, yPosition, plateSize = null, previewType = 'standalone') {
+            const yPositionM = yPosition * CM_TO_M;
+            
+            // Always use actual plate size for proper visualization
+            const actualPlateSize = plateSize ? plateSize : 670; // Default to 670mm
+            const actualWidth = actualPlateSize * MM_TO_M;
+            
+            // Calculate correct position with 35mm padding alignment
+            const PLATE_PADDING = 35; // mm
+            const leftmostRodX = startRod.position.x; // mm
+            const plateLeftEdge = leftmostRodX - PLATE_PADDING; // mm
+            const plateCenterX = (plateLeftEdge + actualPlateSize / 2) * MM_TO_M; // Convert to meters
+            
+            // Create color coding based on preview type and size
+            let previewColor, emissiveColor, opacity;
+            
+            if (previewType === 'merge') {
+                // Special colors for merge previews - more vibrant to indicate change
+                if (plateSize === 670) {
+                    previewColor = 0xFFEB3B; // Bright yellow for merged single span
+                    emissiveColor = 0xF57F17;
+                } else if (plateSize === 1270) {
+                    previewColor = 0xFF9800; // Orange for merged 2-span  
+                    emissiveColor = 0xE65100;
+                } else if (plateSize === 1870) {
+                    previewColor = 0xFF5722; // Deep orange for merged 3-span
+                    emissiveColor = 0xBF360C;
+                }
+                opacity = 0.6; // More visible for merges
+            } else if (previewType === 'zone') {
+                // Special colors for zone click previews - cyan to indicate zone placement
+                if (plateSize === 670) {
+                    previewColor = 0x00BCD4; // Cyan for zone single span
+                    emissiveColor = 0x006064;
+                } else if (plateSize === 1270) {
+                    previewColor = 0x00ACC1; // Cyan for zone 2-span
+                    emissiveColor = 0x004D40;
+                } else if (plateSize === 1870) {
+                    previewColor = 0x0097A7; // Darker cyan for zone 3-span
+                    emissiveColor = 0x003D3B;
+                }
+                opacity = 0.5; // Medium visibility for zones
+            } else if (previewType === 'invalid') {
+                // Bright red for invalid placements
+                previewColor = 0xFF1744; // Bright red
+                emissiveColor = 0x660000;
+                opacity = 0.6; // More visible to show error
+            } else if (previewType === 'flash') {
+                // Ultra bright red for flash effect
+                previewColor = 0xFF0040; // Very bright red
+                emissiveColor = 0xFF0040;
+                opacity = 1.0; // Full opacity for flash
+            } else {
+                // Standard colors for standalone plates
+                if (plateSize === 670) {
+                    previewColor = 0x4CAF50; // Green for single span
+                    emissiveColor = 0x2E7D32;
+                } else if (plateSize === 1270) {
+                    previewColor = 0x2196F3; // Blue for 2-span
+                    emissiveColor = 0x1976D2;
+                } else if (plateSize === 1870) {
+                    previewColor = 0x9C27B0; // Purple for 3-span
+                    emissiveColor = 0x7B1FA2;
+                }
+                opacity = 0.4; // Standard transparency
+            }
+            
+            const geometry = new THREE.BoxGeometry(actualWidth, PLATE_THICKNESS, PLATE_DEPTH);
+            const previewMaterial = new THREE.MeshStandardMaterial({
+                color: previewColor,
+                roughness: 0.8,
+                metalness: 0.0,
+                transparent: true,
+                opacity: opacity,
+                wireframe: false,
+                emissive: emissiveColor,
+                emissiveIntensity: 0.1
+            });
+            
+            const mesh = new THREE.Mesh(geometry, previewMaterial);
+            mesh.position.set(plateCenterX, yPositionM, 0);
+            return mesh;
+        }
+        
+        function createImpossiblePlatePreview(rodData, yPosition) {
+            const yPositionM = yPosition * CM_TO_M;
+            const defaultPlateSize = 670; // Show minimum plate size for impossible placement
+            const actualWidth = defaultPlateSize * MM_TO_M;
+            
+            // Calculate position centered on the rod
+            const PLATE_PADDING = 35; // mm  
+            const rodX = rodData.position.x; // mm
+            const plateLeftEdge = rodX - PLATE_PADDING; // mm
+            const plateCenterX = (plateLeftEdge + defaultPlateSize / 2) * MM_TO_M; // Convert to meters
+            
+            const geometry = new THREE.BoxGeometry(actualWidth, PLATE_THICKNESS, PLATE_DEPTH);
+            const redMaterial = new THREE.MeshStandardMaterial({
+                color: 0xFF1744, // Bright red for impossible placement
+                roughness: 0.8,
+                metalness: 0.0,
+                transparent: true,
+                opacity: 0.5,
+                wireframe: false,
+                emissive: 0x660000,
+                emissiveIntensity: 0.3
+            });
+            
+            const mesh = new THREE.Mesh(geometry, redMaterial);
+            mesh.position.set(plateCenterX, yPositionM, 0);
+            
+            // Add pulsing animation to draw attention
+            const originalOpacity = redMaterial.opacity;
+            const pulseTween = new TWEEN.Tween({ opacity: originalOpacity })
+                .to({ opacity: originalOpacity * 0.3 }, 800)
+                .easing(TWEEN.Easing.Sinusoidal.InOut)
+                .yoyo(true)
+                .repeat(Infinity)
+                .onUpdate((obj) => {
+                    redMaterial.opacity = obj.opacity;
+                })
+                .start();
+            
+            return mesh;
+        }
+        
+        function createSpanIndicator(x, y) {
+            const geometry = new THREE.SphereGeometry(ATTACHMENT_SIZE, 6, 4);
+            const material = new THREE.MeshStandardMaterial({
+                color: 0xFFEB3B, // Yellow indicator
+                roughness: 0.3,
+                metalness: 0.7,
+                transparent: true,
+                opacity: 0.6,
+                emissive: 0x333300,
+                emissiveIntensity: 0.1
+            });
+            
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.position.set(x * MM_TO_M, y * CM_TO_M, 0);
+            return mesh;
+        }
+        
+        function showColumnPreview(columnConfig) {
+            clearPreviews();
+            
+            // Create ghost rod with proper pattern
+            const group = new THREE.Group();
+            const rodHeight = calculatePatternHeight(columnConfig.pattern) * CM_TO_M;
+            
+            // Create ghost rod cylinders
+            const frontZ = -PLATE_DEPTH/2;
+            const backZ = PLATE_DEPTH/2;
+            
+            const rodGeometry = new THREE.CylinderGeometry(ROD_DIAMETER/2, ROD_DIAMETER/2, rodHeight, 8);
+            const ghostMaterial = new THREE.MeshStandardMaterial({
+                color: 0x4CAF50,
+                roughness: 0.5,
+                metalness: 0.3,
+                transparent: true,
+                opacity: 0.4,
+                wireframe: true
+            });
+            
+            // Front rod
+            const frontRod = new THREE.Mesh(rodGeometry, ghostMaterial);
+            frontRod.position.set(0, rodHeight/2, frontZ);
+            group.add(frontRod);
+            
+            // Back rod
+            const backRod = new THREE.Mesh(rodGeometry, ghostMaterial);
+            backRod.position.set(0, rodHeight/2, backZ);
+            group.add(backRod);
+            
+            group.position.x = columnConfig.position * MM_TO_M;
+            group.position.z = 0;
+            
+            ghostRod = group;
+            shelfGroup.add(ghostRod);
+            
+            // Show preview of extended plates
+            if (columnConfig.adjacentRod) {
+                showExtendedPlatesPreview(columnConfig);
+            }
+        }
+        
+        function showExtendedPlatesPreview(columnConfig) {
+            const adjacentRod = currentShelf.rods.get(columnConfig.adjacentRod.id);
+            if (!adjacentRod) return;
+            
+            // Find plates connected to adjacent rod that would be extended
+            for (const [plateId, plateData] of currentShelf.plates) {
+                const connectedToAdjacent = plateData.connections.some(conn => conn[0] === columnConfig.adjacentRod.id);
+                
+                if (connectedToAdjacent) {
+                    // Calculate what the extended plate would look like
+                    const oldConnections = plateData.connections;
+                    const minX = Math.min(...oldConnections.map(conn => currentShelf.rods.get(conn[0]).position.x));
+                    const maxX = Math.max(...oldConnections.map(conn => currentShelf.rods.get(conn[0]).position.x));
+                    const newSpan = Math.max(maxX, columnConfig.position) - Math.min(minX, columnConfig.position);
+                    
+                    let newPlateSize;
+                    if (newSpan <= 600) newPlateSize = 670;
+                    else if (newSpan <= 1200) newPlateSize = 1270;
+                    else if (newSpan <= 1800) newPlateSize = 1870;
+                    else continue; // Too long
+                    
+                    // Show preview of extended plate
+                    const adjacentConnection = plateData.connections.find(conn => conn[0] === columnConfig.adjacentRod.id);
+                    const yLevel = adjacentRod.attachmentPoints[adjacentConnection[1]].y;
+                    
+                    // Create preview extended plate
+                    const PLATE_PADDING = 35;
+                    const leftmostX = Math.min(minX, columnConfig.position);
+                    const plateLeftEdge = leftmostX - PLATE_PADDING;
+                    const plateCenterX = (plateLeftEdge + newPlateSize / 2) * MM_TO_M;
+                    const plateWidth = newPlateSize * MM_TO_M;
+                    
+                    const geometry = new THREE.BoxGeometry(plateWidth, PLATE_THICKNESS, PLATE_DEPTH);
+                    const previewMaterial = new THREE.MeshStandardMaterial({
+                        color: 0xFFEB3B, // Yellow for extension preview
+                        roughness: 0.8,
+                        metalness: 0.0,
+                        transparent: true,
+                        opacity: 0.3,
+                        wireframe: false
+                    });
+                    
+                    const mesh = new THREE.Mesh(geometry, previewMaterial);
+                    mesh.position.set(plateCenterX, yLevel * CM_TO_M, 0);
+                    
+                    previewObjects.push(mesh);
+                    shelfGroup.add(mesh);
+                }
+            }
+        }
+        
+        function showFloatingPlusSigns() {
+            if (currentShelf.rods.size === 0) return;
+            
+            const existingPositions = [];
+            for (const [rodId, rodData] of currentShelf.rods) {
+                existingPositions.push(rodData.position.x);
+            }
+            existingPositions.sort((a, b) => a - b);
+            
+            const STANDARD_SPACING = 600;
+            const plusPositions = [];
+            
+            // Add plus to the left of leftmost rod
+            const leftExtensionPos = existingPositions[0] - STANDARD_SPACING;
+            plusPositions.push({
+                x: leftExtensionPos,
+                side: 'left',
+                label: 'Extend Left'
+            });
+            
+            // Add plus to the right of rightmost rod
+            const rightExtensionPos = existingPositions[existingPositions.length - 1] + STANDARD_SPACING;
+            plusPositions.push({
+                x: rightExtensionPos,
+                side: 'right', 
+                label: 'Extend Right'
+            });
+            
+            // Add plus for gaps between rods (1200mm gaps only)
+            for (let i = 0; i < existingPositions.length - 1; i++) {
+                const gap = existingPositions[i + 1] - existingPositions[i];
+                if (gap === 1200) {
+                    plusPositions.push({
+                        x: existingPositions[i] + 600,
+                        side: 'middle',
+                        label: 'Fill Gap'
+                    });
+                }
+            }
+            
+            // Create floating plus signs
+            plusPositions.forEach(config => {
+                const plusSign = createFloatingPlusSign(config.x, config.side);
+                floatingPlusSigns.push(plusSign);
+                shelfGroup.add(plusSign);
+            });
+        }
+        
+        function createFloatingPlusSign(xPos, side = 'middle') {
+            const group = new THREE.Group();
+            
+            // Create plus sign using two crossed boxes - made larger for better visibility
+            const thickness = 0.015;
+            const size = 0.15;
+            
+            // Choose color based on side for better UX
+            let color, emissiveColor;
+            switch(side) {
+                case 'left':
+                    color = 0x2196F3; // Blue for left extension
+                    emissiveColor = 0x0d47a1;
+                    break;
+                case 'right':
+                    color = 0xFF9800; // Orange for right extension
+                    emissiveColor = 0xe65100;
+                    break;
+                default:
+                    color = 0x4CAF50; // Green for middle/gap filling
+                    emissiveColor = 0x004d40;
+            }
+            
+            // Horizontal bar
+            const hBarGeometry = new THREE.BoxGeometry(size, thickness, thickness);
+            const hBar = new THREE.Mesh(hBarGeometry, new THREE.MeshStandardMaterial({
+                color: color,
+                transparent: true,
+                opacity: 0.9,
+                emissive: emissiveColor,
+                emissiveIntensity: 0.3
+            }));
+            group.add(hBar);
+            
+            // Vertical bar
+            const vBarGeometry = new THREE.BoxGeometry(thickness, size, thickness);
+            const vBar = new THREE.Mesh(vBarGeometry, new THREE.MeshStandardMaterial({
+                color: color,
+                transparent: true,
+                opacity: 0.9,
+                emissive: emissiveColor,
+                emissiveIntensity: 0.3
+            }));
+            group.add(vBar);
+            
+            // Position and animate
+            group.position.set(xPos * MM_TO_M, 0.3, 0);
+            
+            // Add floating animation
+            const originalY = group.position.y;
+            const floatTween = new TWEEN.Tween(group.position)
+                .to({ y: originalY + 0.05 }, 2000)
+                .yoyo(true)
+                .repeat(Infinity)
+                .easing(TWEEN.Easing.Sinusoidal.InOut)
+                .start();
+            
+            return group;
+        }
+        
+        // Mouse event handlers
+        function onMouseMove(event) {
+            // Calculate mouse position in normalized device coordinates
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            
+            // Update raycaster
+            raycaster.setFromCamera(mouse, camera);
+            
+            // Check for intersections (attachment points no longer interactive)
+            const allObjects = [...interactiveObjects.rods.keys(), ...interactiveObjects.plates.keys()];
+            const intersects = raycaster.intersectObjects(allObjects);
+            
+            
+            // Clear previous hover
+            if (hoveredObject && hoveredObject !== selectedObject) {
+                resetObjectMaterial(hoveredObject);
+            }
+            hoveredObject = null;
+            
+            // Clear previews unless hovering over attachment point or empty space
+            let showingPreview = false;
+            
+            if (intersects.length > 0) {
+                const intersectedObject = intersects[0].object;
+                
+                // Apply hover effect
+                if (intersectedObject !== selectedObject) {
+                    hoveredObject = intersectedObject;
+                    applyHoverEffect(intersectedObject);
+                }
+                
+                // Note: Attachment point interaction removed - using plate zone detection instead
+                
+                // Update cursor
+                document.body.style.cursor = 'pointer';
+            } else {
+                // Check for vertical extension or column addition
+                const wallPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0); // Wall plane instead of ground
+                const intersectPoint = new THREE.Vector3();
+                
+                if (raycaster.ray.intersectPlane(wallPlane, intersectPoint)) {
+                    const clickX = intersectPoint.x / MM_TO_M;
+                    const clickY = intersectPoint.y / CM_TO_M;
+                    
+                    // First check for vertical extension
+                    const verticalExtension = checkVerticalExtension(clickY);
+                    if (verticalExtension) {
+                        showVerticalExtensionPreview(verticalExtension);
+                        document.body.style.cursor = 'ns-resize'; // Indicate "extend" mode
+                        showingPreview = true;
+                    } else {
+                        // Check for plate zone clicks
+                        const plateZoneConfig = findPlateZoneClick(clickX, clickY);
+                        if (plateZoneConfig) {
+                            showPlateZonePreview(plateZoneConfig);
+                            document.body.style.cursor = 'crosshair'; // Indicate "add plate" mode
+                            showingPreview = true;
+                        } else {
+                            // Check for horizontal column addition
+                            const columnConfig = findBestColumnAddition(clickX);
+                            
+                            if (columnConfig) {
+                                showColumnPreview(columnConfig);
+                                document.body.style.cursor = 'copy'; // Indicate "add" mode
+                                showingPreview = true;
+                            } else {
+                                document.body.style.cursor = 'default';
+                            }
+                        }
+                    }
+                } else {
+                    document.body.style.cursor = 'default';
+                }
+            }
+            
+            if (!showingPreview) {
+                clearPreviews();
+                // Restore plus signs when not showing any other previews
+                if (floatingPlusSigns.length === 0) {
+                    showFloatingPlusSigns();
+                }
+            }
+        }
+        
+        function onMouseClick(event) {
+            if (hoveredObject) {
+                // Clear previous selection
+                if (selectedObject) {
+                    resetObjectMaterial(selectedObject);
+                }
+                
+                // Set new selection
+                selectedObject = hoveredObject;
+                applySelectionEffect(selectedObject);
+                
+                // Calculate intersection point for plates
+                let intersectionPoint = null;
+                if (interactiveObjects.plates.has(selectedObject)) {
+                    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+                    raycaster.setFromCamera(mouse, camera);
+                    const intersects = raycaster.intersectObject(selectedObject);
+                    if (intersects.length > 0) {
+                        intersectionPoint = intersects[0].point;
+                    }
+                }
+                
+                // Handle different object types
+                if (interactiveObjects.rods.has(selectedObject)) {
+                    const rodId = interactiveObjects.rods.get(selectedObject);
+                    handleRodSegmentToggle(rodId, intersectionPoint);
+                } else if (interactiveObjects.plates.has(selectedObject)) {
+                    const plateId = interactiveObjects.plates.get(selectedObject);
+                    handlePlateClick(plateId, intersectionPoint);
+                }
+                // Note: Attachment point clicking removed - using plate zone detection instead
+            } else {
+                // Handle click on empty space - try to insert new rod
+                handleEmptySpaceClick(event);
+                
+                // Clear selection when clicking empty space
+                if (selectedObject) {
+                    resetObjectMaterial(selectedObject);
+                    selectedObject = null;
+                }
+            }
+        }
+        
+        function handleEmptySpaceClick(event) {
+            // Calculate mouse position and raycast to find world position
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            
+            raycaster.setFromCamera(mouse, camera);
+            
+            // Create an invisible wall plane to intersect with
+            const wallPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+            const intersectPoint = new THREE.Vector3();
+            
+            if (raycaster.ray.intersectPlane(wallPlane, intersectPoint)) {
+                // Convert world coordinates to shelf coordinates
+                const clickX = intersectPoint.x / MM_TO_M; // Convert meters back to mm
+                const clickY = intersectPoint.y / CM_TO_M; // Convert meters to cm for vertical analysis
+                
+                // First check for vertical extension (clicking above/below shelf)
+                const verticalExtension = checkVerticalExtension(clickY);
+                if (verticalExtension) {
+                    performVerticalExtension(verticalExtension);
+                    return;
+                }
+                
+                // Check for plate zone clicks (clicking in space where a plate could exist)
+                const plateZoneConfig = findPlateZoneClick(clickX, clickY);
+                if (plateZoneConfig) {
+                    performPlateZoneClick(plateZoneConfig);
+                    return;
+                }
+                
+                // Find intelligent column addition position
+                const columnConfig = findBestColumnAddition(clickX);
+                
+                if (columnConfig) {
+                    // Add new rod with matching height
+                    const rodId = addRod({ x: columnConfig.position, z: 0 }, columnConfig.pattern, currentShelf);
+                    console.log(`Added new column at ${columnConfig.position}mm with pattern ${columnConfig.pattern}`);
+                    
+                    // Extend existing plates if possible
+                    extendPlatesForNewColumn(rodId, columnConfig);
+                    
+                    // Animate the new column in
+                    visualizeShelfWithAnimation();
+                }
+            }
+        }
+        
+        function findBestRodPosition(clickX) {
+            const STANDARD_SPACING = 600; // mm - standard distance between rods
+            const MIN_DISTANCE = 300; // mm - minimum distance from existing rods
+            
+            // Get all existing rod X positions
+            const existingPositions = [];
+            for (const [rodId, rodData] of currentShelf.rods) {
+                existingPositions.push(rodData.position.x);
+            }
+            existingPositions.sort((a, b) => a - b);
+            
+            // If no rods exist, place at origin
+            if (existingPositions.length === 0) {
+                return 0;
+            }
+            
+            // Find the closest standard grid position to the click
+            let candidatePositions = [];
+            
+            // Generate positions based on standard spacing from existing rods
+            for (const existingX of existingPositions) {
+                // Try positions at standard intervals
+                for (let offset = -3 * STANDARD_SPACING; offset <= 3 * STANDARD_SPACING; offset += STANDARD_SPACING) {
+                    if (offset !== 0) { // Don't place at existing rod position
+                        candidatePositions.push(existingX + offset);
+                    }
+                }
+            }
+            
+            // Also try the click position itself if it's reasonable
+            candidatePositions.push(clickX);
+            
+            // Filter candidates that are too close to existing rods
+            const validPositions = candidatePositions.filter(pos => {
+                return existingPositions.every(existingPos => 
+                    Math.abs(pos - existingPos) >= MIN_DISTANCE
+                );
+            });
+            
+            if (validPositions.length === 0) {
+                console.log("No valid position found for new rod");
+                return null;
+            }
+            
+            // Find the valid position closest to the click
+            let bestPosition = validPositions[0];
+            let bestDistance = Math.abs(bestPosition - clickX);
+            
+            for (const pos of validPositions) {
+                const distance = Math.abs(pos - clickX);
+                if (distance < bestDistance) {
+                    bestDistance = distance;
+                    bestPosition = pos;
+                }
+            }
+            
+            return Math.round(bestPosition);
+        }
+        
+        function applyHoverEffect(object) {
+            if (!originalMaterials.has(object)) {
+                originalMaterials.set(object, object.material);
+            }
+            object.material = hoverMaterial;
+        }
+        
+        function applySelectionEffect(object) {
+            if (!originalMaterials.has(object)) {
+                originalMaterials.set(object, object.material);
+            }
+            object.material = selectedMaterial;
+        }
+        
+        function resetObjectMaterial(object) {
+            const originalMaterial = originalMaterials.get(object);
+            if (originalMaterial) {
+                object.material = originalMaterial;
+            }
+        }
+        
+        
+        function handleRodSegmentToggle(rodId, intersectionPoint) {
+            if (!intersectionPoint) return;
+            
+            const rodData = currentShelf.rods.get(rodId);
+            if (!rodData) return;
+            
+            const clickY = intersectionPoint.y / CM_TO_M; // Convert to cm
+            
+            // Find which segment was clicked
+            const segmentInfo = findClickedRodSegment(rodData, clickY);
+            if (!segmentInfo) {
+                console.log("Could not determine which rod segment was clicked");
+                return;
+            }
+            
+            console.log(`Clicked segment ${segmentInfo.segmentIndex} (${segmentInfo.currentLength}cm) on rod ${rodId}`);
+            
+            // Check if this is an end segment that can be removed
+            if (canRemoveEndSegment(rodId, segmentInfo)) {
+                console.log(`Removing end segment ${segmentInfo.segmentIndex} from rod ${rodId}`);
+                removeEndSegment(rodId, segmentInfo);
+                return;
+            }
+            
+            // Otherwise, toggle segment length between 20cm and 30cm
+            const newLength = segmentInfo.currentLength === 20 ? 30 : 20;
+            const newPattern = createModifiedRodPattern(rodData.pattern, segmentInfo.segmentIndex, newLength);
+            
+            if (!newPattern) {
+                console.log("Cannot modify rod pattern");
+                return;
+            }
+            
+            // Find plates that will be affected by this change
+            const affectedPlates = findPlatesAffectedBySegmentChange(rodId, segmentInfo, newLength);
+            
+            // Check if adjacent rods need to be extended for moved plates
+            const adjacentRodUpdates = findAdjacentRodUpdates(rodId, affectedPlates, segmentInfo, newLength);
+            
+            // Apply all changes
+            applyRodSegmentToggle(rodId, newPattern, affectedPlates, adjacentRodUpdates);
+        }
+        
+        function findClickedRodSegment(rodData, clickY) {
+            const attachmentPoints = rodData.attachmentPoints.map(p => p.y).sort((a, b) => a - b);
+            
+            // Find which segment the click falls into
+            for (let i = 0; i < attachmentPoints.length - 1; i++) {
+                const bottomY = attachmentPoints[i];
+                const topY = attachmentPoints[i + 1];
+                const segmentCenter = (bottomY + topY) / 2;
+                
+                // Check if click is within this segment (with some tolerance)
+                if (clickY >= bottomY - 5 && clickY <= topY + 5) {
+                    const segmentLength = topY - bottomY;
+                    return {
+                        segmentIndex: i,
+                        bottomY: bottomY,
+                        topY: topY,
+                        currentLength: segmentLength,
+                        center: segmentCenter
+                    };
+                }
+            }
+            
+            return null;
+        }
+        
+        function createModifiedRodPattern(currentPattern, segmentIndex, newLength) {
+            const parts = currentPattern.split('_');
+            if (parts.length < 2) return null; // Single point rod can't be modified
+            
+            const pointCount = parseInt(parts[0]);
+            const segments = parts[1];
+            
+            if (segmentIndex >= segments.length) return null;
+            
+            // Convert segment length to pattern digit (20cm = '2', 30cm = '3')
+            const newDigit = newLength === 20 ? '2' : '3';
+            
+            // Replace the digit at the segment index
+            const newSegments = segments.substring(0, segmentIndex) + newDigit + segments.substring(segmentIndex + 1);
+            
+            return `${pointCount}P_${newSegments}`;
+        }
+        
+        function findPlatesAffectedBySegmentChange(rodId, segmentInfo, newLength) {
+            const affectedPlates = [];
+            const heightChange = newLength - segmentInfo.currentLength; // +10 or -10 cm
+            
+            // Find all plates connected to attachment points above the changed segment
+            for (const [plateId, plateData] of currentShelf.plates) {
+                for (const [connectedRodId, attachmentIndex] of plateData.connections) {
+                    if (connectedRodId === rodId) {
+                        const rodData = currentShelf.rods.get(rodId);
+                        const attachmentY = rodData.attachmentPoints[attachmentIndex].y;
+                        
+                        // If attachment point is above the modified segment, it will move
+                        if (attachmentY > segmentInfo.topY) {
+                            affectedPlates.push({
+                                plateId: plateId,
+                                plateData: plateData,
+                                oldAttachmentY: attachmentY,
+                                newAttachmentY: attachmentY + heightChange
+                            });
+                            break; // Only count each plate once
+                        }
+                    }
+                }
+            }
+            
+            return affectedPlates;
+        }
+        
+        function findAdjacentRodUpdates(rodId, affectedPlates, segmentInfo, newLength) {
+            const updates = [];
+            const heightChange = newLength - segmentInfo.currentLength;
+            
+            // For each affected plate, find other rods it connects to
+            for (const plateInfo of affectedPlates) {
+                for (const [connectedRodId, attachmentIndex] of plateInfo.plateData.connections) {
+                    // Skip the rod we're already modifying
+                    if (connectedRodId === rodId) continue;
+                    
+                    const adjacentRod = currentShelf.rods.get(connectedRodId);
+                    if (!adjacentRod) continue;
+                    
+                    const currentAttachmentY = adjacentRod.attachmentPoints[attachmentIndex].y;
+                    const requiredAttachmentY = plateInfo.newAttachmentY;
+                    
+                    // Check if adjacent rod needs extension to maintain plate connection
+                    if (currentAttachmentY < requiredAttachmentY) {
+                        const extendedPattern = findRodPatternForHeight(adjacentRod.pattern, requiredAttachmentY);
+                        if (extendedPattern && extendedPattern !== adjacentRod.pattern) {
+                            updates.push({
+                                rodId: connectedRodId,
+                                currentPattern: adjacentRod.pattern,
+                                newPattern: extendedPattern,
+                                reason: `Plate moved to ${requiredAttachmentY}cm`
+                            });
+                        }
+                    }
+                }
+            }
+            
+            return updates;
+        }
+        
+        function findRodPatternForHeight(currentPattern, requiredHeight) {
+            const availablePatterns = [
+                '1P', '2P_2', '2P_3', '3P_22', '3P_23', '3P_32',
+                '4P_223', '4P_232', '4P_322', '5P_2232', '5P_2322', 
+                '5P_3223', '6P_22322', '6P_32232', '7P_322322'
+            ];
+            
+            const currentHeight = calculatePatternHeight(currentPattern);
+            
+            // Find pattern that reaches required height, preferring 20cm increments
+            let bestPattern = null;
+            let bestHeight = Infinity;
+            let bestIncrement = Infinity;
+            
+            for (const pattern of availablePatterns) {
+                const height = calculatePatternHeight(pattern);
+                if (height >= requiredHeight) {
+                    const increment = height - currentHeight;
+                    const is20cmIncrement = increment % 20 === 0;
+                    
+                    // Prefer patterns with 20cm increments, then shortest overall
+                    if ((is20cmIncrement && !bestPattern) || 
+                        (is20cmIncrement && increment < bestIncrement) ||
+                        (!bestPattern && height < bestHeight) ||
+                        (height < bestHeight && Math.abs(increment % 20) < Math.abs(bestIncrement % 20))) {
+                        bestPattern = pattern;
+                        bestHeight = height;
+                        bestIncrement = increment;
+                    }
+                }
+            }
+            
+            return bestPattern;
+        }
+        
+        function applyRodSegmentToggle(rodId, newPattern, affectedPlates, adjacentRodUpdates) {
+            console.log(`Applying rod segment toggle: ${newPattern}`);
+            
+            // Store rod position
+            const rodData = currentShelf.rods.get(rodId);
+            const position = rodData.position;
+            
+            // Remove affected plates temporarily
+            const plateBackups = [];
+            affectedPlates.forEach(plateInfo => {
+                plateBackups.push({
+                    plateId: plateInfo.plateId,
+                    connections: [...plateInfo.plateData.connections],
+                    size: plateInfo.plateData.size
+                });
+                removePlate(plateInfo.plateId, currentShelf);
+            });
+            
+            // Update the main rod
+            currentShelf.rods.delete(rodId);
+            const newRodId = addRod(position, newPattern, currentShelf);
+            
+            // Update adjacent rods
+            const rodIdMapping = new Map([[rodId, newRodId]]);
+            adjacentRodUpdates.forEach(update => {
+                const adjPosition = currentShelf.rods.get(update.rodId).position;
+                currentShelf.rods.delete(update.rodId);
+                const newAdjRodId = addRod(adjPosition, update.newPattern, currentShelf);
+                rodIdMapping.set(update.rodId, newAdjRodId);
+                console.log(`Extended adjacent rod: ${update.currentPattern} → ${update.newPattern} (${update.reason})`);
+            });
+            
+            // Restore plates with updated rod IDs
+            plateBackups.forEach(backup => {
+                const newConnections = backup.connections.map(([oldRodId, attachmentIndex]) => {
+                    const newConnRodId = rodIdMapping.get(oldRodId) || oldRodId;
+                    return [newConnRodId, attachmentIndex];
+                });
+                
+                // Find the Y level for the plate
+                const firstRod = currentShelf.rods.get(newConnections[0][0]);
+                if (firstRod && firstRod.attachmentPoints[newConnections[0][1]]) {
+                    const attachmentY = firstRod.attachmentPoints[newConnections[0][1]].y;
+                    const startRodId = newConnections[0][0];
+                    const endRodId = newConnections[newConnections.length - 1][0];
+                    
+                    addPlate(startRodId, endRodId, attachmentY, backup.size, currentShelf);
+                    console.log(`Restored plate: ${backup.size}mm at ${attachmentY}cm`);
+                }
+            });
+            
+            console.log(`Rod segment toggle complete: ${affectedPlates.length} plates moved, ${adjacentRodUpdates.length} adjacent rods extended`);
+            visualizeShelfWithAnimation();
+        }
+        
+        function canRemoveEndSegment(rodId, segmentInfo) {
+            const rodData = currentShelf.rods.get(rodId);
+            if (!rodData) return false;
+            
+            // Must have at least 2 segments to remove one (minimum 2P pattern)
+            const parts = rodData.pattern.split('_');
+            const pointCount = parseInt(parts[0]);
+            if (pointCount < 3) return false; // Need at least 3 points (2 segments) to remove one
+            
+            const attachmentPoints = rodData.attachmentPoints.map(p => p.y).sort((a, b) => a - b);
+            const totalSegments = attachmentPoints.length - 1;
+            
+            // Check if this is an end segment (first or last)
+            const isBottomEnd = segmentInfo.segmentIndex === 0;
+            const isTopEnd = segmentInfo.segmentIndex === totalSegments - 1;
+            
+            if (!isBottomEnd && !isTopEnd) {
+                return false; // Not an end segment
+            }
+            
+            // Check if attachment points at both ends of this segment have no plates
+            const bottomAttachmentIndex = segmentInfo.segmentIndex;
+            const topAttachmentIndex = segmentInfo.segmentIndex + 1;
+            
+            const bottomHasPlate = hasPlateAtAttachmentPoint(rodId, bottomAttachmentIndex);
+            const topHasPlate = hasPlateAtAttachmentPoint(rodId, topAttachmentIndex);
+            
+            // Can only remove if both attachment points are free
+            return !bottomHasPlate && !topHasPlate;
+        }
+        
+        function hasPlateAtAttachmentPoint(rodId, attachmentIndex) {
+            for (const [plateId, plateData] of currentShelf.plates) {
+                for (const [connectedRodId, connectedAttachmentIndex] of plateData.connections) {
+                    if (connectedRodId === rodId && connectedAttachmentIndex === attachmentIndex) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+        
+        function removeEndSegment(rodId, segmentInfo) {
+            const rodData = currentShelf.rods.get(rodId);
+            if (!rodData) return;
+            
+            const position = rodData.position;
+            const currentPattern = rodData.pattern;
+            const parts = currentPattern.split('_');
+            const pointCount = parseInt(parts[0]);
+            const segments = parts[1];
+            
+            // Create new pattern by removing the end segment
+            let newPattern;
+            let newPointCount = pointCount - 1;
+            
+            const attachmentPoints = rodData.attachmentPoints.map(p => p.y).sort((a, b) => a - b);
+            const totalSegments = attachmentPoints.length - 1;
+            const isBottomEnd = segmentInfo.segmentIndex === 0;
+            const isTopEnd = segmentInfo.segmentIndex === totalSegments - 1;
+            
+            if (isBottomEnd) {
+                // Remove first segment - remove the first digit from segments
+                const newSegments = segments.substring(1);
+                newPattern = `${newPointCount}P_${newSegments}`;
+            } else if (isTopEnd) {
+                // Remove last segment - remove the last digit from segments  
+                const newSegments = segments.substring(0, segments.length - 1);
+                newPattern = `${newPointCount}P_${newSegments}`;
+            } else {
+                console.error("Attempted to remove non-end segment");
+                return;
+            }
+            
+            // Verify the new pattern is valid
+            if (newPointCount < 2) {
+                console.error("Cannot remove segment: would result in invalid rod pattern");
+                return;
+            }
+            
+            console.log(`Removing end segment: ${currentPattern} -> ${newPattern}`);
+            
+            // Replace the rod with the shortened version
+            currentShelf.rods.delete(rodId);
+            const newRodId = addRod(position, newPattern, currentShelf);
+            
+            console.log(`Rod ${rodId} shortened to ${newPattern} (new ID: ${newRodId})`);
+            visualizeShelfWithAnimation();
+        }
+        
+        function handlePlateClick(plateId, intersectionPoint) {
+            console.log(`Plate ${plateId} clicked for segment removal`);
+            
+            const plateData = currentShelf.plates.get(plateId);
+            if (!plateData) {
+                console.error(`Plate ${plateId} not found`);
+                return;
+            }
+            
+            // Determine which segment was clicked
+            const segmentInfo = determineClickedSegment(plateData, intersectionPoint);
+            
+            if (segmentInfo) {
+                removePlateSegment(plateId, plateData, segmentInfo);
+                visualizeShelf(); // Refresh the visualization
+            }
+        }
+        
+        function determineClickedSegment(plateData, intersectionPoint) {
+            if (!intersectionPoint) {
+                console.log("No intersection point, removing entire plate");
+                return { type: 'entire' };
+            }
+            
+            // Get all rods this plate connects to, sorted by X position
+            const connectedRods = plateData.connections.map(conn => {
+                const rodData = currentShelf.rods.get(conn[0]);
+                return {
+                    id: conn[0],
+                    attachmentIndex: conn[1],
+                    x: rodData.position.x,
+                    rodData: rodData
+                };
+            }).sort((a, b) => a.x - b.x);
+            
+            // If only one connection (single segment), remove entire plate
+            if (connectedRods.length <= 2) {
+                console.log("Single segment plate, removing entire plate");
+                return { type: 'entire' };
+            }
+            
+            // Convert intersection point from meters to millimeters
+            const clickX = intersectionPoint.x / MM_TO_M;
+            
+            // Find which segment the click is closest to
+            for (let i = 0; i < connectedRods.length - 1; i++) {
+                const leftRod = connectedRods[i];
+                const rightRod = connectedRods[i + 1];
+                const segmentCenter = (leftRod.x + rightRod.x) / 2;
+                const segmentWidth = rightRod.x - leftRod.x;
+                
+                // Check if click is within this segment (with some tolerance)
+                if (clickX >= leftRod.x - 50 && clickX <= rightRod.x + 50) {
+                    console.log(`Click detected in segment between rods at ${leftRod.x}mm and ${rightRod.x}mm`);
+                    return {
+                        type: 'segment',
+                        segmentIndex: i,
+                        leftRod: leftRod,
+                        rightRod: rightRod,
+                        allRods: connectedRods
+                    };
+                }
+            }
+            
+            // If no specific segment found, remove entire plate
+            console.log("Could not determine segment, removing entire plate");
+            return { type: 'entire' };
+        }
+        
+        function removePlateSegment(plateId, plateData, segmentInfo) {
+            if (segmentInfo.type === 'entire') {
+                // Remove the entire plate
+                console.log(`Removing entire plate ${plateId}`);
+                removePlate(plateId, currentShelf);
+                return;
+            }
+            
+            if (segmentInfo.type === 'segment') {
+                const { segmentIndex, leftRod, rightRod, allRods } = segmentInfo;
+                const yLevel = plateData.connections.find(conn => conn[0] === leftRod.id)[1];
+                const attachmentY = leftRod.rodData.attachmentPoints[yLevel].y;
+                
+                console.log(`Removing segment ${segmentIndex} between rods ${leftRod.id} and ${rightRod.id}`);
+                
+                // Remove the original plate
+                removePlate(plateId, currentShelf);
+                
+                // Create new plate(s) for the remaining segments
+                const newPlates = [];
+                
+                // Left segment (if exists)
+                if (segmentIndex > 0) {
+                    const leftSegmentRods = allRods.slice(0, segmentIndex + 1);
+                    const leftPlateSize = calculatePlateSize(leftSegmentRods);
+                    
+                    if (leftPlateSize > 0) {
+                        const leftStartRod = leftSegmentRods[0].id;
+                        const leftEndRod = leftSegmentRods[leftSegmentRods.length - 1].id;
+                        const newLeftPlate = addPlate(leftStartRod, leftEndRod, attachmentY, leftPlateSize, currentShelf);
+                        if (newLeftPlate) {
+                            console.log(`Created left plate segment: ${leftPlateSize}mm`);
+                            newPlates.push(newLeftPlate);
+                        }
+                    }
+                }
+                
+                // Right segment (if exists)  
+                if (segmentIndex < allRods.length - 2) {
+                    const rightSegmentRods = allRods.slice(segmentIndex + 1);
+                    const rightPlateSize = calculatePlateSize(rightSegmentRods);
+                    
+                    if (rightPlateSize > 0) {
+                        const rightStartRod = rightSegmentRods[0].id;
+                        const rightEndRod = rightSegmentRods[rightSegmentRods.length - 1].id;
+                        const newRightPlate = addPlate(rightStartRod, rightEndRod, attachmentY, rightPlateSize, currentShelf);
+                        if (newRightPlate) {
+                            console.log(`Created right plate segment: ${rightPlateSize}mm`);
+                            newPlates.push(newRightPlate);
+                        }
+                    }
+                }
+                
+                console.log(`Split plate into ${newPlates.length} new segments`);
+            }
+        }
+        
+        function calculatePlateSize(rodList) {
+            if (rodList.length < 2) return 0;
+            
+            const span = rodList[rodList.length - 1].x - rodList[0].x;
+            
+            if (span <= 600) return 670;
+            else if (span <= 1200) return 1270;
+            else if (span <= 1800) return 1870;
+            else return 0; // Invalid span
+        }
+        
+        
+        
+        
+        
+        
+        function visualizeShelfWithAnimation() {
+            // Store existing objects to avoid re-animating them
+            const existingPlateIds = new Set();
+            const existingRodIds = new Set();
+            
+            for (const [obj, plateId] of interactiveObjects.plates) {
+                existingPlateIds.add(plateId);
+            }
+            for (const [obj, rodId] of interactiveObjects.rods) {
+                existingRodIds.add(rodId);
+            }
+            
+            // Clear existing visualization and interactive mappings
+            while(shelfGroup.children.length > 0) {
+                shelfGroup.remove(shelfGroup.children[0]);
+            }
+            
+            // Clear interactive object mappings
+            interactiveObjects.rods.clear();
+            interactiveObjects.plates.clear();
+            interactiveObjects.attachmentPoints.clear();
+
+            // Render rods with interactive registration
+            for (const [rodId, rodData] of currentShelf.rods) {
+                const animate = !existingRodIds.has(rodId);
+                const rod3D = createRod3D(rodData, rodId, animate);
+                shelfGroup.add(rod3D);
+            }
+
+            // Render plates with interactive registration and animation
+            for (const [plateId, plateData] of currentShelf.plates) {
+                const animate = !existingPlateIds.has(plateId);
+                const plate3D = createPlate3D(plateData, currentShelf.rods, animate);
+                
+                // Register plate for interaction
+                interactiveObjects.plates.set(plate3D, plateId);
+                
+                shelfGroup.add(plate3D);
+            }
+
+            updateComponentList();
+            
+            // Update shadows after shelf changes
+            renderer.shadowMap.needsUpdate = true;
+        }
+        
+        function updateComponentList() {
+            const componentListDiv = document.getElementById('componentList');
+            if (!componentListDiv) return;
+            
+            // Count rods by pattern
+            const rodCounts = new Map();
+            for (const [rodId, rodData] of currentShelf.rods) {
+                const pattern = rodData.pattern;
+                rodCounts.set(pattern, (rodCounts.get(pattern) || 0) + 1);
+            }
+            
+            // Count plates by size
+            const plateCounts = new Map();
+            for (const [plateId, plateData] of currentShelf.plates) {
+                const size = plateData.size;
+                plateCounts.set(size, (plateCounts.get(size) || 0) + 1);
+            }
+            
+            // Build HTML content
+            let html = '';
+            
+            // Rods section
+            if (rodCounts.size > 0) {
+                html += '<div class="component-category">';
+                html += '<h5>Rods</h5>';
+                
+                // Sort rod patterns for consistent display
+                const sortedRods = Array.from(rodCounts.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+                
+                for (const [pattern, count] of sortedRods) {
+                    html += `<div class="component-item">`;
+                    html += `<span class="component-count">${count}×</span> ${pattern}`;
+                    html += `</div>`;
+                }
+                html += '</div>';
+            }
+            
+            // Plates section
+            if (plateCounts.size > 0) {
+                html += '<div class="component-category">';
+                html += '<h5>Plates</h5>';
+                
+                // Sort plate sizes for consistent display
+                const sortedPlates = Array.from(plateCounts.entries()).sort((a, b) => a - b);
+                
+                for (const [size, count] of sortedPlates) {
+                    html += `<div class="component-item">`;
+                    html += `<span class="component-count">${count}×</span> ${size}mm`;
+                    html += `</div>`;
+                }
+                html += '</div>';
+            }
+            
+            // Show empty state if no components
+            if (rodCounts.size === 0 && plateCounts.size === 0) {
+                html = '<div class="component-item" style="font-style: italic; color: #888;">No components</div>';
+            }
+            
+            componentListDiv.innerHTML = html;
+        }
+        
+        function findPlateAtPosition(rodId, pointIndex) {
+            for (const [plateId, plateData] of currentShelf.plates) {
+                for (const connection of plateData.connections) {
+                    if (connection[0] === rodId && connection[1] === pointIndex) {
+                        return plateId;
+                    }
+                }
+            }
+            return null;
+        }
+        
+        function findBestPlateConfiguration(rodId, yPosition) {
+            const rodData = currentShelf.rods.get(rodId);
+            if (!rodData) return null;
+            
+            // Check if this attachment point is already occupied
+            const attachmentIndex = rodData.attachmentPoints.findIndex(p => p.y === yPosition);
+            if (attachmentIndex === -1) return null;
+            
+            if (rodData.attachmentPoints[attachmentIndex].plateId) {
+                console.log("Attachment point already occupied");
+                return null;
+            }
+            
+            // First check for merging opportunities with adjacent plates
+            const mergeConfig = findPlateWithMerging(rodId, yPosition);
+            if (mergeConfig) {
+                console.log(`Found merge opportunity: ${mergeConfig.type}`);
+                return mergeConfig;
+            }
+            
+            // If no merging possible, try to add a new standalone plate
+            const standaloneConfig = findStandalonePlateConfig(rodId, yPosition);
+            if (standaloneConfig) {
+                return standaloneConfig;
+            }
+            
+            // If no configuration possible, return impossible config for red preview
+            return {
+                type: 'impossible',
+                rodId: rodId,
+                yPosition: yPosition,
+                reason: 'No available space or adjacent rods'
+            };
+        }
+        
+        function findPlateWithMerging(rodId, yPosition) {
+            const rodData = currentShelf.rods.get(rodId);
+            const rodX = rodData.position.x;
+            
+            // Find all plates at this Y level
+            const platesAtLevel = [];
+            for (const [plateId, plateData] of currentShelf.plates) {
+                // Check if any connection is at this Y level
+                for (const [connectedRodId, attachmentIndex] of plateData.connections) {
+                    const connectedRod = currentShelf.rods.get(connectedRodId);
+                    if (connectedRod && connectedRod.attachmentPoints && connectedRod.attachmentPoints[attachmentIndex] && connectedRod.attachmentPoints[attachmentIndex].y === yPosition) {
+                        // Calculate min/max X positions safely
+                        const validConnections = plateData.connections.filter(conn => currentShelf.rods.has(conn[0]));
+                        if (validConnections.length > 0) {
+                            platesAtLevel.push({
+                                id: plateId,
+                                data: plateData,
+                                minX: Math.min(...validConnections.map(conn => currentShelf.rods.get(conn[0]).position.x)),
+                                maxX: Math.max(...validConnections.map(conn => currentShelf.rods.get(conn[0]).position.x))
+                            });
+                        }
+                        break;
+                    }
+                }
+            }
+            
+            // Check for adjacent plates that can be merged
+            for (const plate of platesAtLevel) {
+                // Check if this rod is adjacent to an existing plate
+                const leftAdjacent = (plate.maxX + 600 === rodX);
+                const rightAdjacent = (plate.minX - 600 === rodX);
+                
+                if (leftAdjacent || rightAdjacent) {
+                    // Check if we can extend this plate
+                    const newMinX = Math.min(plate.minX, rodX);
+                    const newMaxX = Math.max(plate.maxX, rodX);
+                    const newSpan = newMaxX - newMinX;
+                    
+                    // Calculate new plate size needed
+                    let newPlateSize;
+                    if (newSpan <= 600) newPlateSize = 670;
+                    else if (newSpan <= 1200) newPlateSize = 1270;
+                    else if (newSpan <= 1800) newPlateSize = 1870;
+                    else return null; // Too large
+                    
+                    // Verify all intermediate rods exist and have free attachment points
+                    const requiredRods = [];
+                    for (let x = newMinX; x <= newMaxX; x += 600) {
+                        const rodAtX = findRodAtPosition(x);
+                        if (!rodAtX) return null;
+                        
+                        const attachmentIndex = rodAtX.attachmentPoints.findIndex(p => p.y === yPosition);
+                        if (attachmentIndex === -1) return null;
+                        
+                        // Only the new rod should be free, existing plate connections are expected
+                        if (x === rodX && rodAtX.attachmentPoints[attachmentIndex].plateId) return null;
+                        
+                        requiredRods.push({
+                            id: rodAtX.id,
+                            x: x,
+                            data: rodAtX
+                        });
+                    }
+                    
+                    return {
+                        type: 'merge',
+                        plateToRemove: plate.id,
+                        newPlateSize: newPlateSize,
+                        startRodId: requiredRods[0].id,
+                        endRodId: requiredRods[requiredRods.length - 1].id,
+                        spans: Math.round(newSpan / 600) + 1,
+                        requiredRods: requiredRods
+                    };
+                }
+            }
+            
+            return null;
+        }
+        
+        function findStandalonePlateConfig(rodId, yPosition) {
+            const rodData = currentShelf.rods.get(rodId);
+            const rodX = rodData.position.x;
+            const availablePlateSizes = [
+                { size: 670, spans: 1, distance: 600 },   // 670mm spans 1 gap (600mm + 70mm padding)
+                { size: 1270, spans: 2, distance: 1200 }, // 1270mm spans 2 gaps (1200mm + 70mm padding)
+                { size: 1870, spans: 3, distance: 1800 }  // 1870mm spans 3 gaps (1800mm + 70mm padding)
+            ];
+            
+            // Try different plate sizes, starting with the largest for continuous shelving
+            for (const plateConfig of [...availablePlateSizes].reverse()) {
+                const targetX = rodX + plateConfig.distance;
+                
+                // Find rod at target position
+                const targetRod = findRodAtPosition(targetX);
+                if (!targetRod) continue;
+                
+                // Check if target rod has matching attachment point
+                const targetAttachmentIndex = targetRod.attachmentPoints.findIndex(p => p.y === yPosition);
+                if (targetAttachmentIndex === -1) continue;
+                
+                // Check if target attachment point is already occupied
+                if (targetRod.attachmentPoints[targetAttachmentIndex].plateId) continue;
+                
+                // Check if all intermediate attachment points are free (for spans > 1)
+                if (plateConfig.spans > 1) {
+                    let allClear = true;
+                    for (let span = 1; span < plateConfig.spans; span++) {
+                        const intermediateX = rodX + (span * 600);
+                        const intermediateRod = findRodAtPosition(intermediateX);
+                        if (intermediateRod) {
+                            const intermediateAttachmentIndex = intermediateRod.attachmentPoints.findIndex(p => p.y === yPosition);
+                            if (intermediateAttachmentIndex !== -1 && intermediateRod.attachmentPoints[intermediateAttachmentIndex].plateId) {
+                                allClear = false;
+                                break;
+                            }
+                        }
+                    }
+                    if (!allClear) continue;
+                }
+                
+                return {
+                    type: 'standalone',
+                    endRodId: targetRod.id,
+                    plateSize: plateConfig.size,
+                    spans: plateConfig.spans
+                };
+            }
+            
+            return null;
+        }
+        
+        function findRodAtPosition(x) {
+            for (const [rodId, rodData] of currentShelf.rods) {
+                if (rodData.position.x === x) {
+                    return { id: rodId, ...rodData };
+                }
+            }
+            return null;
+        }
+        
+        function findBestColumnAddition(clickX) {
+            const STANDARD_SPACING = 600; // mm - standard distance between rods
+            const EXTENSION_ZONE = 400; // mm - larger zone for easier extension detection
+            
+            // Get all existing rod X positions
+            const existingPositions = [];
+            for (const [rodId, rodData] of currentShelf.rods) {
+                existingPositions.push({ x: rodData.position.x, id: rodId, data: rodData });
+            }
+            existingPositions.sort((a, b) => a.x - b.x);
+            
+            if (existingPositions.length === 0) {
+                return { position: 0, pattern: "3P_22", adjacentRod: null };
+            }
+            
+            // Find the best position for shelf extension
+            let bestConfig = null;
+            let bestDistance = Infinity;
+            
+            // Check for extension to the left of existing shelf
+            const leftmostRod = existingPositions[0];
+            const leftExtensionX = leftmostRod.x - STANDARD_SPACING;
+            const leftDistance = Math.abs(clickX - leftExtensionX);
+            
+            if (clickX < leftmostRod.x && leftDistance < EXTENSION_ZONE) {
+                bestConfig = {
+                    position: leftExtensionX,
+                    pattern: leftmostRod.data.pattern, // Match adjacent rod pattern
+                    adjacentRod: leftmostRod,
+                    side: 'left'
+                };
+                bestDistance = leftDistance;
+            }
+            
+            // Check for extension to the right of existing shelf
+            const rightmostRod = existingPositions[existingPositions.length - 1];
+            const rightExtensionX = rightmostRod.x + STANDARD_SPACING;
+            const rightDistance = Math.abs(clickX - rightExtensionX);
+            
+            if (clickX > rightmostRod.x && rightDistance < EXTENSION_ZONE) {
+                if (!bestConfig || rightDistance < bestDistance) {
+                    bestConfig = {
+                        position: rightExtensionX,
+                        pattern: rightmostRod.data.pattern, // Match adjacent rod pattern
+                        adjacentRod: rightmostRod,
+                        side: 'right'
+                    };
+                    bestDistance = rightDistance;
+                }
+            }
+            
+            // Check for filling gaps between existing rods
+            for (let i = 0; i < existingPositions.length - 1; i++) {
+                const leftRod = existingPositions[i];
+                const rightRod = existingPositions[i + 1];
+                const gapDistance = rightRod.x - leftRod.x;
+                
+                // Only fill gaps that are exactly 1200mm (missing middle rod)
+                if (gapDistance === 1200) {
+                    const middleX = leftRod.x + 600;
+                    const middleDistance = Math.abs(clickX - middleX);
+                    
+                    if (clickX > leftRod.x && clickX < rightRod.x && middleDistance < EXTENSION_ZONE) {
+                        if (!bestConfig || middleDistance < bestDistance) {
+                            // Use the taller pattern of the two adjacent rods
+                            const leftHeight = calculatePatternHeight(leftRod.data.pattern);
+                            const rightHeight = calculatePatternHeight(rightRod.data.pattern);
+                            const tallerPattern = leftHeight >= rightHeight ? leftRod.data.pattern : rightRod.data.pattern;
+                            
+                            bestConfig = {
+                                position: middleX,
+                                pattern: tallerPattern,
+                                adjacentRod: leftHeight >= rightHeight ? leftRod : rightRod,
+                                side: 'middle'
+                            };
+                            bestDistance = middleDistance;
+                        }
+                    }
+                }
+            }
+            
+            console.log(`Click at ${clickX}mm, best config:`, bestConfig);
+            return bestConfig;
+        }
+        
+        function checkVerticalExtension(clickY) {
+            if (currentShelf.rods.size === 0) return null;
+            
+            // Calculate current shelf bounds
+            let maxShelfY = 0;
+            let minShelfY = Infinity;
+            let hasPlates = false;
+            
+            for (const [rodId, rodData] of currentShelf.rods) {
+                const rodHeight = calculatePatternHeight(rodData.pattern);
+                maxShelfY = Math.max(maxShelfY, rodHeight);
+                minShelfY = Math.min(minShelfY, 0); // Rods start at ground level
+            }
+            
+            // Check if we have plates to determine actual usage bounds
+            for (const [plateId, plateData] of currentShelf.plates) {
+                hasPlates = true;
+                const connections = plateData.connections;
+                for (const [rodId, attachmentIndex] of connections) {
+                    const rod = currentShelf.rods.get(rodId);
+                    if (rod && rod.attachmentPoints && rod.attachmentPoints[attachmentIndex]) {
+                        const attachmentY = rod.attachmentPoints[attachmentIndex].y;
+                        maxShelfY = Math.max(maxShelfY, attachmentY + 5); // Add some buffer above plates
+                        minShelfY = Math.min(minShelfY, attachmentY - 5); // Add some buffer below plates
+                    }
+                }
+            }
+            
+            const EXTENSION_THRESHOLD = 15; // cm - distance above/below shelf to trigger extension
+            
+            // Check for upward extension (clicking above the shelf)
+            if (clickY > maxShelfY + EXTENSION_THRESHOLD) {
+                return {
+                    direction: 'up',
+                    currentMax: maxShelfY,
+                    clickY: clickY
+                };
+            }
+            
+            // Check for downward extension (clicking below the shelf)
+            if (clickY < minShelfY - EXTENSION_THRESHOLD) {
+                return {
+                    direction: 'down', 
+                    currentMin: minShelfY,
+                    clickY: clickY
+                };
+            }
+            
+            return null;
+        }
+        
+        function performVerticalExtension(extensionConfig) {
+            console.log(`Performing ${extensionConfig.direction} extension`);
+            
+            // Collect all current plates to preserve them
+            const platesToPreserve = [];
+            for (const [plateId, plateData] of currentShelf.plates) {
+                platesToPreserve.push({
+                    id: plateId,
+                    data: { ...plateData },
+                    connections: [...plateData.connections]
+                });
+            }
+            
+            // Find which rods can be extended and calculate new patterns
+            const rodExtensions = [];
+            for (const [rodId, rodData] of currentShelf.rods) {
+                const newPattern = findExtendedRodPattern(rodData.pattern, extensionConfig.direction);
+                if (newPattern && newPattern !== rodData.pattern) {
+                    rodExtensions.push({
+                        rodId: rodId,
+                        oldPattern: rodData.pattern,
+                        newPattern: newPattern,
+                        position: rodData.position
+                    });
+                }
+            }
+            
+            if (rodExtensions.length === 0) {
+                console.log("No rods can be extended in this direction");
+                return;
+            }
+            
+            // Replace rods with extended versions and track ID mapping
+            const rodIdMapping = new Map(); // oldRodId -> newRodId
+            
+            rodExtensions.forEach(extension => {
+                // Remove old rod
+                currentShelf.rods.delete(extension.rodId);
+                
+                // Add new extended rod and track the new ID
+                const newRodId = addRod(extension.position, extension.newPattern, currentShelf);
+                rodIdMapping.set(extension.rodId, newRodId);
+            });
+            
+            // Restore all plates at their original positions using new rod IDs
+            platesToPreserve.forEach(plateInfo => {
+                // Map all connections to new rod IDs
+                const newConnections = [];
+                let attachmentLevel = null;
+                
+                for (const [oldRodId, attachmentIndex] of plateInfo.connections) {
+                    const newRodId = rodIdMapping.get(oldRodId) || oldRodId;
+                    const rodData = currentShelf.rods.get(newRodId);
+                    
+                    if (rodData && attachmentIndex < rodData.attachmentPoints.length) {
+                        newConnections.push([newRodId, attachmentIndex]);
+                        // Get the attachment level (should be same for all connections of a plate)
+                        if (attachmentLevel === null) {
+                            attachmentLevel = rodData.attachmentPoints[attachmentIndex].y;
+                        }
+                    }
+                }
+                
+                // Only restore plate if all connections are valid
+                if (newConnections.length === plateInfo.connections.length && attachmentLevel !== null) {
+                    const startRodId = newConnections[0][0];
+                    const endRodId = newConnections[newConnections.length - 1][0];
+                    
+                    addPlate(startRodId, endRodId, attachmentLevel, plateInfo.data.size, currentShelf);
+                    console.log(`Restored plate: ${plateInfo.data.size}mm at ${attachmentLevel}cm spanning ${newConnections.length} connections`);
+                } else {
+                    console.log(`Failed to restore plate: ${plateInfo.data.size}mm - invalid connections`);
+                }
+            });
+            
+            console.log(`Extended ${rodExtensions.length} rods ${extensionConfig.direction}ward, preserved ${platesToPreserve.length} plates`);
+            visualizeShelfWithAnimation();
+        }
+        
+        function findExtendedRodPattern(currentPattern, direction) {
+            const availablePatterns = [
+                '1P',
+                '2P_2', '2P_3',
+                '3P_22', '3P_23', '3P_32', 
+                '4P_223', '4P_232', '4P_322',
+                '5P_2232', '5P_2322', '5P_3223',
+                '6P_22322', '6P_32232',
+                '7P_322322'
+            ];
+            
+            const currentHeight = calculatePatternHeight(currentPattern);
+            
+            if (direction === 'up') {
+                // Find pattern that adds exactly 20cm (one new segment)
+                const targetHeight = currentHeight + 20;
+                let bestPattern = null;
+                let bestHeight = Infinity;
+                
+                for (const pattern of availablePatterns) {
+                    const height = calculatePatternHeight(pattern);
+                    // Prefer patterns that add exactly 20cm, but allow taller if needed
+                    if (height >= targetHeight && height < bestHeight) {
+                        bestPattern = pattern;
+                        bestHeight = height;
+                    }
+                }
+                
+                // If no pattern adds exactly 20cm, log the actual increment
+                if (bestPattern && bestHeight > targetHeight) {
+                    console.log(`No pattern available for +20cm increment, using +${bestHeight - currentHeight}cm instead`);
+                }
+                
+                return bestPattern;
+            } else {
+                // For downward extension, we would need patterns that extend below
+                // This is more complex as it would require repositioning existing plates
+                // For now, let's focus on upward extension only
+                return null;
+            }
+        }
+        
+        function showVerticalExtensionPreview(extensionConfig) {
+            clearPreviews();
+            
+            // Show what would happen to each rod
+            for (const [rodId, rodData] of currentShelf.rods) {
+                const newPattern = findExtendedRodPattern(rodData.pattern, extensionConfig.direction);
+                if (newPattern && newPattern !== rodData.pattern) {
+                    // Show ghost extension of this rod
+                    const currentHeight = calculatePatternHeight(rodData.pattern);
+                    const newHeight = calculatePatternHeight(newPattern);
+                    
+                    if (extensionConfig.direction === 'up') {
+                        // Show the additional height above the current rod
+                        const extensionHeight = (newHeight - currentHeight) * CM_TO_M;
+                        const extensionGeometry = new THREE.CylinderGeometry(ROD_DIAMETER/2, ROD_DIAMETER/2, extensionHeight, 8);
+                        
+                        const extensionMaterial = new THREE.MeshStandardMaterial({
+                            color: 0x4CAF50,
+                            roughness: 0.5,
+                            metalness: 0.3,
+                            transparent: true,
+                            opacity: 0.4,
+                            wireframe: true
+                        });
+                        
+                        // Front rod extension
+                        const frontExtension = new THREE.Mesh(extensionGeometry, extensionMaterial);
+                        frontExtension.position.set(
+                            rodData.position.x * MM_TO_M, 
+                            (currentHeight + extensionHeight/2) * CM_TO_M, 
+                            -PLATE_DEPTH/2
+                        );
+                        
+                        // Back rod extension
+                        const backExtension = new THREE.Mesh(extensionGeometry, extensionMaterial);
+                        backExtension.position.set(
+                            rodData.position.x * MM_TO_M, 
+                            (currentHeight + extensionHeight/2) * CM_TO_M, 
+                            PLATE_DEPTH/2
+                        );
+                        
+                        shelfGroup.add(frontExtension);
+                        shelfGroup.add(backExtension);
+                        previewObjects.push(frontExtension);
+                        previewObjects.push(backExtension);
+                        
+                        // Show new attachment points that would be added
+                        const newAttachmentPoints = createRodAttachmentPoints(newPattern, rodData.position);
+                        for (let i = currentHeight / 20; i < newAttachmentPoints.length; i++) {
+                            const point = newAttachmentPoints[i];
+                            const pointGeometry = new THREE.SphereGeometry(ATTACHMENT_SIZE * 1.5, 8, 6);
+                            const pointMaterial = new THREE.MeshStandardMaterial({
+                                color: 0xFFEB3B,
+                                transparent: true,
+                                opacity: 0.6,
+                                emissive: 0x333300,
+                                emissiveIntensity: 0.2
+                            });
+                            
+                            const frontPoint = new THREE.Mesh(pointGeometry, pointMaterial);
+                            frontPoint.position.set(
+                                rodData.position.x * MM_TO_M,
+                                point.y * CM_TO_M,
+                                -PLATE_DEPTH/2
+                            );
+                            
+                            const backPoint = new THREE.Mesh(pointGeometry, pointMaterial);
+                            backPoint.position.set(
+                                rodData.position.x * MM_TO_M,
+                                point.y * CM_TO_M,
+                                PLATE_DEPTH/2
+                            );
+                            
+                            shelfGroup.add(frontPoint);
+                            shelfGroup.add(backPoint);
+                            previewObjects.push(frontPoint);
+                            previewObjects.push(backPoint);
+                        }
+                    }
+                }
+            }
+            
+            // Add visual indicator showing the extension direction
+            const indicatorGeometry = new THREE.ConeGeometry(0.05, 0.2, 8);
+            const indicatorMaterial = new THREE.MeshStandardMaterial({
+                color: 0x4CAF50,
+                transparent: true,
+                opacity: 0.8,
+                emissive: 0x004d40,
+                emissiveIntensity: 0.3
+            });
+            
+            const indicator = new THREE.Mesh(indicatorGeometry, indicatorMaterial);
+            if (extensionConfig.direction === 'up') {
+                indicator.position.set(0, extensionConfig.clickY * CM_TO_M, 0);
+                indicator.rotation.x = 0; // Point up
+            } else {
+                indicator.position.set(0, extensionConfig.clickY * CM_TO_M, 0);
+                indicator.rotation.x = Math.PI; // Point down
+            }
+            
+            shelfGroup.add(indicator);
+            previewObjects.push(indicator);
+            
+            console.log(`Showing ${extensionConfig.direction}ward extension preview`);
+        }
+        
+        function findPlateZoneClick(clickX, clickY) {
+            if (currentShelf.rods.size < 2) return null;
+            
+            const PLATE_ZONE_TOLERANCE = 50; // mm - how close to attachment level to detect
+            const MIN_PLATE_WIDTH = 500; // mm - minimum distance between rods to consider a plate zone
+            const MAX_PLATE_WIDTH = 1900; // mm - maximum plate span
+            
+            // Get all rods sorted by X position
+            const rods = Array.from(currentShelf.rods.entries()).map(([id, data]) => ({
+                id,
+                data,
+                x: data.position.x
+            })).sort((a, b) => a.x - b.x);
+            
+            // Find which rods this click is between
+            let leftRod = null;
+            let rightRod = null;
+            
+            for (let i = 0; i < rods.length - 1; i++) {
+                const left = rods[i];
+                const right = rods[i + 1];
+                
+                if (clickX >= left.x && clickX <= right.x) {
+                    leftRod = left;
+                    rightRod = right;
+                    break;
+                }
+            }
+            
+            if (!leftRod || !rightRod) return null;
+            
+            // Check if the distance is reasonable for a plate
+            const plateWidth = rightRod.x - leftRod.x;
+            if (plateWidth < MIN_PLATE_WIDTH || plateWidth > MAX_PLATE_WIDTH) {
+                return null;
+            }
+            
+            // Find the closest matching attachment level on both rods
+            let bestMatch = null;
+            let bestDistance = Infinity;
+            
+            for (const leftPoint of leftRod.data.attachmentPoints) {
+                for (const rightPoint of rightRod.data.attachmentPoints) {
+                    // Check if attachment points are at the same level
+                    if (leftPoint.y === rightPoint.y) {
+                        const distance = Math.abs(clickY - leftPoint.y);
+                        
+                        if (distance < PLATE_ZONE_TOLERANCE && distance < bestDistance) {
+                            // Check if attachment points are free
+                            if (!leftPoint.plateId && !rightPoint.plateId) {
+                                bestMatch = {
+                                    leftRod: leftRod,
+                                    rightRod: rightRod,
+                                    attachmentLevel: leftPoint.y,
+                                    plateWidth: plateWidth,
+                                    clickDistance: distance
+                                };
+                                bestDistance = distance;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            if (bestMatch) {
+                // Determine the appropriate plate size
+                let plateSize;
+                if (plateWidth <= 600) plateSize = 670;
+                else if (plateWidth <= 1200) plateSize = 1270;
+                else plateSize = 1870;
+                
+                return {
+                    ...bestMatch,
+                    plateSize: plateSize,
+                    type: 'valid'
+                };
+            }
+            
+            // Check for invalid placements (show red preview)
+            const invalidPlacement = findInvalidPlateZone(clickX, clickY, rods);
+            if (invalidPlacement) {
+                return {
+                    ...invalidPlacement,
+                    type: 'invalid'
+                };
+            }
+            
+            return null;
+        }
+        
+        function findInvalidPlateZone(clickX, clickY, rods) {
+            const PLATE_ZONE_TOLERANCE = 50; // mm - how close to attachment level to detect
+            
+            // Find potential rod pairs that could support a plate
+            for (let i = 0; i < rods.length - 1; i++) {
+                const leftRod = rods[i];
+                const rightRod = rods[i + 1];
+                
+                // Check if click is between these rods
+                if (clickX >= leftRod.x && clickX <= rightRod.x) {
+                    const plateWidth = rightRod.x - leftRod.x;
+                    
+                    // Find the closest attachment points on both rods
+                    let closestLevel = null;
+                    let closestDistance = Infinity;
+                    let invalidReason = null;
+                    
+                    for (const leftPoint of leftRod.data.attachmentPoints) {
+                        for (const rightPoint of rightRod.data.attachmentPoints) {
+                            if (leftPoint.y === rightPoint.y) {
+                                const distance = Math.abs(clickY - leftPoint.y);
+                                
+                                if (distance < PLATE_ZONE_TOLERANCE && distance < closestDistance) {
+                                    closestDistance = distance;
+                                    closestLevel = leftPoint.y;
+                                    
+                                    // Determine why it's invalid
+                                    if (leftPoint.plateId || rightPoint.plateId) {
+                                        invalidReason = 'Attachment points occupied';
+                                    } else if (plateWidth < 500) {
+                                        invalidReason = 'Too narrow for plate';
+                                    } else if (plateWidth > 1800) {
+                                        invalidReason = 'Too wide for available plates';
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    if (closestLevel !== null && invalidReason) {
+                        return {
+                            leftRod: leftRod,
+                            rightRod: rightRod,
+                            attachmentLevel: closestLevel,
+                            plateWidth: plateWidth,
+                            plateSize: plateWidth <= 600 ? 670 : (plateWidth <= 1200 ? 1270 : 1870),
+                            invalidReason: invalidReason,
+                            clickDistance: closestDistance
+                        };
+                    }
+                }
+            }
+            
+            return null;
+        }
+        
+        function performPlateZoneClick(plateZoneConfig) {
+            // Handle invalid placements with flash effect
+            if (plateZoneConfig.type === 'invalid') {
+                console.log(`Invalid plate placement: ${plateZoneConfig.invalidReason}`);
+                showInvalidPlateFlash(plateZoneConfig);
+                return;
+            }
+            
+            console.log(`Adding plate in zone: ${plateZoneConfig.plateSize}mm at ${plateZoneConfig.attachmentLevel}cm`);
+            
+            // Use the intelligent plate configuration system 
+            const plateConfig = findBestPlateConfiguration(plateZoneConfig.leftRod.id, plateZoneConfig.attachmentLevel);
+            
+            if (plateConfig && plateConfig.type !== 'impossible') {
+                if (plateConfig.type === 'merge') {
+                    // Handle merging with existing plate
+                    removePlate(plateConfig.plateToRemove, currentShelf);
+                    const plateId = addPlate(plateConfig.startRodId, plateConfig.endRodId, plateZoneConfig.attachmentLevel, plateConfig.newPlateSize, currentShelf);
+                    if (plateId) {
+                        console.log(`Created merged ${plateConfig.newPlateSize}mm plate`);
+                        visualizeShelfWithAnimation();
+                        return;
+                    }
+                } else if (plateConfig.type === 'standalone') {
+                    // Handle standalone plate addition
+                    const plateId = addPlate(plateZoneConfig.leftRod.id, plateConfig.endRodId, plateZoneConfig.attachmentLevel, plateConfig.plateSize, currentShelf);
+                    if (plateId) {
+                        console.log(`Added ${plateConfig.plateSize}mm plate in zone`);
+                        visualizeShelfWithAnimation();
+                        return;
+                    }
+                }
+            } else {
+                // Fallback: direct plate addition between the detected rods
+                const plateId = addPlate(plateZoneConfig.leftRod.id, plateZoneConfig.rightRod.id, plateZoneConfig.attachmentLevel, plateZoneConfig.plateSize, currentShelf);
+                if (plateId) {
+                    console.log(`Added ${plateZoneConfig.plateSize}mm plate directly between rods`);
+                    visualizeShelfWithAnimation();
+                } else {
+                    console.log("Failed to add plate - attachment points may be occupied");
+                }
+            }
+        }
+        
+        function showPlateZonePreview(plateZoneConfig) {
+            clearPreviews();
+            
+            // Create preview plate in the detected zone
+            const leftRodData = currentShelf.rods.get(plateZoneConfig.leftRod.id);
+            const rightRodData = currentShelf.rods.get(plateZoneConfig.rightRod.id);
+            
+            if (leftRodData && rightRodData) {
+                const previewType = plateZoneConfig.type === 'invalid' ? 'invalid' : 'zone';
+                const previewPlate = createPreviewPlate(leftRodData, rightRodData, plateZoneConfig.attachmentLevel, plateZoneConfig.plateSize, previewType);
+                if (previewPlate) {
+                    shelfGroup.add(previewPlate);
+                    previewObjects.push(previewPlate);
+                }
+                
+                // Add visual indicators at the attachment points
+                const attachmentGeometry = new THREE.SphereGeometry(ATTACHMENT_SIZE * 1.5, 8, 6);
+                const isInvalid = plateZoneConfig.type === 'invalid';
+                const indicatorMaterial = new THREE.MeshStandardMaterial({
+                    color: isInvalid ? 0xFF1744 : 0x4CAF50, // Red for invalid, green for valid
+                    transparent: true,
+                    opacity: 0.8,
+                    emissive: isInvalid ? 0x660000 : 0x004d40,
+                    emissiveIntensity: 0.3
+                });
+                
+                // Left attachment indicator
+                const leftIndicator = new THREE.Mesh(attachmentGeometry, indicatorMaterial);
+                leftIndicator.position.set(
+                    plateZoneConfig.leftRod.x * MM_TO_M,
+                    plateZoneConfig.attachmentLevel * CM_TO_M,
+                    -PLATE_DEPTH/2
+                );
+                shelfGroup.add(leftIndicator);
+                previewObjects.push(leftIndicator);
+                
+                // Right attachment indicator
+                const rightIndicator = new THREE.Mesh(attachmentGeometry, indicatorMaterial);
+                rightIndicator.position.set(
+                    plateZoneConfig.rightRod.x * MM_TO_M,
+                    plateZoneConfig.attachmentLevel * CM_TO_M,
+                    -PLATE_DEPTH/2
+                );
+                shelfGroup.add(rightIndicator);
+                previewObjects.push(rightIndicator);
+                
+                const statusText = isInvalid ? `INVALID: ${plateZoneConfig.invalidReason}` : `${plateZoneConfig.plateSize}mm at ${plateZoneConfig.attachmentLevel}cm`;
+                console.log(`Showing plate zone preview: ${statusText}`);
+            }
+        }
+        
+        function showInvalidPlateFlash(plateZoneConfig) {
+            // Create a bright red flash effect at the invalid location
+            const leftRodData = currentShelf.rods.get(plateZoneConfig.leftRod.id);
+            const rightRodData = currentShelf.rods.get(plateZoneConfig.rightRod.id);
+            
+            if (leftRodData && rightRodData) {
+                const flashPlate = createPreviewPlate(leftRodData, rightRodData, plateZoneConfig.attachmentLevel, plateZoneConfig.plateSize, 'flash');
+                if (flashPlate) {
+                    shelfGroup.add(flashPlate);
+                    
+                    // Animate flash effect
+                    const originalOpacity = flashPlate.material.opacity;
+                    const flashTween = new TWEEN.Tween({ opacity: 1.0, intensity: 0.8 })
+                        .to({ opacity: 0.0, intensity: 0.0 }, 800)
+                        .easing(TWEEN.Easing.Exponential.Out)
+                        .onUpdate((obj) => {
+                            flashPlate.material.opacity = obj.opacity;
+                            flashPlate.material.emissiveIntensity = obj.intensity;
+                        })
+                        .onComplete(() => {
+                            shelfGroup.remove(flashPlate);
+                        })
+                        .start();
+                }
+            }
+            
+            console.log(`INVALID PLATE PLACEMENT: ${plateZoneConfig.invalidReason} at ${plateZoneConfig.attachmentLevel}cm`);
+        }
+        
+        function calculatePatternHeight(pattern) {
+            // Calculate total height from pattern string
+            const parts = pattern.split('_');
+            if (parts.length < 2) return 20; // Single point
+            
+            const gaps = parts[1];
+            let totalHeight = 0;
+            for (let i = 0; i < gaps.length; i++) {
+                totalHeight += parseInt(gaps[i]) * 10; // Convert to cm
+            }
+            return totalHeight;
+        }
+        
+        function extendPlatesForNewColumn(newRodId, columnConfig) {
+            if (!columnConfig.adjacentRod) return;
+            
+            const newRod = currentShelf.rods.get(newRodId);
+            const adjacentRod = currentShelf.rods.get(columnConfig.adjacentRod.id);
+            
+            if (!newRod || !adjacentRod) return;
+            
+            // Find plates that can be extended to the new column
+            const platesToExtend = [];
+            
+            for (const [plateId, plateData] of currentShelf.plates) {
+                // Check if plate is connected to the adjacent rod
+                const connectedToAdjacent = plateData.connections.some(conn => conn[0] === columnConfig.adjacentRod.id);
+                
+                if (connectedToAdjacent) {
+                    // Find the Y level of this plate
+                    const adjacentConnection = plateData.connections.find(conn => conn[0] === columnConfig.adjacentRod.id);
+                    if (adjacentConnection && adjacentRod.attachmentPoints && adjacentRod.attachmentPoints[adjacentConnection[1]]) {
+                        const yLevel = adjacentRod.attachmentPoints[adjacentConnection[1]].y;
+                        
+                        // Check if new rod has an attachment point at the same level
+                        const matchingPointIndex = newRod.attachmentPoints.findIndex(p => p.y === yLevel);
+                        
+                        if (matchingPointIndex !== -1 && !newRod.attachmentPoints[matchingPointIndex].plateId) {
+                            platesToExtend.push({
+                                plateId,
+                                plateData,
+                                yLevel,
+                                newAttachmentIndex: matchingPointIndex
+                            });
+                        }
+                    }
+                }
+            }
+            
+            // Extend plates by replacing them with longer ones
+            for (const { plateId, plateData, yLevel, newAttachmentIndex } of platesToExtend) {
+                const oldConnections = plateData.connections;
+                const currentPlateSize = plateData.size;
+                
+                // Calculate what the new span would be
+                const minX = Math.min(...oldConnections.map(conn => currentShelf.rods.get(conn[0]).position.x));
+                const maxX = Math.max(...oldConnections.map(conn => currentShelf.rods.get(conn[0]).position.x));
+                const newSpan = Math.max(maxX, newRod.position.x) - Math.min(minX, newRod.position.x);
+                
+                let newPlateSize;
+                if (newSpan <= 600) newPlateSize = 670;
+                else if (newSpan <= 1200) newPlateSize = 1270;
+                else newPlateSize = 1870;
+                
+                // Check if this is a left extension and plate is already maximum size
+                const isLeftExtension = columnConfig.side === 'left';
+                const isMaxSize = currentPlateSize === 1870;
+                
+                if (isLeftExtension && isMaxSize) {
+                    // For left extensions with max-size plates, don't move the plate
+                    // Just leave it in its current position
+                    console.log(`Left extension: keeping max-size plate (${currentPlateSize}mm) in current position`);
+                    continue;
+                } 
+                
+                // Only extend if the new size is actually larger
+                if (newPlateSize > currentPlateSize) {
+                    // Remove old plate
+                    removePlate(plateId, currentShelf);
+                    
+                    // Find start and end rods for the new plate
+                    const allConnectedX = [...oldConnections.map(conn => currentShelf.rods.get(conn[0]).position.x), newRod.position.x];
+                    const startX = Math.min(...allConnectedX);
+                    const endX = Math.max(...allConnectedX);
+                    
+                    const startRodId = findRodAtPosition(startX)?.id;
+                    const endRodId = findRodAtPosition(endX)?.id;
+                    
+                    if (startRodId && endRodId) {
+                        addPlate(startRodId, endRodId, yLevel, newPlateSize, currentShelf);
+                        console.log(`Extended plate from ${currentPlateSize}mm to ${newPlateSize}mm spanning ${newSpan}mm`);
+                    }
+                } else {
+                    console.log(`Plate already optimal size (${currentPlateSize}mm) for span ${newSpan}mm`);
+                }
+            }
+        }
+        
+        // Add event listeners
+        renderer.domElement.addEventListener('mousemove', onMouseMove, false);
+        renderer.domElement.addEventListener('click', onMouseClick, false);
+        
+        // Prevent OrbitControls from interfering with our interactions
+        controls.enablePan = true;
+        controls.enableZoom = true;
+        controls.enableRotate = true;
 
         // Initial setup and animation
-        visualizeShelf();
+        resetToBasic(); // Start with basic configuration
 
+        // Animation system
+        function animateObjectIn(object) {
+            // Start small and scale up
+            object.scale.set(0.1, 0.1, 0.1);
+            
+            const tween = new TWEEN.Tween(object.scale)
+                .to({ x: 1, y: 1, z: 1 }, 300)
+                .easing(TWEEN.Easing.Back.Out)
+                .start();
+        }
+        
+        function animateObjectOut(object, callback) {
+            const tween = new TWEEN.Tween(object.scale)
+                .to({ x: 0.1, y: 0.1, z: 0.1 }, 200)
+                .easing(TWEEN.Easing.Back.In)
+                .onComplete(() => {
+                    if (callback) callback();
+                })
+                .start();
+        }
+        
+        function animatePlateSlide(plate, fromY, toY, callback) {
+            plate.position.y = fromY * CM_TO_M;
+            
+            const tween = new TWEEN.Tween(plate.position)
+                .to({ y: toY * CM_TO_M }, 400)
+                .easing(TWEEN.Easing.Quadratic.InOut)
+                .onComplete(() => {
+                    if (callback) callback();
+                })
+                .start();
+        }
+        
+        function animateRodGrow(rod, finalHeight, callback) {
+            // Start at minimal height
+            const startHeight = 0.05; // 5cm
+            rod.scale.y = startHeight / finalHeight;
+            
+            const tween = new TWEEN.Tween(rod.scale)
+                .to({ y: 1 }, 500)
+                .easing(TWEEN.Easing.Elastic.Out)
+                .onComplete(() => {
+                    if (callback) callback();
+                })
+                .start();
+        }
+        
         // Animation loop
         function animate() {
             requestAnimationFrame(animate);
             
-            shelfGroup.rotation.y += 0.005;
+            // Update camera controls
+            controls.update();
+            
+            // Update TWEEN animations
+            TWEEN.update();
+            
+            // Remove auto-rotation now that we have manual controls
+            // shelfGroup.rotation.y += 0.005;
             
             renderer.render(scene, camera);
         }
