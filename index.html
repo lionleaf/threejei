@@ -1177,15 +1177,23 @@
                             document.body.style.cursor = 'crosshair'; // Indicate "add plate" mode
                             showingPreview = true;
                         } else {
-                            // Check for horizontal column addition
-                            const columnConfig = findBestColumnAddition(clickX);
-                            
-                            if (columnConfig) {
-                                showColumnPreview(columnConfig);
-                                document.body.style.cursor = 'copy'; // Indicate "add" mode
+                            // Check for rod segment toggle in zones
+                            const segmentToggleConfig = findRodSegmentToggleInZone(clickX, clickY);
+                            if (segmentToggleConfig) {
+                                showRodSegmentTogglePreview(segmentToggleConfig);
+                                document.body.style.cursor = 'ew-resize'; // Indicate "toggle" mode
                                 showingPreview = true;
                             } else {
-                                document.body.style.cursor = 'default';
+                                // Check for horizontal column addition
+                                const columnConfig = findBestColumnAddition(clickX);
+                                
+                                if (columnConfig) {
+                                    showColumnPreview(columnConfig);
+                                    document.body.style.cursor = 'copy'; // Indicate "add" mode
+                                    showingPreview = true;
+                                } else {
+                                    document.body.style.cursor = 'default';
+                                }
                             }
                         }
                     }
@@ -1274,6 +1282,13 @@
                 const plateZoneConfig = findPlateZoneClick(clickX, clickY);
                 if (plateZoneConfig) {
                     performPlateZoneClick(plateZoneConfig);
+                    return;
+                }
+                
+                // Check for rod segment toggle in empty spaces between rods
+                const segmentToggleConfig = findRodSegmentToggleInZone(clickX, clickY);
+                if (segmentToggleConfig) {
+                    performRodSegmentToggleInZone(segmentToggleConfig);
                     return;
                 }
                 
@@ -1967,23 +1982,31 @@
             const rodData = currentShelf.rods.get(rodId);
             if (!rodData) return null;
             
-            // Check if this attachment point is already occupied
+            // Check if this attachment point exists
             const attachmentIndex = rodData.attachmentPoints.findIndex(p => p.y === yPosition);
             if (attachmentIndex === -1) return null;
             
-            if (rodData.attachmentPoints[attachmentIndex].plateId) {
-                console.log("Attachment point already occupied");
-                return null;
-            }
+            const isOccupied = rodData.attachmentPoints[attachmentIndex].plateId;
             
-            // First check for merging opportunities with adjacent plates
+            // Always check for merging opportunities first (works for both free and occupied points)
             const mergeConfig = findPlateWithMerging(rodId, yPosition);
             if (mergeConfig) {
-                console.log(`Found merge opportunity: ${mergeConfig.type}`);
+                console.log(`Found merge opportunity: ${mergeConfig.type} ${isOccupied ? '(merging with occupied point)' : ''}`);
                 return mergeConfig;
             }
             
-            // If no merging possible, try to add a new standalone plate
+            // If attachment point is occupied and no merge is possible, block the placement
+            if (isOccupied) {
+                console.log("Attachment point occupied and no merge possible");
+                return {
+                    type: 'impossible',
+                    rodId: rodId,
+                    yPosition: yPosition,
+                    reason: 'Attachment point occupied, no merge possible'
+                };
+            }
+            
+            // If point is free and no merging possible, try to add a new standalone plate
             const standaloneConfig = findStandalonePlateConfig(rodId, yPosition);
             if (standaloneConfig) {
                 return standaloneConfig;
@@ -2024,47 +2047,136 @@
                 }
             }
             
-            // Check for adjacent plates that can be merged
+            // Sort plates by X position for easier analysis
+            platesAtLevel.sort((a, b) => a.minX - b.minX);
+            
+            // Find plates that could be connected by adding this rod
+            const leftPlate = platesAtLevel.find(p => p.maxX + 600 === rodX);
+            const rightPlate = platesAtLevel.find(p => p.minX - 600 === rodX);
+            
+            // Case 1: Merge with one adjacent plate (existing logic)
+            if (leftPlate && !rightPlate) {
+                return createSinglePlateMerge(leftPlate, rodX, yPosition, 'left');
+            }
+            if (rightPlate && !leftPlate) {
+                return createSinglePlateMerge(rightPlate, rodX, yPosition, 'right');
+            }
+            
+            // Case 2: Bridge two plates - merge both into one larger plate
+            if (leftPlate && rightPlate) {
+                console.log(`Found bridging opportunity between plates at X ${leftPlate.minX}-${leftPlate.maxX} and ${rightPlate.minX}-${rightPlate.maxX}`);
+                return createBridgingMerge(leftPlate, rightPlate, rodX, yPosition);
+            }
+            
+            // Case 3: Check if clicking on an existing plate that can be extended
             for (const plate of platesAtLevel) {
-                // Check if this rod is adjacent to an existing plate
-                const leftAdjacent = (plate.maxX + 600 === rodX);
-                const rightAdjacent = (plate.minX - 600 === rodX);
+                if (rodX >= plate.minX && rodX <= plate.maxX) {
+                    // We're clicking on an existing plate - check if we can extend it
+                    return createPlateExtension(plate, rodX, yPosition);
+                }
+            }
+            
+            // Case 4: Check for plates that have a gap but could be connected
+            for (let i = 0; i < platesAtLevel.length - 1; i++) {
+                const plate1 = platesAtLevel[i];
+                const plate2 = platesAtLevel[i + 1];
                 
-                if (leftAdjacent || rightAdjacent) {
-                    // Check if we can extend this plate
-                    const newMinX = Math.min(plate.minX, rodX);
-                    const newMaxX = Math.max(plate.maxX, rodX);
-                    const newSpan = newMaxX - newMinX;
+                // Check if the new rod fills a gap between these plates
+                if (rodX > plate1.maxX && rodX < plate2.minX) {
+                    const gapStart = plate1.maxX + 600;
+                    const gapEnd = plate2.minX - 600;
                     
-                    // Calculate new plate size needed
-                    let newPlateSize;
-                    if (newSpan <= 600) newPlateSize = 670;
-                    else if (newSpan <= 1200) newPlateSize = 1270;
-                    else if (newSpan <= 1800) newPlateSize = 1870;
-                    else return null; // Too large
-                    
-                    // Verify all intermediate rods exist and have free attachment points
-                    const requiredRods = [];
-                    for (let x = newMinX; x <= newMaxX; x += 600) {
-                        const rodAtX = findRodAtPosition(x);
-                        if (!rodAtX) return null;
-                        
-                        const attachmentIndex = rodAtX.attachmentPoints.findIndex(p => p.y === yPosition);
-                        if (attachmentIndex === -1) return null;
-                        
-                        // Only the new rod should be free, existing plate connections are expected
-                        if (x === rodX && rodAtX.attachmentPoints[attachmentIndex].plateId) return null;
-                        
-                        requiredRods.push({
-                            id: rodAtX.id,
-                            x: x,
-                            data: rodAtX
-                        });
+                    // If this rod is in the gap, we can potentially bridge them
+                    if (rodX >= gapStart && rodX <= gapEnd) {
+                        return createGapFillingMerge(plate1, plate2, rodX, yPosition);
+                    }
+                }
+            }
+            
+            return null;
+        }
+        
+        function createPlateExtension(existingPlate, rodX, yPosition) {
+            console.log(`Attempting to extend existing plate at ${rodX}mm`);
+            
+            // Find adjacent rods that we could extend the plate to
+            const adjacentRods = [];
+            
+            // Check to the left of the existing plate
+            let leftCheckX = existingPlate.minX - 600;
+            while (leftCheckX >= -3000) { // reasonable boundary
+                const leftRod = findRodAtPosition(leftCheckX);
+                if (leftRod) {
+                    const attachmentIndex = leftRod.attachmentPoints.findIndex(p => p.y === yPosition);
+                    if (attachmentIndex !== -1 && !leftRod.attachmentPoints[attachmentIndex].plateId) {
+                        adjacentRods.push({ rod: leftRod, x: leftCheckX, side: 'left' });
+                    }
+                    break; // Found a rod, stop searching
+                }
+                leftCheckX -= 600;
+            }
+            
+            // Check to the right of the existing plate  
+            let rightCheckX = existingPlate.maxX + 600;
+            while (rightCheckX <= 3000) { // reasonable boundary
+                const rightRod = findRodAtPosition(rightCheckX);
+                if (rightRod) {
+                    const attachmentIndex = rightRod.attachmentPoints.findIndex(p => p.y === yPosition);
+                    if (attachmentIndex !== -1 && !rightRod.attachmentPoints[attachmentIndex].plateId) {
+                        adjacentRods.push({ rod: rightRod, x: rightCheckX, side: 'right' });
+                    }
+                    break; // Found a rod, stop searching
+                }
+                rightCheckX += 600;
+            }
+            
+            if (adjacentRods.length === 0) {
+                console.log("No adjacent free rods found for plate extension");
+                return null;
+            }
+            
+            // Try extending to each adjacent rod (prioritize the closest)
+            for (const adjacent of adjacentRods) {
+                const newMinX = Math.min(existingPlate.minX, adjacent.x);
+                const newMaxX = Math.max(existingPlate.maxX, adjacent.x);
+                const newSpan = newMaxX - newMinX;
+                
+                // Check if the new plate size is valid
+                let newPlateSize;
+                if (newSpan <= 600) newPlateSize = 670;
+                else if (newSpan <= 1200) newPlateSize = 1270;
+                else if (newSpan <= 1800) newPlateSize = 1870;
+                else continue; // Try next adjacent rod if this one is too far
+                
+                // Verify all intermediate rods exist
+                const requiredRods = [];
+                let validExtension = true;
+                
+                for (let x = newMinX; x <= newMaxX; x += 600) {
+                    const rodAtX = findRodAtPosition(x);
+                    if (!rodAtX) {
+                        validExtension = false;
+                        break;
                     }
                     
+                    const attachmentIndex = rodAtX.attachmentPoints.findIndex(p => p.y === yPosition);
+                    if (attachmentIndex === -1) {
+                        validExtension = false;
+                        break;
+                    }
+                    
+                    requiredRods.push({
+                        id: rodAtX.id,
+                        x: x,
+                        data: rodAtX
+                    });
+                }
+                
+                if (validExtension) {
+                    console.log(`Can extend plate from ${existingPlate.minX}-${existingPlate.maxX} to ${newMinX}-${newMaxX} (${newPlateSize}mm)`);
                     return {
                         type: 'merge',
-                        plateToRemove: plate.id,
+                        plateToRemove: existingPlate.id,
                         newPlateSize: newPlateSize,
                         startRodId: requiredRods[0].id,
                         endRodId: requiredRods[requiredRods.length - 1].id,
@@ -2074,7 +2186,141 @@
                 }
             }
             
-            return null;
+            return null; // No valid extension found
+        }
+        
+        function createSinglePlateMerge(plate, rodX, yPosition, direction) {
+            const newMinX = Math.min(plate.minX, rodX);
+            const newMaxX = Math.max(plate.maxX, rodX);
+            const newSpan = newMaxX - newMinX;
+            
+            // Calculate new plate size needed
+            let newPlateSize;
+            if (newSpan <= 600) newPlateSize = 670;
+            else if (newSpan <= 1200) newPlateSize = 1270;
+            else if (newSpan <= 1800) newPlateSize = 1870;
+            else return null; // Too large
+            
+            // Verify all intermediate rods exist and have appropriate attachment points
+            const requiredRods = [];
+            for (let x = newMinX; x <= newMaxX; x += 600) {
+                const rodAtX = findRodAtPosition(x);
+                if (!rodAtX) return null;
+                
+                const attachmentIndex = rodAtX.attachmentPoints.findIndex(p => p.y === yPosition);
+                if (attachmentIndex === -1) return null;
+                
+                // For merging, the rod we're clicking on might have a plate we want to merge with
+                // Only block if it's connected to a different plate than the one we're merging
+                if (x === rodX && rodAtX.attachmentPoints[attachmentIndex].plateId) {
+                    const existingPlateId = rodAtX.attachmentPoints[attachmentIndex].plateId;
+                    if (existingPlateId !== plate.id) {
+                        // This attachment point belongs to a different plate - might be bridging scenario
+                        // Don't block here, let the bridging logic handle this
+                    }
+                }
+                
+                requiredRods.push({
+                    id: rodAtX.id,
+                    x: x,
+                    data: rodAtX
+                });
+            }
+            
+            return {
+                type: 'merge',
+                plateToRemove: plate.id,
+                newPlateSize: newPlateSize,
+                startRodId: requiredRods[0].id,
+                endRodId: requiredRods[requiredRods.length - 1].id,
+                spans: Math.round(newSpan / 600) + 1,
+                requiredRods: requiredRods
+            };
+        }
+        
+        function createBridgingMerge(leftPlate, rightPlate, rodX, yPosition) {
+            const newMinX = Math.min(leftPlate.minX, rightPlate.minX);
+            const newMaxX = Math.max(leftPlate.maxX, rightPlate.maxX);
+            const newSpan = newMaxX - newMinX;
+            
+            // Calculate new plate size needed  
+            let newPlateSize;
+            if (newSpan <= 600) newPlateSize = 670;
+            else if (newSpan <= 1200) newPlateSize = 1270;
+            else if (newSpan <= 1800) newPlateSize = 1870;
+            else return null; // Too large to merge
+            
+            // Verify all intermediate rods exist and have appropriate attachment points
+            const requiredRods = [];
+            for (let x = newMinX; x <= newMaxX; x += 600) {
+                const rodAtX = findRodAtPosition(x);
+                if (!rodAtX) return null;
+                
+                const attachmentIndex = rodAtX.attachmentPoints.findIndex(p => p.y === yPosition);
+                if (attachmentIndex === -1) return null;
+                
+                // Only the bridging rod should be free
+                if (x === rodX && rodAtX.attachmentPoints[attachmentIndex].plateId) return null;
+                
+                requiredRods.push({
+                    id: rodAtX.id,
+                    x: x,
+                    data: rodAtX
+                });
+            }
+            
+            return {
+                type: 'bridge',
+                platesToRemove: [leftPlate.id, rightPlate.id],
+                newPlateSize: newPlateSize,
+                startRodId: requiredRods[0].id,
+                endRodId: requiredRods[requiredRods.length - 1].id,
+                spans: Math.round(newSpan / 600) + 1,
+                requiredRods: requiredRods
+            };
+        }
+        
+        function createGapFillingMerge(plate1, plate2, rodX, yPosition) {
+            // This is a more complex case - filling a gap between non-adjacent plates
+            const newMinX = Math.min(plate1.minX, plate2.minX);
+            const newMaxX = Math.max(plate1.maxX, plate2.maxX);
+            const newSpan = newMaxX - newMinX;
+            
+            // Check if we can create a plate that spans the entire range
+            let newPlateSize;
+            if (newSpan <= 600) newPlateSize = 670;
+            else if (newSpan <= 1200) newPlateSize = 1270;  
+            else if (newSpan <= 1800) newPlateSize = 1870;
+            else return null; // Too large to merge
+            
+            // Verify all intermediate rods exist
+            const requiredRods = [];
+            for (let x = newMinX; x <= newMaxX; x += 600) {
+                const rodAtX = findRodAtPosition(x);
+                if (!rodAtX) return null;
+                
+                const attachmentIndex = rodAtX.attachmentPoints.findIndex(p => p.y === yPosition);
+                if (attachmentIndex === -1) return null;
+                
+                // Only the new rod should be free, others should have existing connections
+                if (x === rodX && rodAtX.attachmentPoints[attachmentIndex].plateId) return null;
+                
+                requiredRods.push({
+                    id: rodAtX.id,
+                    x: x,
+                    data: rodAtX
+                });
+            }
+            
+            return {
+                type: 'bridge',
+                platesToRemove: [plate1.id, plate2.id],
+                newPlateSize: newPlateSize,
+                startRodId: requiredRods[0].id,
+                endRodId: requiredRods[requiredRods.length - 1].id,
+                spans: Math.round(newSpan / 600) + 1,
+                requiredRods: requiredRods
+            };
         }
         
         function findStandalonePlateConfig(rodId, yPosition) {
@@ -2502,6 +2748,12 @@
             console.log(`Showing ${extensionConfig.direction}ward extension preview`);
         }
         
+        function canMergeAtPosition(rodId, yPosition) {
+            // Quick check if merging is possible at this position
+            const mergeConfig = findPlateWithMerging(rodId, yPosition);
+            return mergeConfig !== null;
+        }
+        
         function findPlateZoneClick(clickX, clickY) {
             if (currentShelf.rods.size < 2) return null;
             
@@ -2550,14 +2802,18 @@
                         const distance = Math.abs(clickY - leftPoint.y);
                         
                         if (distance < PLATE_ZONE_TOLERANCE && distance < bestDistance) {
-                            // Check if attachment points are free
-                            if (!leftPoint.plateId && !rightPoint.plateId) {
+                            // Check if we can place a plate here (either free points or merge possible)
+                            const canPlace = (!leftPoint.plateId && !rightPoint.plateId) || 
+                                           canMergeAtPosition(leftRod.id, leftPoint.y);
+                                           
+                            if (canPlace) {
                                 bestMatch = {
                                     leftRod: leftRod,
                                     rightRod: rightRod,
                                     attachmentLevel: leftPoint.y,
                                     plateWidth: plateWidth,
-                                    clickDistance: distance
+                                    clickDistance: distance,
+                                    hasOccupiedPoints: leftPoint.plateId || rightPoint.plateId
                                 };
                                 bestDistance = distance;
                             }
@@ -2648,6 +2904,77 @@
             return null;
         }
         
+        function findRodSegmentToggleInZone(clickX, clickY) {
+            // Find if we're clicking in a zone between rods where we can toggle a segment
+            const rods = Array.from(currentShelf.rods.entries()).map(([id, data]) => ({
+                id,
+                data,
+                x: data.position.x
+            })).sort((a, b) => a.x - b.x);
+            
+            // Check if click is near any rod (within rod segment tolerance)
+            const ROD_SEGMENT_TOLERANCE = 50; // mm - how close to rod to detect segment
+            
+            for (const rod of rods) {
+                const distanceFromRod = Math.abs(clickX - rod.x);
+                
+                // If we're close enough to a rod, check if we can toggle one of its segments
+                if (distanceFromRod <= ROD_SEGMENT_TOLERANCE) {
+                    // Find which segment was clicked based on Y position
+                    const segmentInfo = findClickedRodSegment(rod.data, clickY);
+                    
+                    if (segmentInfo) {
+                        // Check if this segment can be toggled (no plates at attachment points)
+                        const canToggle = !hasPlateAtAttachmentPoint(rod.id, segmentInfo.segmentIndex) && 
+                                        !hasPlateAtAttachmentPoint(rod.id, segmentInfo.segmentIndex + 1);
+                        
+                        if (canToggle) {
+                            return {
+                                rodId: rod.id,
+                                rodData: rod.data,
+                                segmentInfo: segmentInfo,
+                                clickX: clickX,
+                                clickY: clickY
+                            };
+                        }
+                    }
+                }
+            }
+            
+            return null;
+        }
+        
+        function performRodSegmentToggleInZone(segmentToggleConfig) {
+            const { rodId, segmentInfo } = segmentToggleConfig;
+            
+            console.log(`Toggling rod segment ${segmentInfo.segmentIndex} in zone (${segmentInfo.currentLength}cm)`);
+            
+            // Check if this is an end segment that can be removed
+            if (canRemoveEndSegment(rodId, segmentInfo)) {
+                console.log(`Removing end segment ${segmentInfo.segmentIndex} from rod ${rodId} via zone click`);
+                removeEndSegment(rodId, segmentInfo);
+                return;
+            }
+            
+            // Otherwise, toggle segment length between 20cm and 30cm
+            const newLength = segmentInfo.currentLength === 20 ? 30 : 20;
+            const newPattern = createModifiedRodPattern(segmentToggleConfig.rodData.pattern, segmentInfo.segmentIndex, newLength);
+            
+            if (!newPattern) {
+                console.log("Cannot modify rod pattern in zone");
+                return;
+            }
+            
+            console.log(`Zone toggle: ${segmentToggleConfig.rodData.pattern} -> ${newPattern}`);
+            
+            // Since we're in a zone without plates, no adjacent rods need updating
+            const affectedPlates = [];
+            const adjacentRodUpdates = [];
+            
+            // Apply the change
+            applyRodSegmentToggle(rodId, newPattern, affectedPlates, adjacentRodUpdates);
+        }
+        
         function performPlateZoneClick(plateZoneConfig) {
             // Handle invalid placements with flash effect
             if (plateZoneConfig.type === 'invalid') {
@@ -2668,6 +2995,17 @@
                     const plateId = addPlate(plateConfig.startRodId, plateConfig.endRodId, plateZoneConfig.attachmentLevel, plateConfig.newPlateSize, currentShelf);
                     if (plateId) {
                         console.log(`Created merged ${plateConfig.newPlateSize}mm plate`);
+                        visualizeShelfWithAnimation();
+                        return;
+                    }
+                } else if (plateConfig.type === 'bridge') {
+                    // Handle bridging between multiple existing plates
+                    plateConfig.platesToRemove.forEach(plateId => {
+                        removePlate(plateId, currentShelf);
+                    });
+                    const plateId = addPlate(plateConfig.startRodId, plateConfig.endRodId, plateZoneConfig.attachmentLevel, plateConfig.newPlateSize, currentShelf);
+                    if (plateId) {
+                        console.log(`Created bridged ${plateConfig.newPlateSize}mm plate connecting ${plateConfig.platesToRemove.length} existing plates`);
                         visualizeShelfWithAnimation();
                         return;
                     }
@@ -2770,6 +3108,68 @@
             }
             
             console.log(`INVALID PLATE PLACEMENT: ${plateZoneConfig.invalidReason} at ${plateZoneConfig.attachmentLevel}cm`);
+        }
+        
+        function showRodSegmentTogglePreview(segmentToggleConfig) {
+            clearPreviews();
+            
+            const { rodId, rodData, segmentInfo } = segmentToggleConfig;
+            const rodX = rodData.position.x;
+            
+            // Show a visual indicator on the rod segment that can be toggled
+            const segmentCenterY = (segmentInfo.bottomY + segmentInfo.topY) / 2;
+            const currentLength = segmentInfo.currentLength;
+            const nextLength = currentLength === 20 ? 30 : 20;
+            
+            // Create a glowing segment indicator
+            const indicatorGeometry = new THREE.BoxGeometry(
+                ROD_WIDTH * 2, // Slightly wider than rod
+                (currentLength / 100) * ROD_HEIGHT_PER_CM, // Current segment height in meters
+                ROD_DEPTH * 1.5 // Slightly deeper than rod
+            );
+            
+            let indicatorColor, message;
+            
+            // Check if this is an end segment that can be removed
+            if (canRemoveEndSegment(rodId, segmentInfo)) {
+                indicatorColor = 0xFF4444; // Red for removal
+                message = `Remove ${currentLength}cm segment`;
+            } else {
+                indicatorColor = 0xFFAA00; // Orange for toggle
+                message = `Toggle ${currentLength}cm → ${nextLength}cm`;
+            }
+            
+            const indicatorMaterial = new THREE.MeshStandardMaterial({
+                color: indicatorColor,
+                transparent: true,
+                opacity: 0.6,
+                emissive: indicatorColor,
+                emissiveIntensity: 0.2
+            });
+            
+            const indicator = new THREE.Mesh(indicatorGeometry, indicatorMaterial);
+            indicator.position.set(
+                rodX * MM_TO_M,
+                segmentCenterY * CM_TO_M,
+                0
+            );
+            
+            shelfGroup.add(indicator);
+            previewObjects.push(indicator);
+            
+            // Add pulsing animation
+            const pulseAnimation = () => {
+                const time = Date.now() * 0.005;
+                const scale = 1 + Math.sin(time) * 0.1;
+                indicator.scale.set(scale, 1, scale);
+                
+                if (previewObjects.includes(indicator)) {
+                    requestAnimationFrame(pulseAnimation);
+                }
+            };
+            pulseAnimation();
+            
+            console.log(`Showing rod segment toggle preview: ${message} at segment ${segmentInfo.segmentIndex}`);
         }
         
         function calculatePatternHeight(pattern) {
