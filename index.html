@@ -99,6 +99,116 @@
             margin: 10px 0 5px 0;
             font-size: 14px;
         }
+        
+        /* Mobile-specific styles */
+        @media (max-width: 768px) {
+            .controls {
+                position: fixed;
+                top: 10px;
+                left: 10px;
+                right: 10px;
+                max-width: none;
+                padding: 15px;
+                font-size: 14px;
+                max-height: 40vh;
+                overflow-y: auto;
+                transition: transform 0.3s ease;
+            }
+            
+            .controls.minimized {
+                transform: translateY(-85%);
+            }
+            
+            .controls.minimized::after {
+                content: "☰ Tap to expand";
+                position: absolute;
+                bottom: 10px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: rgba(76, 175, 80, 0.9);
+                padding: 5px 10px;
+                border-radius: 15px;
+                font-size: 12px;
+                color: white;
+            }
+            
+            button {
+                padding: 12px 18px;
+                font-size: 16px;
+                margin: 5px 2px;
+                min-height: 44px; /* iOS touch target size */
+                border-radius: 8px;
+            }
+            
+            .editing-panel {
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                width: 90%;
+                max-width: 400px;
+                max-height: 80vh;
+                overflow-y: auto;
+            }
+            
+            #componentList {
+                font-size: 11px;
+                max-height: 150px;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .controls {
+                padding: 10px;
+                font-size: 13px;
+            }
+            
+            button {
+                padding: 10px 14px;
+                font-size: 14px;
+                margin: 3px 1px;
+            }
+        }
+        
+        /* Touch feedback */
+        .touch-feedback {
+            position: fixed;
+            pointer-events: none;
+            z-index: 1000;
+            background: rgba(76, 175, 80, 0.3);
+            border: 2px solid #4CAF50;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            transform: translate(-50%, -50%) scale(0);
+            transition: transform 0.2s ease-out, opacity 0.2s ease-out;
+        }
+        
+        .touch-feedback.active {
+            transform: translate(-50%, -50%) scale(1);
+            opacity: 1;
+        }
+        
+        /* Mobile gesture indicators */
+        .mobile-hint {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 12px;
+            z-index: 200;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .mobile-hint.show {
+            opacity: 1;
+        }
     </style>
 </head>
 <body>
@@ -145,6 +255,10 @@
         <button onclick="cancelPlateEdit()" class="cancel-btn">Cancel</button>
         <button onclick="deletePlate()" class="cancel-btn">Delete Plate</button>
     </div>
+
+    <!-- Mobile-specific UI elements -->
+    <div id="touchFeedback" class="touch-feedback"></div>
+    <div id="mobileHint" class="mobile-hint">Tap and hold to add plates • Pinch to zoom • Drag to rotate</div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -2757,7 +2871,8 @@
         function findPlateZoneClick(clickX, clickY) {
             if (currentShelf.rods.size < 2) return null;
             
-            const PLATE_ZONE_TOLERANCE = 50; // mm - how close to attachment level to detect
+            // Mobile-aware tolerance - larger hit areas for touch
+            const PLATE_ZONE_TOLERANCE = isMobile ? 80 : 50; // mm - how close to attachment level to detect
             const MIN_PLATE_WIDTH = 500; // mm - minimum distance between rods to consider a plate zone
             const MAX_PLATE_WIDTH = 1900; // mm - maximum plate span
             
@@ -2849,7 +2964,8 @@
         }
         
         function findInvalidPlateZone(clickX, clickY, rods) {
-            const PLATE_ZONE_TOLERANCE = 50; // mm - how close to attachment level to detect
+            // Mobile-aware tolerance - larger hit areas for touch
+            const PLATE_ZONE_TOLERANCE = isMobile ? 80 : 50; // mm - how close to attachment level to detect
             
             // Find potential rod pairs that could support a plate
             for (let i = 0; i < rods.length - 1; i++) {
@@ -2913,7 +3029,8 @@
             })).sort((a, b) => a.x - b.x);
             
             // Check if click is near any rod (within rod segment tolerance)
-            const ROD_SEGMENT_TOLERANCE = 50; // mm - how close to rod to detect segment
+            // Mobile-aware tolerance - larger hit areas for touch
+            const ROD_SEGMENT_TOLERANCE = isMobile ? 80 : 50; // mm - how close to rod to detect segment
             
             for (const rod of rods) {
                 const distanceFromRod = Math.abs(clickX - rod.x);
@@ -3270,14 +3387,293 @@
             }
         }
         
+        // Mobile touch event handlers
+        function onTouchStart(event) {
+            event.preventDefault();
+            
+            if (event.touches.length === 1) {
+                const touch = event.touches[0];
+                touchStartTime = Date.now();
+                touchStartPos.x = touch.clientX;
+                touchStartPos.y = touch.clientY;
+                lastTouch = { x: touch.clientX, y: touch.clientY };
+                isLongPress = false;
+                
+                // Show touch feedback
+                showTouchFeedback(touch.clientX, touch.clientY);
+                
+                // Set up long press detection for plate placement
+                longPressTimer = setTimeout(() => {
+                    isLongPress = true;
+                    handleLongPress(touch);
+                }, 500); // 500ms for long press
+                
+                // Update mouse position for hover effects
+                updateMouseFromTouch(touch);
+                onMouseMove({ clientX: touch.clientX, clientY: touch.clientY });
+            }
+        }
+        
+        function onTouchMove(event) {
+            event.preventDefault();
+            
+            if (event.touches.length === 1 && !isLongPress) {
+                const touch = event.touches[0];
+                const moveDistance = Math.sqrt(
+                    Math.pow(touch.clientX - touchStartPos.x, 2) + 
+                    Math.pow(touch.clientY - touchStartPos.y, 2)
+                );
+                
+                // Cancel long press if finger moved too much
+                if (moveDistance > 10 && longPressTimer) {
+                    clearTimeout(longPressTimer);
+                    longPressTimer = null;
+                }
+                
+                // Update hover effects
+                updateMouseFromTouch(touch);
+                onMouseMove({ clientX: touch.clientX, clientY: touch.clientY });
+                lastTouch = { x: touch.clientX, y: touch.clientY };
+            }
+        }
+        
+        function onTouchEnd(event) {
+            event.preventDefault();
+            hideTouchFeedback();
+            
+            if (longPressTimer) {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
+            }
+            
+            if (!isLongPress && lastTouch) {
+                const touchDuration = Date.now() - touchStartTime;
+                const currentTime = Date.now();
+                
+                if (touchDuration < 500) { // Short tap
+                    // Check for double tap
+                    if (currentTime - lastTapTime < 300) { // 300ms double tap window
+                        tapCount++;
+                        if (tapCount === 2) {
+                            // Double tap detected
+                            handleDoubleTap(lastTouch);
+                            tapCount = 0;
+                            lastTapTime = 0;
+                        }
+                    } else {
+                        // Single tap
+                        tapCount = 1;
+                        lastTapTime = currentTime;
+                        
+                        // Delay single tap action to wait for potential double tap
+                        setTimeout(() => {
+                            if (tapCount === 1) {
+                                onMouseClick({ 
+                                    clientX: lastTouch.x, 
+                                    clientY: lastTouch.y 
+                                });
+                                tapCount = 0;
+                            }
+                        }, 300);
+                    }
+                }
+            }
+            
+            isLongPress = false;
+            lastTouch = null;
+        }
+        
+        function handleDoubleTap(touch) {
+            // Double tap to reset view
+            showMobileHint("Double tap: Resetting view", 1500);
+            
+            // Haptic feedback
+            if (navigator.vibrate) {
+                navigator.vibrate([50, 50, 50]);
+            }
+            
+            // Reset camera to default position
+            controls.reset();
+            
+            // Optional: reset to basic shelf
+            // resetToBasic();
+        }
+        
+        function handleLongPress(touch) {
+            // Long press triggers plate placement mode
+            showMobileHint("Long press detected - Place plates by tapping", 2000);
+            
+            // Trigger the same logic as mouse click but with indication it's a long press
+            const fakeEvent = { 
+                clientX: touch.clientX, 
+                clientY: touch.clientY,
+                isLongPress: true 
+            };
+            
+            // Give haptic feedback if available
+            if (navigator.vibrate) {
+                navigator.vibrate(50);
+            }
+            
+            onMouseClick(fakeEvent);
+        }
+        
+        function updateMouseFromTouch(touch) {
+            // Update mouse coordinates from touch
+            mouse.x = (touch.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(touch.clientY / window.innerHeight) * 2 + 1;
+        }
+        
+        function showTouchFeedback(x, y) {
+            const feedback = document.getElementById('touchFeedback');
+            feedback.style.left = x + 'px';
+            feedback.style.top = y + 'px';
+            feedback.classList.add('active');
+        }
+        
+        function hideTouchFeedback() {
+            const feedback = document.getElementById('touchFeedback');
+            feedback.classList.remove('active');
+        }
+        
+        function showMobileHint(message, duration = 3000) {
+            const hint = document.getElementById('mobileHint');
+            if (message) {
+                hint.textContent = message;
+            }
+            hint.classList.add('show');
+            
+            if (duration > 0) {
+                setTimeout(hideMobileHint, duration);
+            }
+        }
+        
+        function hideMobileHint() {
+            const hint = document.getElementById('mobileHint');
+            hint.classList.remove('show');
+        }
+        
+        function setupMobileControls() {
+            const controls = document.querySelector('.controls');
+            let isMinimized = false;
+            
+            // Make controls minimizable on mobile
+            controls.addEventListener('click', (e) => {
+                if (e.target === controls || e.target.closest('h4')) {
+                    isMinimized = !isMinimized;
+                    controls.classList.toggle('minimized', isMinimized);
+                    
+                    if (!isMinimized) {
+                        showMobileHint("Controls expanded", 1000);
+                    }
+                }
+            });
+            
+            // Initially minimize on small screens
+            if (window.innerWidth <= 480) {
+                isMinimized = true;
+                controls.classList.add('minimized');
+            }
+        }
+        
+        function showMobileTutorial() {
+            const tutorialSteps = [
+                "Welcome to Shelf Configurator mobile!",
+                "👆 Tap to select • 👆👆 Double-tap to reset view",
+                "👆⏰ Long press to add plates in empty areas",  
+                "🤏 Pinch to zoom • 👋 Drag to rotate view",
+                "☰ Tap menu header to minimize controls",
+                "Happy building! 🏗️"
+            ];
+            
+            let currentStep = 0;
+            
+            function showNextStep() {
+                if (currentStep < tutorialSteps.length) {
+                    showMobileHint(tutorialSteps[currentStep], 2500);
+                    currentStep++;
+                    
+                    if (currentStep < tutorialSteps.length) {
+                        setTimeout(showNextStep, 2800);
+                    }
+                }
+            }
+            
+            showNextStep();
+        }
+        
         // Add event listeners
         renderer.domElement.addEventListener('mousemove', onMouseMove, false);
         renderer.domElement.addEventListener('click', onMouseClick, false);
         
-        // Prevent OrbitControls from interfering with our interactions
+        // Touch event support for mobile devices
+        let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        let touchStartTime = 0;
+        let touchStartPos = { x: 0, y: 0 };
+        let longPressTimer = null;
+        let isLongPress = false;
+        let lastTouch = null;
+        let lastTapTime = 0;
+        let tapCount = 0;
+        
+        if (isMobile) {
+            // Show mobile hints
+            showMobileHint();
+            setTimeout(hideMobileHint, 3000);
+            
+            // Add controls minimizer for mobile
+            setupMobileControls();
+            
+            renderer.domElement.addEventListener('touchstart', onTouchStart, { passive: false });
+            renderer.domElement.addEventListener('touchmove', onTouchMove, { passive: false });
+            renderer.domElement.addEventListener('touchend', onTouchEnd, { passive: false });
+        }
+        
+        // Configure OrbitControls for better mobile experience
         controls.enablePan = true;
         controls.enableZoom = true;
         controls.enableRotate = true;
+        
+        if (isMobile) {
+            // Mobile-specific OrbitControls settings
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.1;
+            controls.rotateSpeed = 0.5;
+            controls.zoomSpeed = 1.2;
+            controls.panSpeed = 0.8;
+            
+            // Limit zoom range for better mobile UX
+            controls.minDistance = 2;
+            controls.maxDistance = 20;
+            
+            // Limit vertical rotation
+            controls.minPolarAngle = Math.PI / 6; // 30 degrees from top
+            controls.maxPolarAngle = Math.PI - Math.PI / 6; // 30 degrees from bottom
+            
+            // Add mobile-specific interaction hints
+            window.addEventListener('orientationchange', () => {
+                setTimeout(() => {
+                    camera.aspect = window.innerWidth / window.innerHeight;
+                    camera.updateProjectionMatrix();
+                    renderer.setSize(window.innerWidth, window.innerHeight);
+                    showMobileHint("Screen rotated - Controls adjusted", 2000);
+                }, 100);
+            });
+            
+            // Prevent context menu on long press (mobile Safari)
+            renderer.domElement.addEventListener('contextmenu', (e) => {
+                if (isMobile) {
+                    e.preventDefault();
+                }
+            });
+            
+            // Show initial mobile tutorial
+            setTimeout(() => {
+                if (isMobile) {
+                    showMobileTutorial();
+                }
+            }, 1000);
+        }
 
         // Initial setup and animation
         resetToBasic(); // Start with basic configuration
