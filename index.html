@@ -18,39 +18,7 @@
         </div>
     </div>
     
-    <!-- Hidden elements for system functionality -->
-    <select id="rodPattern" style="display:none;">
-        <option value="3P_22">3P_22</option>
-    </select>
-    <select id="plateSize" style="display:none;">
-        <option value="670">670mm</option>
-    </select>
-    <textarea id="shelfString" style="display:none;"></textarea>
     
-    <!-- Editing panels -->
-    <div id="rodEditPanel" class="editing-panel">
-        <h4>Edit Rod Pattern</h4>
-        <p>Current pattern: <span id="currentPattern"></span></p>
-        <p>Select new pattern:</p>
-        <div id="rodPatternOptions">
-            <!-- Pattern options will be populated by JavaScript -->
-        </div>
-        <button onclick="cancelRodEdit()" class="cancel-btn">Cancel</button>
-        <button onclick="deleteRod()" class="cancel-btn">Delete Rod</button>
-    </div>
-    
-    <div id="plateEditPanel" class="editing-panel">
-        <h4>Edit Plate</h4>
-        <p>Current size: <span id="currentPlateSize"></span>mm</p>
-        <p>Select new size:</p>
-        <button onclick="changePlateSize(670)">670mm</button>
-        <button onclick="changePlateSize(1270)">1270mm</button>
-        <button onclick="changePlateSize(1870)">1870mm</button>
-        <br>
-        <button onclick="cancelPlateEdit()" class="cancel-btn">Cancel</button>
-        <button onclick="deletePlate()" class="cancel-btn">Delete Plate</button>
-    </div>
-
     <!-- Mobile-specific UI elements -->
     <div id="touchFeedback" class="touch-feedback"></div>
     <div id="mobileHint" class="mobile-hint">Tap and hold to add plates • Pinch to zoom • Drag to rotate</div>
@@ -67,6 +35,8 @@
             listRequiredComponents,
             serializeShelfToString,
             parseShelfFromString,
+            AVAILABLE_ROD_PATTERNS,
+            calculateAttachmentPositions,
             CONSTANTS 
         } from './shelf-models.js';
 
@@ -123,57 +93,11 @@
         const envTexture = pmremGenerator.fromScene(new THREE.Scene()).texture;
         scene.environment = envTexture;
 
-        // Create procedural wood texture for plates
-        function createWoodTexture() {
-            const canvas = document.createElement('canvas');
-            canvas.width = 512;
-            canvas.height = 512;
-            const context = canvas.getContext('2d');
-            
-            // Base wood color
-            context.fillStyle = '#8B4513';
-            context.fillRect(0, 0, 512, 512);
-            
-            // Add wood grain lines
-            context.strokeStyle = '#654321';
-            context.lineWidth = 2;
-            for (let i = 0; i < 20; i++) {
-                const y = Math.random() * 512;
-                const waveHeight = 10 + Math.random() * 20;
-                context.beginPath();
-                context.moveTo(0, y);
-                for (let x = 0; x < 512; x++) {
-                    const waveY = y + Math.sin(x * 0.02) * waveHeight;
-                    context.lineTo(x, waveY);
-                }
-                context.stroke();
-            }
-            
-            // Add wood texture variation
-            const imageData = context.getImageData(0, 0, 512, 512);
-            const data = imageData.data;
-            for (let i = 0; i < data.length; i += 4) {
-                const variation = (Math.random() - 0.5) * 30;
-                data[i] = Math.max(0, Math.min(255, data[i] + variation));     // R
-                data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + variation)); // G  
-                data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + variation)); // B
-            }
-            context.putImageData(imageData, 0, 0);
-            
-            const texture = new THREE.CanvasTexture(canvas);
-            texture.wrapS = THREE.RepeatWrapping;
-            texture.wrapT = THREE.RepeatWrapping;
-            texture.repeat.set(4, 1); // Repeat texture along length
-            return texture;
-        }
-        
-        const woodTexture = createWoodTexture();
 
         // PBR Materials for realistic rendering
         const plateMaterial = new THREE.MeshStandardMaterial({ 
-            color: 0xffffff,           // White to show texture properly
-            map: woodTexture,          // Wood texture
-            roughness: 0.8,            // Slightly rough wood surface
+            color: 0x3E2723,           // Very dark brown - high contrast with background
+            roughness: 0.7,            // Natural wood surface roughness
             metalness: 0.0,            // Non-metallic
         });
         
@@ -184,22 +108,16 @@
             envMapIntensity: 1.0
         });
         
-        const attachmentMaterial = new THREE.MeshStandardMaterial({ 
-            color: 0x888888,           // Light gray metal
-            roughness: 0.4,            // Slightly rough metal
-            metalness: 0.9,            // Very metallic
-            envMapIntensity: 1.2
-        });
 
         // Wall background for wall-mounted shelf
-        const wallGeometry = new THREE.PlaneGeometry(6, 4);
+        const wallGeometry = new THREE.PlaneGeometry(10, 5);
         const wallMaterial = new THREE.MeshStandardMaterial({ 
             color: 0xf8f8f8, // Light wall color
             roughness: 0.8,
             metalness: 0.0
         });
         const wall = new THREE.Mesh(wallGeometry, wallMaterial);
-        wall.position.set(0, 0.5, -0.5); // Behind the shelf
+        wall.position.set(0, 0, -0.11); // Behind the shelf
         wall.receiveShadow = true;
         scene.add(wall);
 
@@ -208,7 +126,7 @@
         scene.add(shelfGroup);
 
         // Camera controls - position for wall-mounted shelf view (in meters)
-        camera.position.set(1.8, 0.4, 2.2); // Closer, more centered on wall-mounted shelf
+        camera.position.set(0.6, 0.8, 1.0); // Closer, more centered on wall-mounted shelf
         camera.lookAt(0.6, 0.4, 0); // Look towards center of wall-mounted shelf
         
         // Add interactive camera controls
@@ -228,7 +146,7 @@
         // Constants for visualization (proper metric units - everything in meters)
         const CM_TO_M = 0.01; // Convert cm to meters
         const MM_TO_M = 0.001; // Convert mm to meters
-        const PLATE_DEPTH = 300 * MM_TO_M; // 300mm = 0.3m depth
+        const PLATE_DEPTH = 200 * MM_TO_M; // 200mm = 0.2m depth
         const PLATE_THICKNESS = 18 * MM_TO_M; // 18mm = 0.018m thickness
         const ROD_DIAMETER = 12 * MM_TO_M; // 12mm = 0.012m diameter
         const ATTACHMENT_SIZE = 20 * MM_TO_M; // 20mm = 0.02m attachment point size
@@ -242,7 +160,10 @@
             const startRod = rods.get(startConnection[0]);
             const endRod = rods.get(endConnection[0]);
             
-            if (!startRod || !endRod) return new THREE.Group(); // Safety check
+            if (!startRod || !endRod){
+                console.error("Tried to add a plate with invalid connection");
+                return new THREE.Group();
+            } // Safety check
             
             // Calculate correct plate position based on attachment hole alignment
             // All plates have 35mm padding on each end
@@ -310,18 +231,21 @@
             // Attachment points on both front and back rods - small visual indicators only
             // Debug: Creating rod attachment points at heights: ${rodData.attachmentPoints.map(p => p.y).join(', ')}cm
             rodData.attachmentPoints.forEach((point, pointIndex) => {
-                const attachGeometry = new THREE.SphereGeometry(ATTACHMENT_SIZE * 0.3, 6, 4); // Small visual indicators
+                const attachGeometry = new THREE.SphereGeometry(ATTACHMENT_SIZE * 0.8, 8, 6); // More visible spheres
                 const material = point.plateId ? 
                     new THREE.MeshStandardMaterial({ 
-                        color: 0xff4444,  // Red if occupied
-                        roughness: 0.3,
-                        metalness: 0.8,
-                        emissive: 0x220000 // Slight red glow
+                        color: 0xff4444,      // Bright red if occupied
+                        roughness: 0.2,
+                        metalness: 0.7,
+                        emissive: 0x441111,   // Red glow
+                        emissiveIntensity: 0.3
                     }) : 
                     new THREE.MeshStandardMaterial({ 
-                        color: 0x888888,  // Gray if empty
-                        roughness: 0.4,
-                        metalness: 0.9
+                        color: 0x4CAF50,      // Green if available
+                        roughness: 0.3,
+                        metalness: 0.6,
+                        emissive: 0x114411,   // Subtle green glow
+                        emissiveIntensity: 0.2
                     });
                 
                 // Front attachment point
@@ -388,76 +312,6 @@
 
 
         // Interactive functions
-        window.addSampleShelf = function() {
-            currentShelf = createEmptyShelf();
-            
-            // Create a configuration matching the shelf examples - 3-rod system with mixed heights
-            const rod1 = addRod({ x: 0, z: 0 }, "4P_223", currentShelf);      // Left rod: 4 points
-            const rod2 = addRod({ x: 600, z: 0 }, "4P_223", currentShelf);    // Middle rod: 4 points  
-            const rod3 = addRod({ x: 1200, z: 0 }, "3P_22", currentShelf);    // Right rod: 3 points
-            
-            // Add plates at different levels (matching the SketchUp example)
-            addPlate(rod1, rod2, 20, 670, currentShelf);   // Top shelf left section
-            addPlate(rod2, rod3, 20, 670, currentShelf);   // Top shelf right section
-            addPlate(rod1, rod2, 40, 670, currentShelf);   // Middle shelf left section
-            addPlate(rod1, rod2, 70, 670, currentShelf);   // Bottom shelf left section
-            
-            visualizeShelf();
-        }
-
-        window.addPhysicalShelf = function() {
-            currentShelf = createEmptyShelf();
-            
-            // Create a configuration matching the physical wall-mounted shelf
-            // Simpler configuration with consistent rod heights
-            const rod1 = addRod({ x: 0, z: 0 }, "3P_22", currentShelf);       // Left rod: 3 points (0, 20, 40cm)
-            const rod2 = addRod({ x: 600, z: 0 }, "3P_22", currentShelf);     // Middle rod: 3 points  
-            const rod3 = addRod({ x: 1200, z: 0 }, "3P_22", currentShelf);    // Right rod: 3 points
-            
-            // Debug: Attachment points at 0cm, 20cm, 40cm for all rods
-            
-            // Add plates creating a grid-like structure
-            addPlate(rod1, rod2, 0, 670, currentShelf);    // Bottom shelf left (0cm level)
-            addPlate(rod2, rod3, 0, 670, currentShelf);    // Bottom shelf right (0cm level)
-            addPlate(rod1, rod2, 20, 670, currentShelf);   // Middle shelf left (20cm level)
-            addPlate(rod2, rod3, 20, 670, currentShelf);   // Middle shelf right (20cm level)
-            addPlate(rod1, rod2, 40, 670, currentShelf);   // Top shelf left (40cm level)
-            addPlate(rod2, rod3, 40, 670, currentShelf);   // Top shelf right (40cm level)
-            
-            visualizeShelf();
-        }
-
-        window.loadSketchupExample = function() {
-            // Load using string format - this matches the complex shelf in the SketchUp image
-            const shelfString = '0:4P_223[670,670,670,*] 600:4P_223[670,670,670,*] 1200:3P_22[670,*,*]';
-            document.getElementById('shelfString').value = shelfString;
-            loadFromString();
-        }
-
-        window.loadPlateSizeDemo = function() {
-            currentShelf = createEmptyShelf();
-            
-            // Create rods at standard positions for all three plate sizes
-            // Standard rod spacing is 600mm apart
-            const rod1 = addRod({ x: 0, z: 0 }, "3P_22", currentShelf);        // Rod at 0mm
-            const rod2 = addRod({ x: 600, z: 0 }, "3P_22", currentShelf);      // Rod at 600mm  
-            const rod3 = addRod({ x: 1200, z: 0 }, "3P_22", currentShelf);     // Rod at 1200mm
-            const rod4 = addRod({ x: 1800, z: 0 }, "3P_22", currentShelf);     // Rod at 1800mm
-            
-            // Add plates of different sizes at different levels to demonstrate alignment
-            // Each plate should have its attachment holes align perfectly with the rods
-            addPlate(rod1, rod2, 0, 670, currentShelf);    // 670mm plate: holes at 35mm and 635mm from left edge
-            addPlate(rod1, rod3, 20, 1270, currentShelf);  // 1270mm plate: holes at 35mm, 635mm, and 1235mm from left edge
-            addPlate(rod1, rod4, 40, 1870, currentShelf);  // 1870mm plate: holes at 35mm, 635mm, 1305mm, and 1835mm from left edge
-            
-            visualizeShelf();
-            
-            console.log("Plate size demo loaded with proper 35mm padding alignment:");
-            console.log("- Bottom (0cm): 670mm plate with attachment holes at rods 0mm and 600mm");
-            console.log("- Middle (20cm): 1270mm plate with attachment holes at rods 0mm, 600mm, and 1200mm");
-            console.log("- Top (40cm): 1870mm plate with attachment holes at rods 0mm, 600mm, 1200mm, and 1800mm");
-            console.log("- All plates positioned with 35mm padding extending beyond leftmost rod");
-        }
 
         window.resetToBasic = function() {
             currentShelf = createEmptyShelf();
@@ -475,86 +329,12 @@
         }
 
         let nextRodX = 0;
-        window.addRodAtPosition = function() {
-            const pattern = document.getElementById('rodPattern').value;
-            addRod({ x: nextRodX, z: 0 }, pattern, currentShelf);
-            nextRodX += CONSTANTS.ROD_HORIZONTAL_SPACING;
-            visualizeShelf();
-        }
-
-        window.addPlateAtLevel = function() {
-            const plateSize = parseInt(document.getElementById('plateSize').value);
-            
-            // Find first two adjacent rods that can support this plate
-            const rodArray = Array.from(currentShelf.rods.entries()).sort((a, b) => a[1].position.x - b[1].position.x);
-            
-            for (let i = 0; i < rodArray.length - 1; i++) {
-                const [rod1Id, rod1Data] = rodArray[i];
-                const [rod2Id, rod2Data] = rodArray[i + 1];
-                
-                // Find common attachment levels
-                const rod1Levels = new Set(rod1Data.attachmentPoints.map(p => p.y));
-                const rod2Levels = new Set(rod2Data.attachmentPoints.map(p => p.y));
-                const commonLevels = [...rod1Levels].filter(level => rod2Levels.has(level));
-                
-                if (commonLevels.length > 0) {
-                    const level = commonLevels[0]; // Use first available level
-                    const plateId = addPlate(rod1Id, rod2Id, level, plateSize, currentShelf);
-                    if (plateId) {
-                        visualizeShelf();
-                        return;
-                    }
-                }
-            }
-            
-            alert('Cannot add plate - need at least 2 rods with matching attachment levels');
-        }
-
-        window.loadFromString = function() {
-            const shelfString = document.getElementById('shelfString').value.trim();
-            
-            try {
-                currentShelf = parseShelfFromString(shelfString);
-                nextRodX = 0;
-                
-                // Update nextRodX to be after the rightmost rod
-                for (const [rodId, rodData] of currentShelf.rods) {
-                    nextRodX = Math.max(nextRodX, rodData.position.x + CONSTANTS.ROD_HORIZONTAL_SPACING);
-                }
-                
-                visualizeShelf();
-            } catch (error) {
-                alert(`Error parsing shelf string: ${error.message}`);
-            }
-        }
-        
-        // Global functions for editing panels
-        window.cancelRodEdit = function() {
-            cancelRodEdit();
-        }
-        
-        window.cancelPlateEdit = function() {
-            cancelPlateEdit();
-        }
-        
-        window.deleteRod = function() {
-            deleteRod();
-        }
-        
-        window.deletePlate = function() {
-            deletePlate();
-        }
-        
-        window.changePlateSize = function(size) {
-            changePlateSize(size);
-        }
 
         // Interactive editing system
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
         let hoveredObject = null;
         let selectedObject = null;
-        let interactionMode = 'browse'; // 'browse', 'add-rod', 'add-plate'
         
         // Store references to interactive objects
         const interactiveObjects = {
@@ -1122,32 +902,49 @@
         
         function onMouseClick(event) {
             if (hoveredObject) {
-                // Clear previous selection
-                if (selectedObject) {
-                    resetObjectMaterial(selectedObject);
-                }
-                
-                // Set new selection
-                selectedObject = hoveredObject;
-                applySelectionEffect(selectedObject);
-                
-                // Calculate intersection point for plates
-                let intersectionPoint = null;
-                if (interactiveObjects.plates.has(selectedObject)) {
+                // Handle different object types
+                if (interactiveObjects.rods.has(hoveredObject)) {
+                    // Rod clicks: no selection, just perform actions directly
+                    const rodId = interactiveObjects.rods.get(hoveredObject);
+                    
+                    // Calculate intersection point for rod clicks
+                    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+                    raycaster.setFromCamera(mouse, camera);
+                    const intersects = raycaster.intersectObject(hoveredObject);
+                    if (intersects.length > 0) {
+                        const intersectionPoint = intersects[0].point;
+                        
+                        // Check if this is a direct click on rod end for removal
+                        if (handleDirectRodEndClick(rodId, intersectionPoint)) {
+                            // End segment was removed, return
+                            return;
+                        }
+                        
+                        // Otherwise try segment toggle
+                        handleRodSegmentToggle(rodId, intersectionPoint);
+                    }
+                } else if (interactiveObjects.plates.has(hoveredObject)) {
+                    // Plate clicks: keep selection behavior
+                    // Clear previous selection
+                    if (selectedObject) {
+                        resetObjectMaterial(selectedObject);
+                    }
+                    
+                    // Set new selection
+                    selectedObject = hoveredObject;
+                    applySelectionEffect(selectedObject);
+                    
+                    // Calculate intersection point for plates
                     mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
                     mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
                     raycaster.setFromCamera(mouse, camera);
                     const intersects = raycaster.intersectObject(selectedObject);
+                    let intersectionPoint = null;
                     if (intersects.length > 0) {
                         intersectionPoint = intersects[0].point;
                     }
-                }
-                
-                // Handle different object types
-                if (interactiveObjects.rods.has(selectedObject)) {
-                    const rodId = interactiveObjects.rods.get(selectedObject);
-                    handleRodSegmentToggle(rodId, intersectionPoint);
-                } else if (interactiveObjects.plates.has(selectedObject)) {
+                    
                     const plateId = interactiveObjects.plates.get(selectedObject);
                     handlePlateClick(plateId, intersectionPoint);
                 }
@@ -1156,7 +953,7 @@
                 // Handle click on empty space - try to insert new rod
                 handleEmptySpaceClick(event);
                 
-                // Clear selection when clicking empty space
+                // Clear selection when clicking empty space (plates only now)
                 if (selectedObject) {
                     resetObjectMaterial(selectedObject);
                     selectedObject = null;
@@ -1218,64 +1015,6 @@
             }
         }
         
-        function findBestRodPosition(clickX) {
-            const STANDARD_SPACING = 600; // mm - standard distance between rods
-            const MIN_DISTANCE = 300; // mm - minimum distance from existing rods
-            
-            // Get all existing rod X positions
-            const existingPositions = [];
-            for (const [rodId, rodData] of currentShelf.rods) {
-                existingPositions.push(rodData.position.x);
-            }
-            existingPositions.sort((a, b) => a - b);
-            
-            // If no rods exist, place at origin
-            if (existingPositions.length === 0) {
-                return 0;
-            }
-            
-            // Find the closest standard grid position to the click
-            let candidatePositions = [];
-            
-            // Generate positions based on standard spacing from existing rods
-            for (const existingX of existingPositions) {
-                // Try positions at standard intervals
-                for (let offset = -3 * STANDARD_SPACING; offset <= 3 * STANDARD_SPACING; offset += STANDARD_SPACING) {
-                    if (offset !== 0) { // Don't place at existing rod position
-                        candidatePositions.push(existingX + offset);
-                    }
-                }
-            }
-            
-            // Also try the click position itself if it's reasonable
-            candidatePositions.push(clickX);
-            
-            // Filter candidates that are too close to existing rods
-            const validPositions = candidatePositions.filter(pos => {
-                return existingPositions.every(existingPos => 
-                    Math.abs(pos - existingPos) >= MIN_DISTANCE
-                );
-            });
-            
-            if (validPositions.length === 0) {
-                console.log("No valid position found for new rod");
-                return null;
-            }
-            
-            // Find the valid position closest to the click
-            let bestPosition = validPositions[0];
-            let bestDistance = Math.abs(bestPosition - clickX);
-            
-            for (const pos of validPositions) {
-                const distance = Math.abs(pos - clickX);
-                if (distance < bestDistance) {
-                    bestDistance = distance;
-                    bestPosition = pos;
-                }
-            }
-            
-            return Math.round(bestPosition);
-        }
         
         function applyHoverEffect(object) {
             if (!originalMaterials.has(object)) {
@@ -1299,6 +1038,49 @@
         }
         
         
+        function handleDirectRodEndClick(rodId, intersectionPoint) {
+            if (!intersectionPoint) return false;
+            
+            const rodData = currentShelf.rods.get(rodId);
+            if (!rodData) return false;
+            
+            const clickY = intersectionPoint.y / CM_TO_M; // Convert to cm
+            
+            // Debug: Log click information
+            const attachmentYs = rodData.attachmentPoints.map(p => p.y).sort((a, b) => a - b);
+            console.log(`Rod click at Y=${clickY.toFixed(1)}cm, attachment points: [${attachmentYs.join(', ')}]cm`);
+            
+            // Find which segment was clicked
+            const segmentInfo = findClickedRodSegment(rodData, clickY);
+            if (!segmentInfo) {
+                console.log("No segment found for click position");
+                return false;
+            }
+            
+            console.log(`Clicked segment ${segmentInfo.segmentIndex}: ${segmentInfo.bottomY}cm to ${segmentInfo.topY}cm (${segmentInfo.currentLength}cm)`);
+            
+            const totalSegments = attachmentYs.length - 1;
+            const isBottomSegment = segmentInfo.segmentIndex === 0;
+            const isTopSegment = segmentInfo.segmentIndex === totalSegments - 1;
+            console.log(`Segment analysis: bottom=${isBottomSegment}, top=${isTopSegment}, total segments=${totalSegments}`);
+            
+            // Check if this is an end segment that can be removed  
+            const isBottomEnd = segmentInfo.segmentIndex === 0;
+            const isTopEnd = segmentInfo.segmentIndex === totalSegments - 1;
+            
+            // Only handle end segments
+            if (!isBottomEnd && !isTopEnd) return false;
+            
+            // Check if this end segment can be removed
+            if (canRemoveEndSegment(rodId, segmentInfo)) {
+                console.log(`Direct click: Removing end segment ${segmentInfo.segmentIndex} from rod ${rodId}`);
+                removeEndSegment(rodId, segmentInfo);
+                return true; // Indicate that segment was removed
+            }
+            
+            return false; // End segment cannot be removed or other issue
+        }
+
         function handleRodSegmentToggle(rodId, intersectionPoint) {
             if (!intersectionPoint) return;
             
@@ -1557,15 +1339,8 @@
                 return false; // Not an end segment
             }
             
-            // Check if attachment points at both ends of this segment have no plates
-            const bottomAttachmentIndex = segmentInfo.segmentIndex;
-            const topAttachmentIndex = segmentInfo.segmentIndex + 1;
-            
-            const bottomHasPlate = hasPlateAtAttachmentPoint(rodId, bottomAttachmentIndex);
-            const topHasPlate = hasPlateAtAttachmentPoint(rodId, topAttachmentIndex);
-            
-            // Can only remove if both attachment points are free
-            return !bottomHasPlate && !topHasPlate;
+            // Always allow removal of end segments (plates will be handled in removeEndSegment)
+            return true;
         }
         
         function hasPlateAtAttachmentPoint(rodId, attachmentIndex) {
@@ -1602,10 +1377,12 @@
                 // Remove first segment - remove the first digit from segments
                 const newSegments = segments.substring(1);
                 newPattern = `${newPointCount}P_${newSegments}`;
+                console.log(`Removing BOTTOM segment: ${currentPattern} -> ${newPattern}`);
             } else if (isTopEnd) {
                 // Remove last segment - remove the last digit from segments  
                 const newSegments = segments.substring(0, segments.length - 1);
                 newPattern = `${newPointCount}P_${newSegments}`;
+                console.log(`Removing TOP segment: ${currentPattern} -> ${newPattern}`);
             } else {
                 console.error("Attempted to remove non-end segment");
                 return;
@@ -1619,11 +1396,67 @@
             
             console.log(`Removing end segment: ${currentPattern} -> ${newPattern}`);
             
+            // Find plates that will lose support due to the removed attachment point
+            // Only remove plates that are actually attached to the removed end
+            const removedAttachmentIndex = isTopEnd ? (attachmentPoints.length - 1) : 0;
+            const removedAttachmentLevel = attachmentPoints[removedAttachmentIndex];
+            const platesToRemove = [];
+            
+            console.log(`Checking for plates at removed attachment level: ${removedAttachmentLevel}cm (index ${removedAttachmentIndex})`);
+            
+            for (const [plateId, plateData] of currentShelf.plates) {
+                let hasConnectionToRemovedPoint = false;
+                let hasOtherValidConnections = false;
+                
+                // Check all connections of this plate
+                for (const [connectedRodId, connectedAttachmentIndex] of plateData.connections) {
+                    if (connectedRodId === rodId && connectedAttachmentIndex === removedAttachmentIndex) {
+                        hasConnectionToRemovedPoint = true;
+                    } else {
+                        // This is a connection to a different rod or different attachment point
+                        hasOtherValidConnections = true;
+                    }
+                }
+                
+                // Only remove plates that:
+                // 1. Connect to the removed attachment point, AND
+                // 2. Don't have sufficient other connections to remain structurally valid
+                if (hasConnectionToRemovedPoint) {
+                    if (!hasOtherValidConnections) {
+                        // Plate only connects to the removed attachment - must be removed
+                        platesToRemove.push(plateId);
+                        console.log(`Removing plate ${plateId} (only supported by removed attachment point)`);
+                    } else {
+                        // Plate has other connections - check if it's still structurally valid
+                        const remainingConnections = plateData.connections.filter(
+                            ([connectedRodId, connectedAttachmentIndex]) => 
+                            !(connectedRodId === rodId && connectedAttachmentIndex === removedAttachmentIndex)
+                        );
+                        
+                        if (remainingConnections.length >= 2) {
+                            // Plate still has multiple support points - modify but don't remove
+                            console.log(`Plate ${plateId} remains supported by ${remainingConnections.length} other connections`);
+                            // Update the plate to remove the connection to the removed attachment
+                            plateData.connections = remainingConnections;
+                        } else {
+                            // Plate would have insufficient support - remove it
+                            platesToRemove.push(plateId);
+                            console.log(`Removing plate ${plateId} (insufficient remaining support)`);
+                        }
+                    }
+                }
+            }
+            
+            // Remove plates that lost structural support
+            for (const plateId of platesToRemove) {
+                currentShelf.plates.delete(plateId);
+            }
+            
             // Replace the rod with the shortened version
             currentShelf.rods.delete(rodId);
             const newRodId = addRod(position, newPattern, currentShelf);
             
-            console.log(`Rod ${rodId} shortened to ${newPattern} (new ID: ${newRodId})`);
+            console.log(`Rod ${rodId} shortened to ${newPattern} (new ID: ${newRodId}), removed ${platesToRemove.length} plates that lost structural support`);
             visualizeShelfWithAnimation();
         }
         
@@ -2374,7 +2207,6 @@
                 }
             }
             
-            console.log(`Click at ${clickX}mm, best config:`, bestConfig);
             return bestConfig;
         }
         
@@ -2512,7 +2344,7 @@
             const availablePatterns = [
                 '1P',
                 '2P_2', '2P_3',
-                '3P_22', '3P_23', '3P_32', 
+                '3P_22', '3P_23', '3P_32',
                 '4P_223', '4P_232', '4P_322',
                 '5P_2232', '5P_2322', '5P_3223',
                 '6P_22322', '6P_32232',
@@ -2522,26 +2354,37 @@
             const currentHeight = calculatePatternHeight(currentPattern);
             
             if (direction === 'up') {
-                // Find pattern that adds exactly 20cm (one new segment)
+                // Find pattern that adds exactly 20cm (preferred) or close to it
                 const targetHeight = currentHeight + 20;
                 let bestPattern = null;
                 let bestHeight = Infinity;
+                let exactMatch = null;
                 
                 for (const pattern of availablePatterns) {
                     const height = calculatePatternHeight(pattern);
-                    // Prefer patterns that add exactly 20cm, but allow taller if needed
-                    if (height >= targetHeight && height < bestHeight) {
+                    
+                    // Check for exact 20cm increment match first
+                    if (height === targetHeight) {
+                        exactMatch = pattern;
+                        break;
+                    }
+                    
+                    // Otherwise find the smallest pattern that's taller than current
+                    if (height > currentHeight && height < bestHeight) {
                         bestPattern = pattern;
                         bestHeight = height;
                     }
                 }
                 
-                // If no pattern adds exactly 20cm, log the actual increment
-                if (bestPattern && bestHeight > targetHeight) {
-                    console.log(`No pattern available for +20cm increment, using +${bestHeight - currentHeight}cm instead`);
+                const finalPattern = exactMatch || bestPattern;
+                const finalHeight = exactMatch ? targetHeight : bestHeight;
+                
+                // Only log when we're forced to use a larger increment
+                if (finalPattern && !exactMatch && finalHeight > targetHeight) {
+                    console.log(`No pattern available for +20cm increment from ${currentHeight}cm, using ${finalPattern} (+${finalHeight - currentHeight}cm instead)`);
                 }
                 
-                return bestPattern;
+                return finalPattern;
             } else {
                 // For downward extension, we would need patterns that extend below
                 // This is more complex as it would require repositioning existing plates
@@ -2787,7 +2630,13 @@
                                     
                                     // Determine why it's invalid
                                     if (leftPoint.plateId || rightPoint.plateId) {
-                                        invalidReason = 'Attachment points occupied';
+                                        // Check if merging/extending is possible before marking as invalid
+                                        const canMergeLeft = leftPoint.plateId && canMergeAtPosition(leftRod.id, leftPoint.y);
+                                        const canMergeRight = rightPoint.plateId && canMergeAtPosition(rightRod.id, rightPoint.y);
+                                        
+                                        if (!canMergeLeft && !canMergeRight) {
+                                            invalidReason = 'Attachment points occupied';
+                                        }
                                     } else if (plateWidth < 500) {
                                         invalidReason = 'Too narrow for plate';
                                     } else if (plateWidth > 1800) {
@@ -3022,6 +2871,25 @@
             console.log(`INVALID PLATE PLACEMENT: ${plateZoneConfig.invalidReason} at ${plateZoneConfig.attachmentLevel}cm`);
         }
         
+        function createRodAttachmentPoints(pattern, position) {
+            // Get the rod pattern object from AVAILABLE_ROD_PATTERNS
+            const rodPattern = AVAILABLE_ROD_PATTERNS.find(p => p.id === pattern);
+            if (!rodPattern) {
+                console.error(`Rod pattern ${pattern} not found`);
+                return [];
+            }
+            
+            // Calculate attachment Y positions
+            const yPositions = calculateAttachmentPositions(rodPattern);
+            
+            // Convert to 3D points with the rod's X,Z position
+            return yPositions.map(y => ({
+                x: position.x,
+                y: y,
+                z: position.z
+            }));
+        }
+
         function showRodSegmentTogglePreview(segmentToggleConfig) {
             clearPreviews();
             
@@ -3530,8 +3398,6 @@
             // Update TWEEN animations
             TWEEN.update();
             
-            // Remove auto-rotation now that we have manual controls
-            // shelfGroup.rotation.y += 0.005;
             
             renderer.render(scene, camera);
         }

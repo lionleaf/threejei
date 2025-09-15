@@ -48,6 +48,8 @@ The rods are described in terms of gaps between shelf attachment points.
 The gaps between attachment points are either 30cm or 20cm.
 The rods are identified with a string like so: "{attachment points}P_{N*10cm gap between points}*" e.g. "3P_23" means 3 attachment points, the first gap (between the first and second point) is 20cm the second gap is 30cm (between the second and third). And "5P_2232" is 5 attachment points and 20cm, 20cm, 30cm, and 20cm gaps, going from the bottom and upwards.
 
+**IMPORTANT CONSTRAINT**: The list of available rod patterns and plate sizes are FIXED and cannot be modified. These represent the only components being manufactured and available for purchase.
+
 The available rods are:
 1P									
 2P_2									
