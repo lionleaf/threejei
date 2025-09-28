@@ -150,6 +150,9 @@
         const PLATE_THICKNESS = 18 * MM_TO_M; // 18mm = 0.018m thickness
         const ROD_DIAMETER = 12 * MM_TO_M; // 12mm = 0.012m diameter
         const ATTACHMENT_SIZE = 20 * MM_TO_M; // 20mm = 0.02m attachment point size
+        const ROD_WIDTH = ROD_DIAMETER; // For consistency
+        const ROD_DEPTH = ROD_DIAMETER; // For consistency
+        const ROD_HEIGHT_PER_CM = CM_TO_M; // 1cm = 0.01m
 
         // 3D object creation functions
         function createPlate3D(plateData, rods, animate = false) {
@@ -2960,7 +2963,7 @@
             const gaps = parts[1];
             let totalHeight = 0;
             for (let i = 0; i < gaps.length; i++) {
-                totalHeight += parseInt(gaps[i]) * 10; // Convert to cm
+                totalHeight += parseInt(gaps[i]);
             }
             return totalHeight;
         }
