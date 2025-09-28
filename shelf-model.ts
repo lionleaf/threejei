@@ -36,6 +36,7 @@ export interface Rod {
 export interface Plate {
   sku_id: number; // ID to match with a PlateSKU
   connections: number[]; // rodIds, attachmentIndex implicit by order
+  y: number; // Y coordinate of the plate (constant across all attachment points)
 }
 
 export interface ShelfMetadata {
@@ -54,6 +55,8 @@ export interface Shelf {
 }
 
 // Constants
+export const PLATE_PADDING_MM = 35;
+
 export const AVAILABLE_RODS: RodSKU[] = [
   { sku_id: 1, name: "1P", spans: [] },
   { sku_id: 2, name: "2P_2", spans: [200] },
@@ -73,10 +76,10 @@ export const AVAILABLE_RODS: RodSKU[] = [
 ];
 
 export const AVAILABLE_PLATES: PlateSKU[] = [
-  { sku_id: 1, name: "670mm", spans: [35, 600, 35], depth:200 },
-  { sku_id: 2, name: "1270mm-single", spans: [35, 1200, 35], depth:200 },
-  { sku_id: 3, name: "1270mm-double", spans: [35, 600, 600, 35], depth:200 },
-  { sku_id: 4, name: "1870mm", spans: [35, 600, 600, 600, 35], depth:200 }
+  { sku_id: 1, name: "670mm", spans: [PLATE_PADDING_MM, 600, PLATE_PADDING_MM], depth:200 },
+  { sku_id: 2, name: "1270mm-single", spans: [PLATE_PADDING_MM, 1200, PLATE_PADDING_MM], depth:200 },
+  { sku_id: 3, name: "1270mm-double", spans: [PLATE_PADDING_MM, 600, 600, PLATE_PADDING_MM], depth:200 },
+  { sku_id: 4, name: "1870mm", spans: [PLATE_PADDING_MM, 600, 600, 600, PLATE_PADDING_MM], depth:200 }
 ];
 
 // Core functions
@@ -89,12 +92,28 @@ export function createEmptyShelf(): Shelf {
 }
 
 export function findClosestAttachment(cursorY: number, attachmentPoints: AttachmentPoint[]): number {
-  // TODO: implement
-  return 0;
+  if (attachmentPoints.length === 0) return -1;
+
+  let closestIndex = 0;
+  let closestDistance = Math.abs(attachmentPoints[0].y - cursorY);
+
+  for (let i = 1; i < attachmentPoints.length; i++) {
+    const distance = Math.abs(attachmentPoints[i].y - cursorY);
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestIndex = i;
+    }
+  }
+
+  return closestIndex;
 }
 
 export function intersectRay(ray: {origin: Vec3f, dir: Vec3f}, shelf: Shelf): any {
-  // TODO: implement
+  // Basic raycasting implementation - find closest rod or plate intersection
+  const intersections: {type: 'rod' | 'plate', id: number, distance: number}[] = [];
+
+  // For now, return null as this requires more complex 3D geometry calculations
+  // that would need specific bounding box/mesh intersection logic
   return null;
 }
 
@@ -109,6 +128,18 @@ export function calculateAttachmentPositions(pattern: RodSKU): number[] {
   }
 
   return positions;
+}
+
+function findClosestRod(shelf: Shelf, referenceRod: Rod, direction: Direction): number | undefined {
+  const rodEntries = Array.from(shelf.rods.entries())
+    .filter(([_, rod]) => direction === Direction.Right ?
+      rod.position.x > referenceRod.position.x :
+      rod.position.x < referenceRod.position.x)
+    .sort(([_a, a], [_b, b]) => direction === Direction.Right ?
+      a.position.x - b.position.x :
+      b.position.x - a.position.x);
+
+  return rodEntries[0]?.[0]; // Return the ID of the closest rod
 }
 
 export function addRod(position: Vec2f, sku_id: number, shelf: Shelf): number {
@@ -147,6 +178,15 @@ export function addPlate(sku_id: number, rodIds: number[], shelf: Shelf): number
   const attachmentCount = plateSKU.spans.length - 1;
 
   const plateId = shelf.metadata.nextId++;
+
+  // Determine the plate's Y coordinate from the first attachment point that will be used
+  // Since plates use attachment points starting from index 0, we use the Y coordinate of attachment point 0
+  let plateY = 0;
+  const firstRod = shelf.rods.get(rodIds[0]);
+  if (firstRod && firstRod.attachmentPoints[0]) {
+    plateY = firstRod.attachmentPoints[0].y;
+  }
+
   for (const rodId of rodIds) {
     const rod = shelf.rods.get(rodId);
     if (rod) {
@@ -158,8 +198,17 @@ export function addPlate(sku_id: number, rodIds: number[], shelf: Shelf): number
     }
   }
 
-  shelf.plates.set(plateId, { sku_id, connections: rodIds });
+  shelf.plates.set(plateId, { sku_id, connections: rodIds, y: plateY });
   return plateId;
+}
+
+function findAttachmentPointByY(rod: Rod, targetY: number): number | undefined {
+  for (let i = 0; i < rod.attachmentPoints.length; i++) {
+    if (rod.attachmentPoints[i].y === targetY) {
+      return i;
+    }
+  }
+  return undefined;
 }
 
 export function tryExtendPlate(plateId: number, extendDirection: Direction, shelf: Shelf): boolean{
@@ -175,97 +224,103 @@ export function tryExtendPlate(plateId: number, extendDirection: Direction, shel
   const connectedRods = plate.connections.map(rodId => shelf.rods.get(rodId)).filter(rod => rod !== undefined);
   if (connectedRods.length === 0) return false;
 
-  // Find the closest rod in the extension direction
+  // Find the closest rod in the extension direction and calculate new spans
   let targetRod: Rod | undefined;
   let newConnections: number[];
+  const newSpans: number[] = [];
 
   if (extendDirection === Direction.Right) {
     // Find closest rod to the right of rightmost connected rod
     const rightmostRod = connectedRods[connectedRods.length - 1];
-    targetRod = Array.from(shelf.rods.values())
-      .filter(rod => rod.position.x > rightmostRod.position.x)
-      .sort((a, b) => a.position.x - b.position.x)[0]; // Closest to the right
+    const targetRodId = findClosestRod(shelf, rightmostRod, Direction.Right);
     newConnections = [...plate.connections];
+
+    if (targetRodId !== undefined) {
+      targetRod = shelf.rods.get(targetRodId)!;
+      // Copy existing spans and add new span to target rod
+      newSpans.push(...currentSKU.spans);
+      const distanceToTarget = targetRod.position.x - rightmostRod.position.x;
+      newSpans[newSpans.length - 1] = distanceToTarget; // Replace end padding with actual distance
+      newSpans.push(PLATE_PADDING_MM); // Add new end padding
+      newConnections.push(targetRodId);
+    }
   } else {
     // Find closest rod to the left of leftmost connected rod
     const leftmostRod = connectedRods[0];
-    targetRod = Array.from(shelf.rods.values())
-      .filter(rod => rod.position.x < leftmostRod.position.x)
-      .sort((a, b) => b.position.x - a.position.x)[0]; // Closest to the left
+    const targetRodId = findClosestRod(shelf, leftmostRod, Direction.Left);
     newConnections = [...plate.connections];
+
+    if (targetRodId !== undefined) {
+      targetRod = shelf.rods.get(targetRodId)!;
+      // Add new span from target rod and copy existing spans
+      const distanceToTarget = leftmostRod.position.x - targetRod.position.x;
+      newSpans.push(PLATE_PADDING_MM); // Start padding
+      newSpans.push(distanceToTarget); // Distance to existing plate
+      newSpans.push(...currentSKU.spans.slice(1)); // Skip old start padding
+      newConnections.unshift(targetRodId);
+    }
   }
 
-  if (!targetRod) return false;
+  if (targetRod === undefined) return false;
 
   // Check if target rod has available attachment points at same Y level
-  // For simplicity, use first attachment point (index 0) for now
-  if (!targetRod.attachmentPoints[0] || targetRod.attachmentPoints[0].plateId !== undefined) {
-    return false; // Attachment point occupied or doesn't exist
+  const targetAttachmentIndex = findAttachmentPointByY(targetRod, plate.y);
+  if (targetAttachmentIndex === undefined) {
+    // TODO: Call to function to see if we can swap the rod with a different SKU without moving any other plates
+    // And if we can, we should make sure to only change the rod SKU once we know the plate extension succeeds
+
+    // For now we don't handle this case:
+    return false;
   }
 
-  // Calculate the required spans for the new plate
-  const newSpans: number[] = [];
-  if (extendDirection === Direction.Right) {
-    // Copy existing spans and add new span to target rod
-    newSpans.push(...currentSKU.spans);
-    const rightmostRod = connectedRods[connectedRods.length - 1];
-    const distanceToTarget = targetRod.position.x - rightmostRod.position.x;
-    newSpans[newSpans.length - 1] = distanceToTarget; // Replace end padding with actual distance
-    newSpans.push(35); // Add new end padding
-  } else {
-    // Add new span from target rod and copy existing spans
-    const leftmostRod = connectedRods[0];
-    const distanceToTarget = leftmostRod.position.x - targetRod.position.x;
-    newSpans.push(35); // Start padding
-    newSpans.push(distanceToTarget); // Distance to existing plate
-    newSpans.push(...currentSKU.spans.slice(1)); // Skip old start padding
+  const targetAttachmentPoint = targetRod.attachmentPoints[targetAttachmentIndex];
+  if (targetAttachmentPoint.plateId !== undefined) {
+    // TODO: Call to function that tries to merge the two plates
+    // return tryMergePlates()
+    return false; // Return false for now
   }
 
-  // Find plate SKU that matches the new span pattern
+  // Find plate SKU that exactly matches the new span pattern
   const targetSKU = AVAILABLE_PLATES.find(sku => {
     if (sku.spans.length !== newSpans.length) return false;
-    const totalLength = sku.spans.reduce((sum, span) => sum + span, 0);
-    const requiredLength = newSpans.reduce((sum, span) => sum + span, 0);
-    return totalLength === requiredLength;
+    return sku.spans.every((span, index) => span === newSpans[index]);
   });
   if (!targetSKU) return false; // No plate available for this span pattern
 
   // Perform the extension
-  // Remove old plate connections from all rods
-  for (const rodId of plate.connections) {
-    const rod = shelf.rods.get(rodId);
-    if (rod && rod.attachmentPoints[0]) {
-      rod.attachmentPoints[0].plateId = undefined;
-    }
-  }
-
-  // Update plate connections and SKU
-  const targetRodId = Array.from(shelf.rods.entries()).find(([_, rod]) => rod === targetRod)?.[0];
-  if (!targetRodId) return false;
-
-  if (extendDirection === Direction.Right) {
-    newConnections.push(targetRodId);
-  } else {
-    newConnections.unshift(targetRodId);
-  }
-
   plate.sku_id = targetSKU.sku_id;
   plate.connections = newConnections;
-
-  // Add new plate connections to all rods
-  for (const rodId of newConnections) {
-    const rod = shelf.rods.get(rodId);
-    if (rod && rod.attachmentPoints[0]) {
-      rod.attachmentPoints[0].plateId = plateId;
-    }
+  if (targetRod.attachmentPoints[targetAttachmentIndex]) {
+    targetRod.attachmentPoints[targetAttachmentIndex].plateId = plateId;
   }
 
   return true;
 }
 
 export function removePlate(plateId: number, shelf: Shelf): boolean {
-  // TODO: implement
-  return false;
+  const plate = shelf.plates.get(plateId);
+  if (!plate) return false;
+
+
+  // Remove plate connections from all connected rods
+  for (const rodId of plate.connections) {
+    const rod = shelf.rods.get(rodId);
+    if (rod) {
+      const attachmentIndex = findAttachmentPointByY(rod, plate.y);
+      if (attachmentIndex !== undefined) {
+        const attachmentPoint = rod.attachmentPoints[attachmentIndex];
+        if (attachmentPoint.plateId === plateId) {
+          attachmentPoint.plateId = undefined;
+        } else {
+          console.warn("Rod missing expected plate connection");
+        }
+      }
+    }
+  }
+
+  // Remove the plate from the shelf
+  shelf.plates.delete(plateId);
+  return true;
 }
 
 // TODO: Add remaining exports as they are implemented
