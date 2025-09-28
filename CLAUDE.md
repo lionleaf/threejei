@@ -377,6 +377,13 @@ This design prioritizes discoverability, immediate feedback, and the joy of dire
 - Test edge cases with minimum/maximum sizes
 - Validate structural integrity calculations
 
+## Current Development Status
+
+### TypeScript Rewrite in Progress
+- **Active file**: `shelf-model.ts` - Clean TypeScript implementation with proper types
+- **Legacy file**: `shelf-models.js` - **IGNORE THIS FILE** - Old implementation, do not use
+- **Test file**: `test-shelf-model.ts` - Simple test suite for TypeScript implementation
+
 ## Notes
 - Check package.json for existing dependencies before adding new ones
 - Follow existing naming conventions in the codebase
