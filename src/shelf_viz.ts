@@ -9,9 +9,7 @@ import {
 } from './shelf-model.js';
 
 // Declare THREE as global (loaded via CDN)
-declare global {
-  const THREE: any;
-}
+declare const THREE: any;
 
 // General shelf visualizer
 function visualizeShelf(shelf: Shelf): void {
