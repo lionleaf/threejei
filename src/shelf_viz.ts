@@ -29,7 +29,7 @@ function visualizeShelf(shelf: Shelf): void {
       new THREE.CylinderGeometry(20, 20, height),
       new THREE.MeshBasicMaterial({ color: 0x666666 })
     );
-    rodMesh.position.set(rod.position.x, height / 2, rod.position.z);
+    rodMesh.position.set(rod.position.x, rod.position.y + height / 2, 0);
     scene.add(rodMesh);
   });
 
@@ -50,16 +50,20 @@ function visualizeShelf(shelf: Shelf): void {
       new THREE.BoxGeometry(plateWidth, 30, plateSKU.depth),
       new THREE.MeshBasicMaterial({ color: 0x8B4513 })
     );
-    plateMesh.position.set(centerX, plate.y + 15, 0);
+    plateMesh.position.set(centerX, plate.y, plateSKU.depth / 2);
     scene.add(plateMesh);
   });
 
   // Calculate shelf center for camera target
-  const positions = Array.from(shelf.rods.values()).map(rod => rod.position.x);
-  const minX = Math.min(...positions);
-  const maxX = Math.max(...positions);
+  const rods = Array.from(shelf.rods.values());
+  const xPositions = rods.map(rod => rod.position.x);
+  const yPositions = rods.map(rod => rod.position.y);
+  const minX = Math.min(...xPositions);
+  const maxX = Math.max(...xPositions);
+  const minY = Math.min(...yPositions);
+  const maxY = Math.max(...yPositions);
   const centerX = (minX + maxX) / 2;
-  const centerY = 150; // Approximate middle height of shelf
+  const centerY = (minY + maxY) / 2 + 150; // Add typical shelf height
 
   // Set up OrbitControls
   const controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -72,8 +76,11 @@ function visualizeShelf(shelf: Shelf): void {
   // Set camera target to shelf center
   controls.target.set(centerX, centerY, 0);
 
-  // Position camera for good initial view
-  camera.position.set(centerX + 400, centerY + 200, 600);
+  // Position camera for wall-mounted shelf view (looking at XY plane from positive Z)
+  const shelfWidth = maxX - minX;
+  const shelfHeight = maxY - minY + 300; // Add rod height
+  const cameraDistance = Math.max(shelfWidth, shelfHeight) * 0.8 + 400;
+  camera.position.set(centerX, centerY, cameraDistance);
   controls.update();
 
   // Handle window resize
@@ -96,9 +103,9 @@ function visualizeShelf(shelf: Shelf): void {
 // Create and display a sample shelf
 const shelf = createEmptyShelf();
 
-const rod1 = addRod({ x: 0, z: 0 }, 1, shelf);
-const rod2 = addRod({ x: 600, z: 0 }, 1, shelf);
-const rod3 = addRod({ x: 1200, z: 0 }, 4, shelf);
+const rod1 = addRod({ x: 0, y: 0 }, 1, shelf);
+const rod2 = addRod({ x: 600, y: 0 }, 1, shelf);
+const rod3 = addRod({ x: 1200, y: 0 }, 5, shelf);
 
 addPlate(1, [rod1, rod2], shelf);
 addPlate(1, [rod2, rod3], shelf);

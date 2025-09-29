@@ -13,7 +13,7 @@ export interface PlateSKU {
 
 export interface Vec2f {
   x: number; // mm
-  z: number; // mm
+  y: number; // mm
 }
 
 export interface Vec3f {
