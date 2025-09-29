@@ -1,4 +1,4 @@
-import { createEmptyShelf, addRod, addPlate, tryExtendPlate, removePlate, Direction } from './shelf-model.ts';
+import { createEmptyShelf, addRod, addPlate, tryExtendPlate, removePlate, Direction } from './shelf-model.js';
 
 const failedTests: string[] = [];
 

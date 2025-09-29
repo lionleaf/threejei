@@ -1,8 +1,18 @@
 {
-  "name": "shelf-configurator",
-  "type": "module",
+  "name": "threejei-shelf-configurator",
   "version": "1.0.0",
+  "description": "Wall mounted shelf configurator system",
+  "type": "module",
   "scripts": {
-    "test": "node test-shelf.js"
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "dev": "tsc --watch",
+    "test": "node dist/test-shelf-model.js",
+    "serve": "http-server -p 8000 -c-1",
+    "start": "npm run build && npm run serve"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "http-server": "^14.1.1"
   }
 }
