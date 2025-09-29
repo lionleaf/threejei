@@ -13,14 +13,14 @@ function testPlateValidation() {
   const shelf1 = createEmptyShelf();
   const rod1 = addRod({ x: 0, y: 0 }, 1, shelf1);
   const rod2 = addRod({ x: 600, y: 0 }, 1, shelf1);
-  const plate1 = addPlate(1, [rod1, rod2], shelf1); // 670mm plate
+  const plate1 = addPlate(0, 1, [rod1, rod2], shelf1); // 670mm plate
   test('Valid 670mm plate', plate1 > 0);
 
   // Test 2: Invalid spacing for 670mm plate
   const shelf2 = createEmptyShelf();
   const rod3 = addRod({ x: 0, y: 0 }, 1, shelf2);
   const rod4 = addRod({ x: 500, y: 0 }, 1, shelf2); // Wrong distance
-  const plate2 = addPlate(1, [rod3, rod4], shelf2);
+  const plate2 = addPlate(0, 1, [rod3, rod4], shelf2);
   test('Invalid spacing rejected', plate2 === -1);
 
   // Test 3: Valid 1270mm-double plate (600mm + 600mm spans)
@@ -28,13 +28,13 @@ function testPlateValidation() {
   const rod5 = addRod({ x: 0, y: 0 }, 1, shelf3);
   const rod6 = addRod({ x: 600, y: 0 }, 1, shelf3);
   const rod7 = addRod({ x: 1200, y: 0 }, 1, shelf3);
-  const plate3 = addPlate(3, [rod5, rod6, rod7], shelf3); // 1270mm-double
+  const plate3 = addPlate(0, 3, [rod5, rod6, rod7], shelf3); // 1270mm-double
   test('Valid 1270mm-double plate', plate3 > 0);
 
   // Test 4: Single rod (should fail)
   const shelf4 = createEmptyShelf();
   const rod8 = addRod({ x: 0, y: 0 }, 1, shelf4);
-  const plate4 = addPlate(1, [rod8], shelf4);
+  const plate4 = addPlate(0, 1, [rod8], shelf4);
   test('Single rod rejected', plate4 === -1);
 }
 
@@ -46,7 +46,7 @@ function testTryExtendPlate() {
   const rod1 = addRod({ x: 0, y: 0 }, 1, shelf1);
   const rod2 = addRod({ x: 600, y: 0 }, 1, shelf1);
   const rod3 = addRod({ x: 1200, y: 0 }, 1, shelf1); // Available rod to extend to
-  const plate1 = addPlate(1, [rod1, rod2], shelf1); // 670mm plate
+  const plate1 = addPlate(0, 1, [rod1, rod2], shelf1); // 670mm plate
   const originalSKU = shelf1.plates.get(plate1)?.sku_id;
   const extend1 = tryExtendPlate(plate1, Direction.Right, shelf1);
   const newSKU = shelf1.plates.get(plate1)?.sku_id;
@@ -58,7 +58,7 @@ function testTryExtendPlate() {
   const rod4 = addRod({ x: 0, y: 0 }, 1, shelf2); // Available rod to extend to
   const rod5 = addRod({ x: 600, y: 0 }, 1, shelf2);
   const rod6 = addRod({ x: 1200, y: 0 }, 1, shelf2);
-  const plate2 = addPlate(1, [rod5, rod6], shelf2); // 670mm plate
+  const plate2 = addPlate(0, 1, [rod5, rod6], shelf2); // 670mm plate
   const originalSKU2 = shelf2.plates.get(plate2)?.sku_id;
   const extend2 = tryExtendPlate(plate2, Direction.Left, shelf2);
   const newSKU2 = shelf2.plates.get(plate2)?.sku_id;
@@ -71,7 +71,7 @@ function testTryExtendPlate() {
   const rod8 = addRod({ x: 600, y: 0 }, 1, shelf3);
   const rod9 = addRod({ x: 1200, y: 0 }, 1, shelf3);
   const rod10 = addRod({ x: 1800, y: 0 }, 1, shelf3); // Available rod to extend to
-  const plate3 = addPlate(3, [rod7, rod8, rod9], shelf3); // 1270mm-double
+  const plate3 = addPlate(0, 3, [rod7, rod8, rod9], shelf3); // 1270mm-double
   const originalSKU3 = shelf3.plates.get(plate3)?.sku_id;
   const extend3 = tryExtendPlate(plate3, Direction.Right, shelf3);
   const newSKU3 = shelf3.plates.get(plate3)?.sku_id;
@@ -84,7 +84,7 @@ function testTryExtendPlate() {
   const shelf4 = createEmptyShelf();
   const rod11 = addRod({ x: 0, y: 0 }, 1, shelf4);
   const rod12 = addRod({ x: 600, y: 0 }, 1, shelf4);
-  const plate4 = addPlate(1, [rod11, rod12], shelf4); // No rod at x=1200
+  const plate4 = addPlate(0, 1, [rod11, rod12], shelf4); // No rod at x=1200
   const originalSKU4 = shelf4.plates.get(plate4)?.sku_id;
   const extend4 = tryExtendPlate(plate4, Direction.Right, shelf4);
   const newSKU4 = shelf4.plates.get(plate4)?.sku_id;
@@ -102,7 +102,7 @@ function testTryExtendPlate() {
   const rod14 = addRod({ x: 600, y: 0 }, 1, shelf6);
   const rod15 = addRod({ x: 1200, y: 0 }, 1, shelf6);
   const rod16 = addRod({ x: 1800, y: 0 }, 1, shelf6);
-  const plate6 = addPlate(4, [rod13, rod14, rod15, rod16], shelf6); // 1870mm (max size)
+  const plate6 = addPlate(0, 4, [rod13, rod14, rod15, rod16], shelf6); // 1870mm (max size)
   const originalSKU6 = shelf6.plates.get(plate6)?.sku_id;
   const extend6 = tryExtendPlate(plate6, Direction.Right, shelf6);
   const newSKU6 = shelf6.plates.get(plate6)?.sku_id;
@@ -189,7 +189,7 @@ function testRemovePlate() {
   const shelf = createEmptyShelf();
   const rod1 = addRod({ x: 0, y: 0 }, 1, shelf);
   const rod2 = addRod({ x: 600, y: 0 }, 1, shelf);
-  const plateId = addPlate(1, [rod1, rod2], shelf);
+  const plateId = addPlate(0, 1, [rod1, rod2], shelf);
 
   // Verify plate exists
   test('Plate created successfully', shelf.plates.has(plateId));

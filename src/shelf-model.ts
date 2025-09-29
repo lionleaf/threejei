@@ -160,7 +160,7 @@ export function addRod(position: Vec2f, sku_id: number, shelf: Shelf): number {
 }
 
 // rodIds MUST be in order of increasing x position
-export function addPlate(sku_id: number, rodIds: number[], shelf: Shelf): number {
+export function addPlate(height: number, sku_id: number, rodIds: number[], shelf: Shelf): number {
   const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === sku_id);
   if (!plateSKU) return -1;
 
@@ -175,30 +175,23 @@ export function addPlate(sku_id: number, rodIds: number[], shelf: Shelf): number
     if (distance !== expectedDistance) return -1;
   }
 
-  const attachmentCount = plateSKU.spans.length - 1;
 
   const plateId = shelf.metadata.nextId++;
 
-  // Determine the plate's Y coordinate from the first attachment point that will be used
-  // Since plates use attachment points starting from index 0, we use the Y coordinate of attachment point 0
-  let plateY = 0;
-  const firstRod = shelf.rods.get(rodIds[0]);
-  if (firstRod && firstRod.attachmentPoints[0]) {
-    plateY = firstRod.attachmentPoints[0].y;
-  }
-
   for (const rodId of rodIds) {
     const rod = shelf.rods.get(rodId);
-    if (rod) {
-      for (let i = 0; i < attachmentCount && i < rod.attachmentPoints.length; i++) {
-        if (rod.attachmentPoints[i]) {
-          rod.attachmentPoints[i].plateId = plateId;
-        }
-      }
-    }
+    if (!rod) return -1;
+
+    const rodBaseHeight = rod.position.y;
+    const attachmentIndex = rod.attachmentPoints.findIndex(point => (rodBaseHeight + point.y) === height);
+
+    // Make sure the rod has an attachment point at the desired plate height
+    if (attachmentIndex === -1) return -1;
+
+    rod.attachmentPoints[attachmentIndex].plateId = plateId;
   }
 
-  shelf.plates.set(plateId, { sku_id, connections: rodIds, y: plateY });
+  shelf.plates.set(plateId, { sku_id, connections: rodIds, y: height });
   return plateId;
 }
 

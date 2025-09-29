@@ -104,10 +104,9 @@ function visualizeShelf(shelf: Shelf): void {
 const shelf = createEmptyShelf();
 
 const rod1 = addRod({ x: 0, y: 0 }, 1, shelf);
-const rod2 = addRod({ x: 600, y: 0 }, 1, shelf);
+const rod2 = addRod({ x: 600, y: 300 }, 1, shelf);
 const rod3 = addRod({ x: 1200, y: 0 }, 5, shelf);
 
-addPlate(1, [rod1, rod2], shelf);
-addPlate(1, [rod2, rod3], shelf);
+addPlate(0, 1, [rod1, rod2], shelf);
 
 visualizeShelf(shelf);
