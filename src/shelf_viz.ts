@@ -54,11 +54,43 @@ function visualizeShelf(shelf: Shelf): void {
     scene.add(plateMesh);
   });
 
-  // Position camera to look at the scene
-  camera.position.set(600, 300, 800);
-  camera.lookAt(600, 150, 0);
+  // Calculate shelf center for camera target
+  const positions = Array.from(shelf.rods.values()).map(rod => rod.position.x);
+  const minX = Math.min(...positions);
+  const maxX = Math.max(...positions);
+  const centerX = (minX + maxX) / 2;
+  const centerY = 150; // Approximate middle height of shelf
 
-  renderer.render(scene, camera);
+  // Set up OrbitControls
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.1;
+  controls.enableZoom = true;
+  controls.enablePan = true;
+  controls.enableRotate = true;
+
+  // Set camera target to shelf center
+  controls.target.set(centerX, centerY, 0);
+
+  // Position camera for good initial view
+  camera.position.set(centerX + 400, centerY + 200, 600);
+  controls.update();
+
+  // Handle window resize
+  function onWindowResize() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  }
+  window.addEventListener('resize', onWindowResize);
+
+  // Animation loop
+  function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, camera);
+  }
+  animate();
 }
 
 // Create and display a sample shelf
