@@ -20,6 +20,11 @@ function visualizeShelf(shelf: Shelf): void {
   renderer.setClearColor(0x444444);
   document.body.appendChild(renderer.domElement);
 
+  // Raycasting setup
+  const raycaster = new THREE.Raycaster();
+  const pointer = new THREE.Vector2();
+  const plateObjects: THREE.Mesh[] = [];
+
   // Render all rods
   shelf.rods.forEach((rod) => {
     const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
@@ -34,7 +39,7 @@ function visualizeShelf(shelf: Shelf): void {
   });
 
   // Render all plates
-  shelf.plates.forEach((plate) => {
+  shelf.plates.forEach((plate, plateId) => {
     const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === plate.sku_id);
     if (!plateSKU) return;
 
@@ -51,6 +56,15 @@ function visualizeShelf(shelf: Shelf): void {
       new THREE.MeshBasicMaterial({ color: 0x8B4513 })
     );
     plateMesh.position.set(centerX, plate.y, plateSKU.depth / 2);
+
+    // Store plate data for raycasting
+    plateMesh.userData = {
+      type: 'plate',
+      plateId: plateId,
+      shelf: shelf
+    };
+
+    plateObjects.push(plateMesh);
     scene.add(plateMesh);
   });
 
@@ -83,6 +97,58 @@ function visualizeShelf(shelf: Shelf): void {
   camera.position.set(centerX, centerY, cameraDistance);
   controls.update();
 
+  // Pointer event handling for raycasting
+  function onPointerMove(event: PointerEvent) {
+    // Convert to normalized device coordinates (-1 to +1)
+    pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
+    pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+    // Update raycaster
+    raycaster.setFromCamera(pointer, camera);
+
+    // Test for plate intersections
+    const intersects = raycaster.intersectObjects(plateObjects);
+
+    // Clear all hover states first
+    shelf.plates.forEach(plate => {
+      (plate as any).isHovered = false;
+    });
+
+    if (intersects.length > 0) {
+      const hit = intersects[0]; // Closest intersection
+      const plateData = hit.object.userData;
+      const plateId = plateData.plateId;
+
+      // Update hover state on the plate object
+      const plate = shelf.plates.get(plateId);
+      if (plate) {
+        (plate as any).isHovered = true;
+      }
+    }
+  }
+
+  function onPointerClick(event: PointerEvent) {
+    // Convert to normalized device coordinates
+    pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
+    pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+    raycaster.setFromCamera(pointer, camera);
+    const intersects = raycaster.intersectObjects(plateObjects);
+
+    if (intersects.length > 0) {
+      const hit = intersects[0];
+      const plateData = hit.object.userData;
+
+      console.log(`Clicked plate ${plateData.plateId}`);
+      console.log('Hit point:', hit.point);
+      console.log('Distance:', hit.distance);
+    }
+  }
+
+  // Bind pointer events
+  renderer.domElement.addEventListener('pointermove', onPointerMove);
+  renderer.domElement.addEventListener('pointerdown', onPointerClick);
+
   // Handle window resize
   function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -103,10 +169,10 @@ function visualizeShelf(shelf: Shelf): void {
 // Create and display a sample shelf
 const shelf = createEmptyShelf();
 
-const rod1 = addRod({ x: 0, y: 0 }, 1, shelf);
-const rod2 = addRod({ x: 600, y: 300 }, 1, shelf);
-const rod3 = addRod({ x: 1200, y: 0 }, 5, shelf);
+const rod1 = addRod({ x: 0, y: 0 }, 2, shelf);
+const rod2 = addRod({ x: 600, y: 200 }, 2, shelf);
+const rod3 = addRod({ x: 1200, y: 0 }, 2, shelf);
 
-addPlate(0, 1, [rod1, rod2], shelf);
+console.log(addPlate(200, 1, [rod1, rod2], shelf));
 
 visualizeShelf(shelf);

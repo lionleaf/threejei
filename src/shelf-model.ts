@@ -186,7 +186,14 @@ export function addPlate(height: number, sku_id: number, rodIds: number[], shelf
     const attachmentIndex = rod.attachmentPoints.findIndex(point => (rodBaseHeight + point.y) === height);
 
     // Make sure the rod has an attachment point at the desired plate height
-    if (attachmentIndex === -1) return -1;
+    if (attachmentIndex === -1){
+      console.warn("Rod "+rodId+" does not have an attachment at the right height");
+      for(const a of rod.attachmentPoints){
+        console.log(rodBaseHeight + a.y);
+      }
+     return -1;
+    }
+
 
     rod.attachmentPoints[attachmentIndex].plateId = plateId;
   }
