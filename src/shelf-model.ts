@@ -323,6 +323,67 @@ export function removePlate(plateId: number, shelf: Shelf): boolean {
   return true;
 }
 
+export function tryFillGapWithPlate(leftRodId: number, rightRodId: number, height: number, shelf: Shelf): number {
+  const leftRod = shelf.rods.get(leftRodId);
+  const rightRod = shelf.rods.get(rightRodId);
+
+  if (!leftRod || !rightRod) return -1;
+
+  // Check if both rods have attachment points at the specified height
+  const leftAttachmentY = height - leftRod.position.y;
+  const rightAttachmentY = height - rightRod.position.y;
+
+  const leftAttachment = leftRod.attachmentPoints.find(ap => ap.y === leftAttachmentY);
+  const rightAttachment = rightRod.attachmentPoints.find(ap => ap.y === rightAttachmentY);
+
+  if (!leftAttachment || !rightAttachment) return -1;
+
+  const leftPlateId = leftAttachment.plateId;
+  const rightPlateId = rightAttachment.plateId;
+
+  // Case 1: Both attachment points are empty - add a new plate
+  if (leftPlateId === undefined && rightPlateId === undefined) {
+    // Calculate the gap distance
+    const gapDistance = rightRod.position.x - leftRod.position.x;
+
+    // Find a plate SKU that fits this gap (2-rod plate with matching span)
+    const plateSKU = AVAILABLE_PLATES.find(p => {
+      return p.spans.length === 3 && p.spans[1] === gapDistance;
+    });
+
+    if (!plateSKU) return -1;
+
+    // Add the plate
+    return addPlate(height, plateSKU.sku_id, [leftRodId, rightRodId], shelf);
+  }
+
+  // Case 2: Plate on left side only - extend it to the right
+  if (leftPlateId !== undefined && rightPlateId === undefined) {
+    const success = tryExtendPlate(leftPlateId, Direction.Right, shelf);
+    return success ? leftPlateId : -1;
+  }
+
+  // Case 3: Plate on right side only - extend it to the left
+  if (leftPlateId === undefined && rightPlateId !== undefined) {
+    const success = tryExtendPlate(rightPlateId, Direction.Left, shelf);
+    return success ? rightPlateId : -1;
+  }
+
+  // Case 4: Both sides have plates
+  if (leftPlateId !== undefined && rightPlateId !== undefined) {
+    // If they're the same plate, the gap is already filled
+    if (leftPlateId === rightPlateId) {
+      return leftPlateId;
+    }
+
+    // Different plates - try to merge them
+    // TODO: Implement tryMergePlates(leftPlateId, rightPlateId, shelf)
+    return -1;
+  }
+
+  return -1;
+}
+
 // TODO: Add remaining exports as they are implemented
 export {
   // calculateRodBounds,

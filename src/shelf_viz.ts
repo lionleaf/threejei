@@ -13,19 +13,20 @@ import { setupInteractions } from './interactions.js';
 // Declare THREE as global (loaded via CDN)
 declare const THREE: any;
 
-// General shelf visualizer
-function visualizeShelf(shelf: Shelf): void {
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
-  const renderer = new THREE.WebGLRenderer();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setClearColor(0x444444);
-  document.body.appendChild(renderer.domElement);
+// Debug flag to make colliders visible
+const DEBUG_SHOW_COLLIDERS = true;
 
-  // Track plate objects for interactions
-  const plateObjects: THREE.Mesh[] = [];
+// Rebuild all shelf geometry (rods, plates, gap colliders)
+function rebuildShelfGeometry(shelf: Shelf, scene: any): void {
+  // Remove all existing shelf geometry from scene
+  const objectsToRemove = scene.children.filter((child: any) =>
+    child.userData?.type === 'rod' ||
+    child.userData?.type === 'plate' ||
+    child.userData?.type === 'gap'
+  );
+  objectsToRemove.forEach((obj: any) => scene.remove(obj));
 
-  // Render all rods
+  // Generate rod geometry
   shelf.rods.forEach((rod) => {
     const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
     const height = rodSKU?.spans.reduce((sum, span) => sum + span, 0) || 300;
@@ -35,10 +36,11 @@ function visualizeShelf(shelf: Shelf): void {
       new THREE.MeshBasicMaterial({ color: 0x666666 })
     );
     rodMesh.position.set(rod.position.x, rod.position.y + height / 2, 0);
+    rodMesh.userData = { type: 'rod' };
     scene.add(rodMesh);
   });
 
-  // Render all plates
+  // Generate plate geometry
   shelf.plates.forEach((plate, plateId) => {
     const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === plate.sku_id);
     if (!plateSKU) return;
@@ -64,9 +66,68 @@ function visualizeShelf(shelf: Shelf): void {
       shelf: shelf
     };
 
-    plateObjects.push(plateMesh);
     scene.add(plateMesh);
   });
+
+  // Generate gap colliders
+  const rods = Array.from(shelf.rods.entries()).sort((a, b) => a[1].position.x - b[1].position.x);
+
+  // Check each adjacent rod pair
+  for (let i = 0; i < rods.length - 1; i++) {
+    const [leftRodId, leftRod] = rods[i];
+    const [rightRodId, rightRod] = rods[i + 1];
+
+    // Calculate distance between rods
+    const gapDistance = rightRod.position.x - leftRod.position.x;
+
+    // Find attachment points at matching Y heights on both rods
+    for (const leftAP of leftRod.attachmentPoints) {
+      const leftY = leftRod.position.y + leftAP.y;
+
+      for (const rightAP of rightRod.attachmentPoints) {
+        const rightY = rightRod.position.y + rightAP.y;
+
+        // Check if attachment points align and there isn't already a plate spanning the gap
+        const plateSpanningGap = (leftAP.plateId === rightAP.plateId) && leftAP.plateId != undefined;
+        if (leftY === rightY && !plateSpanningGap) {
+          // Create invisible collider
+          const centerX = (leftRod.position.x + rightRod.position.x) / 2;
+
+          const colliderGeometry = new THREE.BoxGeometry(gapDistance, 30, 200);
+          const colliderMaterial = new THREE.MeshBasicMaterial({
+            color: 0x00ff00,
+            transparent: true,
+            opacity: DEBUG_SHOW_COLLIDERS ? 0.2 : 0.0
+          });
+
+          const collider = new THREE.Mesh(colliderGeometry, colliderMaterial);
+          collider.position.set(centerX, leftY, 200 / 2);
+
+          // Store metadata for interaction handling
+          collider.userData = {
+            type: 'gap',
+            rodIds: [leftRodId, rightRodId],
+            y: leftY,
+          };
+
+          scene.add(collider);
+        }
+      }
+    }
+  }
+}
+
+// General shelf visualizer
+function visualizeShelf(shelf: Shelf): void {
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
+  const renderer = new THREE.WebGLRenderer();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setClearColor(0x444444);
+  document.body.appendChild(renderer.domElement);
+
+  // Initial geometry rendering
+  rebuildShelfGeometry(shelf, scene);
 
   // Calculate shelf center for camera target
   const rods = Array.from(shelf.rods.values());
@@ -97,8 +158,16 @@ function visualizeShelf(shelf: Shelf): void {
   camera.position.set(centerX, centerY, cameraDistance);
   controls.update();
 
-  // Setup interactions
-  const interactions = setupInteractions(shelf, camera, renderer, plateObjects);
+  // Setup interactions with regeneration callback
+  const interactions = setupInteractions(
+    shelf,
+    scene,
+    camera,
+    renderer,
+    {
+      rebuildGeometry: () => { rebuildShelfGeometry(shelf, scene); }
+    }
+  );
 
   // Handle window resize
   function onWindowResize() {
@@ -120,9 +189,9 @@ function visualizeShelf(shelf: Shelf): void {
 // Create and display a sample shelf
 const shelf = createEmptyShelf();
 
-const rod1 = addRod({ x: 0, y: 0 }, 2, shelf);
-const rod2 = addRod({ x: 600, y: 200 }, 2, shelf);
-const rod3 = addRod({ x: 1200, y: 0 }, 2, shelf);
+const rod1 = addRod({ x: 0, y: 0 }, 6, shelf);
+const rod2 = addRod({ x: 600, y: 0 }, 6, shelf);
+const rod3 = addRod({ x: 1200, y: 0 }, 6, shelf);
 
 console.log(addPlate(200, 1, [rod1, rod2], shelf));
 

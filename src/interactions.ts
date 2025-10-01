@@ -1,4 +1,4 @@
-import { type Shelf, removePlate } from './shelf-model.js';
+import { type Shelf, removePlate, tryFillGapWithPlate } from './shelf-model.js';
 
 // Declare THREE as global (loaded via CDN)
 declare const THREE: any;
@@ -7,11 +7,16 @@ export interface InteractionSystem {
   dispose(): void;
 }
 
+export interface RegenerationCallbacks {
+  rebuildGeometry: () => void;
+}
+
 export function setupInteractions(
   shelf: Shelf,
+  scene: any,
   camera: any,
   renderer: any,
-  plateObjects: THREE.Mesh[]
+  callbacks: RegenerationCallbacks
 ): InteractionSystem {
   // Raycasting setup
   const raycaster = new THREE.Raycaster();
@@ -22,14 +27,7 @@ export function setupInteractions(
 
     if (success) {
       console.log(`Plate ${plateId} deleted successfully`);
-
-      // Remove the mesh from the scene and plateObjects array
-      const plateObjectIndex = plateObjects.findIndex(obj => obj.userData.plateId === plateId);
-      if (plateObjectIndex !== -1) {
-        const plateMesh = plateObjects[plateObjectIndex];
-        plateMesh.parent?.remove(plateMesh);
-        plateObjects.splice(plateObjectIndex, 1);
-      }
+      callbacks.rebuildGeometry();
     } else {
       console.log(`Failed to delete plate ${plateId}`);
     }
@@ -45,23 +43,32 @@ export function setupInteractions(
     // Update raycaster
     raycaster.setFromCamera(pointer, camera);
 
-    // Test for plate intersections
-    const intersects = raycaster.intersectObjects(plateObjects);
+    // Test for intersections with all scene objects (recursive: true checks nested objects)
+    const intersects = raycaster.intersectObjects(scene.children, true);
 
     // Clear all hover states first
     shelf.plates.forEach(plate => {
       (plate as any).isHovered = false;
     });
+    scene.children.forEach((child: any) => {
+      if (child.userData?.type === 'gap' && child.material) {
+        child.material.opacity = 0.0;
+      }
+    });
 
-    if (intersects.length > 0) {
-      const hit = intersects[0]; // Closest intersection
-      const plateData = hit.object.userData;
-      const plateId = plateData.plateId;
+    // Find first hit with userData.type (either plate or gap)
+    for (const hit of intersects) {
+      const userData = hit.object.userData;
 
-      // Update hover state on the plate object
-      const plate = shelf.plates.get(plateId);
-      if (plate) {
-        (plate as any).isHovered = true;
+      if (userData?.type === 'plate') {
+        const plate = shelf.plates.get(userData.plateId);
+        if (plate) {
+          (plate as any).isHovered = true;
+        }
+        break; // Plates take priority
+      } else if (userData?.type === 'gap') {
+        (hit.object.material as any).opacity = 0.4;
+        break;
       }
     }
   }
@@ -73,15 +80,26 @@ export function setupInteractions(
     pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
     raycaster.setFromCamera(pointer, camera);
-    const intersects = raycaster.intersectObjects(plateObjects);
+    const intersects = raycaster.intersectObjects(scene.children, true);
 
-    if (intersects.length > 0) {
-      const hit = intersects[0];
-      const plateData = hit.object.userData;
-      const plate = shelf.plates.get(plateData.plateId);
+    // Find first hit with userData.type (either plate or gap)
+    for (const hit of intersects) {
+      const userData = hit.object.userData;
 
-      if (plate) {
-        onPlateClick(plateData.plateId);
+      if (userData?.type === 'plate') {
+        onPlateClick(userData.plateId);
+        break; // Plates take priority
+      } else if (userData?.type === 'gap') {
+        console.log(`Filling gap between rods ${userData.rodIds} at height ${userData.y}`);
+        const plateId = tryFillGapWithPlate(userData.rodIds[0], userData.rodIds[1], userData.y, shelf);
+
+        if (plateId !== -1) {
+          console.log(`Gap filled successfully with plate ${plateId}`);
+          callbacks.rebuildGeometry();
+        } else {
+          console.log(`Failed to fill gap`);
+        }
+        break;
       }
     }
   }
