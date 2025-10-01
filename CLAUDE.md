@@ -177,32 +177,6 @@ Plates used: 1x 670mm
 3. Different rod patterns allowed but attachment alignment required for plates
 4. Empty attachment points are valid (skipped connections annotated with ─)
 
-### Phase 2: Core Logic  
-- [x] Implement component validation
-- [x] Write the tests for a new function that's not yet implemented listing the required components (rods and plate dimension strings)  (TDD)
-- [x] Implement the function that lists the components
-- [x] Use the three.js file (index.html) to visualize a shelf based given the data model
-- [x] Implement a string based unique representation for a shelf configuration, and the ability to instantiate a shelf from such a string. Suggestion is to simply list the rods from left to right and tag which attachmentpoints have a shelf. It should be human readable and editable by hand, and ideally map clearly to the different rod designs
-
-### Phase 3: Editor
-- [x] Make a plan for how to do interactive editing in three.js, make it delightful and use hover effects to show previews of what is about to happen. Describe the design
-
-### Phase 4: Visual Quality & Controls
-- [x] Implement PBR (Physically Based Rendering) materials for realistic lighting
-- [x] Add wood textures for plates and rod materials for authenticity
-- [x] Implement camera controls (orbit, pan, zoom) for better navigation
-- [x] Add environmental lighting and shadows for depth perception
-- [x] Optimize rendering performance with proper material settings
-
-### Phase 5: Interactive Editing
-- [x] Implement raycasting and mouse interaction system for 3D object selection
-- [x] Add hover effects with visual feedback for rods and plates
-- [x] Create plate addition system by clicking attachment points
-- [x] Implement rod pattern modification through click interface
-- [x] Add plate deletion and resizing through direct manipulation
-- [x] Implement visual preview system for pending actions
-- [x] Add smooth animations for all editing operations
-- [x] Add empty space click detection for inserting new rods with ghost rod previews
 
 ## Interactive 3D Editing Design Plan
 
