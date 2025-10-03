@@ -1,4 +1,4 @@
-import { type Shelf, removePlate, removeSegmentFromPlate, tryFillGapWithPlate, type Plate } from './shelf-model.js';
+import { type Shelf, removePlate, removeSegmentFromPlate, removeRodSegment, tryFillGapWithPlate, type Plate, type Rod, AVAILABLE_RODS, calculateAttachmentPositions } from './shelf-model.js';
 
 // Declare THREE as global (loaded via CDN)
 declare const THREE: any;
@@ -21,7 +21,7 @@ export function setupInteractions(
   // Raycasting setup
   const raycaster = new THREE.Raycaster();
 
-  function calculateSegmentIndex(plate: Plate, hitX: number): number {
+  function calculatePlateSegmentIndex(plate: Plate, hitX: number): number {
     const rods = plate.connections.map(id => shelf.rods.get(id)).filter(r => r !== undefined);
 
     for (let i = 0; i < rods.length - 1; i++) {
@@ -36,6 +36,43 @@ export function setupInteractions(
     return 0; // Fallback to first segment
   }
 
+  function calculateRodSegmentIndex(rodId: number, hitY: number): number {
+    const rod = shelf.rods.get(rodId);
+    if (!rod) return 0;
+
+    const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+    if (!rodSKU) return 0;
+
+    const attachmentPositions = calculateAttachmentPositions(rodSKU);
+
+    // Find which segment (span) the hit Y falls into
+    for (let i = 0; i < attachmentPositions.length - 1; i++) {
+      const bottomY = rod.position.y + attachmentPositions[i];
+      const topY = rod.position.y + attachmentPositions[i + 1];
+
+      if (hitY >= bottomY && hitY <= topY) {
+        return i; // This is the segment index
+      }
+    }
+
+    return 0; // Fallback
+  }
+
+  function onRodClick(rodId: number, hitPoint?: THREE.Vector3) {
+    console.log(`Removing segment from rod ${rodId}`);
+
+    const segmentIndex = hitPoint ? calculateRodSegmentIndex(rodId, hitPoint.y) : 0;
+
+    const success = removeRodSegment(rodId, segmentIndex, shelf);
+
+    if (success) {
+      console.log(`Rod segment removed successfully`);
+      callbacks.rebuildGeometry();
+    } else {
+      console.log(`Failed to remove rod segment`);
+    }
+  }
+
   function onPlateClick(plateId: number, hitPoint?: THREE.Vector3) {
     console.log(`Removing segment from plate ${plateId}`);
 
@@ -46,7 +83,7 @@ export function setupInteractions(
     }
 
     // Calculate which segment was clicked
-    const segmentIndex = hitPoint ? calculateSegmentIndex(plate, hitPoint.x) : 0;
+    const segmentIndex = hitPoint ? calculatePlateSegmentIndex(plate, hitPoint.x) : 0;
 
     const success = removeSegmentFromPlate(plateId, segmentIndex, shelf);
 
@@ -107,7 +144,7 @@ export function setupInteractions(
     raycaster.setFromCamera(pointer, camera);
     const intersects = raycaster.intersectObjects(scene.children, true);
 
-    // Find first hit with userData.type (either plate or gap)
+    // Find first hit with userData.type (plate, gap, or rod)
     for (const hit of intersects) {
       const userData = hit.object.userData;
 
@@ -124,6 +161,9 @@ export function setupInteractions(
         } else {
           console.log(`Failed to fill gap`);
         }
+        break;
+      } else if (userData?.type === 'rod') {
+        onRodClick(userData.rodId, hit.point);
         break;
       }
     }

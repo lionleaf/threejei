@@ -323,6 +323,234 @@ export function removePlate(plateId: number, shelf: Shelf): boolean {
   return true;
 }
 
+export function removeRodSegment(rodId: number, segmentIndex: number, shelf: Shelf): boolean {
+  const rod = shelf.rods.get(rodId);
+  if (!rod) {
+    console.log('removeRodSegment: Rod not found');
+    return false;
+  }
+
+  const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+  if (!rodSKU) {
+    console.log('removeRodSegment: Rod SKU not found');
+    return false;
+  }
+
+  const numSegments = rodSKU.spans.length;
+
+  console.log(`removeRodSegment: Removing segment ${segmentIndex} from ${numSegments}-segment rod`, {
+    rodId,
+    sku: rodSKU.name,
+    segmentIndex
+  });
+
+  // Validate segment index
+  if (segmentIndex < 0 || segmentIndex >= numSegments) {
+    console.log('removeRodSegment: Invalid segment index');
+    return false;
+  }
+
+  const removedSegmentSpan = rodSKU.spans[segmentIndex];
+
+  // Case A: Remove bottom segment - adjust rod Y position to keep top fixed
+  if (segmentIndex === 0) {
+    console.log('removeRodSegment: Removing bottom segment, adjusting Y position');
+
+    const newSpans = rodSKU.spans.slice(1); // Remove first segment
+
+    const newRodSKU = AVAILABLE_RODS.find(sku => {
+      if (sku.spans.length !== newSpans.length) return false;
+      return sku.spans.every((span, i) => span === newSpans[i]);
+    });
+
+    if (!newRodSKU) {
+      console.log('removeRodSegment: No matching rod SKU for trimmed rod');
+      return false;
+    }
+
+    // Adjust Y position upward by the removed segment span to keep top fixed
+    rod.position.y += removedSegmentSpan;
+
+    // Update SKU
+    rod.sku_id = newRodSKU.sku_id;
+
+    // Rebuild attachment points
+    rod.attachmentPoints = [];
+    const positions = calculateAttachmentPositions(newRodSKU);
+    for (const y of positions) {
+      rod.attachmentPoints.push({ y });
+    }
+
+    // Re-attach existing plates (Y positions haven't changed in world space)
+    shelf.plates.forEach((plate, plateId) => {
+      if (plate.connections.includes(rodId)) {
+        const attachmentY = plate.y - rod.position.y;
+        const attachmentIndex = rod.attachmentPoints.findIndex(ap => ap.y === attachmentY);
+        if (attachmentIndex !== -1) {
+          rod.attachmentPoints[attachmentIndex].plateId = plateId;
+        }
+      }
+    });
+
+    console.log('removeRodSegment: Bottom segment removed, Y adjusted by', removedSegmentSpan);
+    return true;
+  }
+
+  // Case B: Remove top segment - no Y adjustment needed
+  if (segmentIndex === numSegments - 1) {
+    console.log('removeRodSegment: Removing top segment');
+
+    const newSpans = rodSKU.spans.slice(0, -1); // Remove last segment
+
+    const newRodSKU = AVAILABLE_RODS.find(sku => {
+      if (sku.spans.length !== newSpans.length) return false;
+      return sku.spans.every((span, i) => span === newSpans[i]);
+    });
+
+    if (!newRodSKU) {
+      console.log('removeRodSegment: No matching rod SKU for trimmed rod');
+      return false;
+    }
+
+    // Find and handle affected plates
+    const oldAttachmentPositions = calculateAttachmentPositions(rodSKU);
+    const newAttachmentPositions = calculateAttachmentPositions(newRodSKU);
+
+    const platesToHandle: number[] = [];
+    rod.attachmentPoints.forEach((ap, index) => {
+      if (ap.plateId !== undefined) {
+        const oldY = oldAttachmentPositions[index];
+        const stillExists = newAttachmentPositions.includes(oldY);
+
+        if (!stillExists && !platesToHandle.includes(ap.plateId)) {
+          platesToHandle.push(ap.plateId);
+        }
+      }
+    });
+
+    // Remove or trim affected plates
+    platesToHandle.forEach(plateId => {
+      const plate = shelf.plates.get(plateId);
+      if (!plate) return;
+
+      const rodIndexInPlate = plate.connections.indexOf(rodId);
+      if (rodIndexInPlate === -1) return;
+
+      if (rodIndexInPlate === 0 || rodIndexInPlate === plate.connections.length - 1) {
+        const segmentToRemove = rodIndexInPlate === 0 ? 0 : plate.connections.length - 2;
+        removeSegmentFromPlate(plateId, segmentToRemove, shelf);
+      } else {
+        removePlate(plateId, shelf);
+      }
+    });
+
+    // Update SKU
+    rod.sku_id = newRodSKU.sku_id;
+
+    // Rebuild attachment points
+    rod.attachmentPoints = [];
+    const positions = calculateAttachmentPositions(newRodSKU);
+    for (const y of positions) {
+      rod.attachmentPoints.push({ y });
+    }
+
+    // Re-attach remaining plates
+    shelf.plates.forEach((plate, plateId) => {
+      if (plate.connections.includes(rodId)) {
+        const attachmentY = plate.y - rod.position.y;
+        const attachmentIndex = rod.attachmentPoints.findIndex(ap => ap.y === attachmentY);
+        if (attachmentIndex !== -1) {
+          rod.attachmentPoints[attachmentIndex].plateId = plateId;
+        }
+      }
+    });
+
+    console.log('removeRodSegment: Top segment removed');
+    return true;
+  }
+
+  // Case C: Remove middle segment - split into two rods
+  console.log('removeRodSegment: Removing middle segment, splitting rod');
+
+  const bottomSpans = rodSKU.spans.slice(0, segmentIndex);
+  const topSpans = rodSKU.spans.slice(segmentIndex + 1);
+
+  const bottomRodSKU = AVAILABLE_RODS.find(sku => {
+    if (sku.spans.length !== bottomSpans.length) return false;
+    return sku.spans.every((span, i) => span === bottomSpans[i]);
+  });
+
+  const topRodSKU = AVAILABLE_RODS.find(sku => {
+    if (sku.spans.length !== topSpans.length) return false;
+    return sku.spans.every((span, i) => span === topSpans[i]);
+  });
+
+  if (!bottomRodSKU || !topRodSKU) {
+    console.log('removeRodSegment: Cannot split - no matching SKUs for both parts');
+    return false;
+  }
+
+  // Calculate Y positions
+  const oldAttachmentPositions = calculateAttachmentPositions(rodSKU);
+  const splitPointY = rod.position.y + oldAttachmentPositions[segmentIndex + 1];
+
+  // Create top rod
+  const topRodId = addRod({ x: rod.position.x, y: splitPointY }, topRodSKU.sku_id, shelf);
+
+  // Update bottom rod (reuse existing rod)
+  rod.sku_id = bottomRodSKU.sku_id;
+  rod.attachmentPoints = [];
+  const bottomPositions = calculateAttachmentPositions(bottomRodSKU);
+  for (const y of bottomPositions) {
+    rod.attachmentPoints.push({ y });
+  }
+
+  // Reassign plates to appropriate rods
+  const platesToReassign: number[] = [];
+  shelf.plates.forEach((plate, plateId) => {
+    if (plate.connections.includes(rodId)) {
+      platesToReassign.push(plateId);
+    }
+  });
+
+  platesToReassign.forEach(plateId => {
+    const plate = shelf.plates.get(plateId);
+    if (!plate) return;
+
+    // Determine if plate belongs to bottom or top rod
+    if (plate.y < splitPointY) {
+      // Belongs to bottom rod - already connected
+      const attachmentY = plate.y - rod.position.y;
+      const attachmentIndex = rod.attachmentPoints.findIndex(ap => ap.y === attachmentY);
+      if (attachmentIndex !== -1) {
+        rod.attachmentPoints[attachmentIndex].plateId = plateId;
+      } else {
+        // No attachment point, remove plate
+        removePlate(plateId, shelf);
+      }
+    } else {
+      // Belongs to top rod - update connection
+      const topRod = shelf.rods.get(topRodId);
+      if (!topRod) return;
+
+      const rodIndexInPlate = plate.connections.indexOf(rodId);
+      plate.connections[rodIndexInPlate] = topRodId;
+
+      const attachmentY = plate.y - topRod.position.y;
+      const attachmentIndex = topRod.attachmentPoints.findIndex(ap => ap.y === attachmentY);
+      if (attachmentIndex !== -1) {
+        topRod.attachmentPoints[attachmentIndex].plateId = plateId;
+      } else {
+        // No attachment point, remove plate
+        removePlate(plateId, shelf);
+      }
+    }
+  });
+
+  console.log('removeRodSegment: Split complete, new rods:', rodId, topRodId);
+  return true;
+}
+
 export function removeSegmentFromPlate(plateId: number, segmentIndex: number, shelf: Shelf): boolean {
   const plate = shelf.plates.get(plateId);
   if (!plate) {

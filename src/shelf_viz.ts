@@ -29,9 +29,9 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any): void {
   objectsToRemove.forEach((obj: any) => scene.remove(obj));
 
   // Generate rod geometry (each logical rod is two physical rods)
-  shelf.rods.forEach((rod) => {
+  shelf.rods.forEach((rod, rodId) => {
     const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
-    const height = rodSKU?.spans.reduce((sum, span) => sum + span, 0) || 300;
+    const height = rodSKU?.spans.reduce((sum, span) => sum + span, 0) || 40;
 
     // Plate depth is 200mm, rods are at the front (Z=0) and back (Z=200) edges
     const plateDepth = 200;
@@ -44,7 +44,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any): void {
         new THREE.MeshBasicMaterial({ color: 0x666666 })
       );
       rodMesh.position.set(rod.position.x, rod.position.y + height / 2, zPos);
-      rodMesh.userData = { type: 'rod' };
+      rodMesh.userData = { type: 'rod', rodId: rodId };
       scene.add(rodMesh);
 
       // Add attachment point indicators on each rod
@@ -239,10 +239,10 @@ const shelf = createEmptyShelf();
 
 const rod1 = addRod({ x: 0, y: 0 }, 6, shelf);
 const rod2 = addRod({ x: 600, y: 0 }, 6, shelf);
-addRod({ x: 1200, y: 0 }, 6, shelf);
-addRod({ x: 1800, y: 0 }, 6, shelf);
-addRod({ x: 2400, y: 0 }, 6, shelf);
-addRod({ x: 3000, y: 0 }, 6, shelf);
+addRod({ x: 1200, y: 0 }, 15, shelf);
+addRod({ x: 1800, y: 0 }, 15, shelf);
+addRod({ x: 2400, y: 0 }, 15, shelf);
+addRod({ x: 3000, y: 0 }, 15, shelf);
 
 console.log(addPlate(200, 1, [rod1, rod2], shelf));
 
