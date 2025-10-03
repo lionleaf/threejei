@@ -22,22 +22,50 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any): void {
   const objectsToRemove = scene.children.filter((child: any) =>
     child.userData?.type === 'rod' ||
     child.userData?.type === 'plate' ||
-    child.userData?.type === 'gap'
+    child.userData?.type === 'gap' ||
+    child.userData?.type === 'attachment_point' ||
+    child.userData?.type === 'connection_point'
   );
   objectsToRemove.forEach((obj: any) => scene.remove(obj));
 
-  // Generate rod geometry
+  // Generate rod geometry (each logical rod is two physical rods)
   shelf.rods.forEach((rod) => {
     const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
     const height = rodSKU?.spans.reduce((sum, span) => sum + span, 0) || 300;
 
-    const rodMesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(20, 20, height),
-      new THREE.MeshBasicMaterial({ color: 0x666666 })
-    );
-    rodMesh.position.set(rod.position.x, rod.position.y + height / 2, 0);
-    rodMesh.userData = { type: 'rod' };
-    scene.add(rodMesh);
+    // Plate depth is 200mm, rods are at the front (Z=0) and back (Z=200) edges
+    const plateDepth = 200;
+    const zPositions = [0, plateDepth];
+
+    // Create two rods - one at front, one at back
+    zPositions.forEach(zPos => {
+      const rodMesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(20, 20, height),
+        new THREE.MeshBasicMaterial({ color: 0x666666 })
+      );
+      rodMesh.position.set(rod.position.x, rod.position.y + height / 2, zPos);
+      rodMesh.userData = { type: 'rod' };
+      scene.add(rodMesh);
+
+      // Add attachment point indicators on each rod
+      rod.attachmentPoints.forEach(ap => {
+        const attachmentY = rod.position.y + ap.y;
+        const hasPlate = ap.plateId !== undefined;
+
+        // Create small cylinder at attachment point
+        const pointGeometry = new THREE.CylinderGeometry(25, 25, 10); // radius 25, height 10
+        const pointMaterial = new THREE.MeshBasicMaterial({
+          color: hasPlate ? 0x8B4513 : 0xCCCCCC, // Brown if has plate, light gray if empty
+          transparent: true,
+          opacity: hasPlate ? 0.8 : 0.5
+        });
+
+        const pointMesh = new THREE.Mesh(pointGeometry, pointMaterial);
+        pointMesh.position.set(rod.position.x, attachmentY, zPos);
+        pointMesh.userData = { type: 'attachment_point' };
+        scene.add(pointMesh);
+      });
+    });
   });
 
   // Generate plate geometry
@@ -67,6 +95,26 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any): void {
     };
 
     scene.add(plateMesh);
+
+    // Add connection point indicators on plates (at both rod positions)
+    const rodZPositions = [0, plateSKU.depth];
+
+    connectedRods.forEach(rod => {
+      rodZPositions.forEach(zPos => {
+        // Small cylinder at each connection point on the plate
+        const connectionGeometry = new THREE.CylinderGeometry(6, 6, 35);
+        const connectionMaterial = new THREE.MeshBasicMaterial({
+          color: 0x444444, // Dark gray for subtle appearance
+          transparent: true,
+          opacity: 0.6
+        });
+
+        const connectionMesh = new THREE.Mesh(connectionGeometry, connectionMaterial);
+        connectionMesh.position.set(rod.position.x, plate.y, zPos);
+        connectionMesh.userData = { type: 'connection_point' };
+        scene.add(connectionMesh);
+      });
+    });
   });
 
   // Generate gap colliders
