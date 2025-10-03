@@ -323,6 +323,151 @@ export function removePlate(plateId: number, shelf: Shelf): boolean {
   return true;
 }
 
+export function removeSegmentFromPlate(plateId: number, segmentIndex: number, shelf: Shelf): boolean {
+  const plate = shelf.plates.get(plateId);
+  if (!plate) {
+    console.log('removeSegmentFromPlate: Plate not found');
+    return false;
+  }
+
+  const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === plate.sku_id);
+  if (!plateSKU) {
+    console.log('removeSegmentFromPlate: Plate SKU not found');
+    return false;
+  }
+
+  const numSegments = plate.connections.length - 1;
+
+  console.log(`removeSegmentFromPlate: Removing segment ${segmentIndex} from ${numSegments}-segment plate`, {
+    plateId,
+    connections: plate.connections,
+    segmentIndex
+  });
+
+  // Case D: Single-segment plate - remove entirely
+  if (numSegments === 1) {
+    console.log('removeSegmentFromPlate: Single segment plate, removing entirely');
+    return removePlate(plateId, shelf);
+  }
+
+  // Validate segment index
+  if (segmentIndex < 0 || segmentIndex >= numSegments) {
+    console.log('removeSegmentFromPlate: Invalid segment index');
+    return false;
+  }
+
+  // Case A: Remove left edge segment
+  if (segmentIndex === 0) {
+    console.log('removeSegmentFromPlate: Removing left edge segment');
+    const newRods = plate.connections.slice(1);
+
+    // Calculate new spans
+    const newSpans = [PLATE_PADDING_MM];
+    const rods = newRods.map(id => shelf.rods.get(id)).filter(r => r !== undefined);
+    for (let i = 0; i < rods.length - 1; i++) {
+      const distance = rods[i + 1]!.position.x - rods[i]!.position.x;
+      newSpans.push(distance);
+    }
+    newSpans.push(PLATE_PADDING_MM);
+
+    // Find matching SKU
+    const newSKU = AVAILABLE_PLATES.find(sku => {
+      if (sku.spans.length !== newSpans.length) return false;
+      return sku.spans.every((span, i) => span === newSpans[i]);
+    });
+
+    if (!newSKU) {
+      console.log('removeSegmentFromPlate: No matching SKU for trimmed plate, removing entirely');
+      return removePlate(plateId, shelf);
+    }
+
+    // Remove old plate and add new one
+    removePlate(plateId, shelf);
+    const newPlateId = addPlate(plate.y, newSKU.sku_id, newRods, shelf);
+    console.log('removeSegmentFromPlate: Left edge removed, new plate:', newPlateId);
+    return newPlateId !== -1;
+  }
+
+  // Case B: Remove right edge segment
+  if (segmentIndex === numSegments - 1) {
+    console.log('removeSegmentFromPlate: Removing right edge segment');
+    const newRods = plate.connections.slice(0, -1);
+
+    // Calculate new spans
+    const newSpans = [PLATE_PADDING_MM];
+    const rods = newRods.map(id => shelf.rods.get(id)).filter(r => r !== undefined);
+    for (let i = 0; i < rods.length - 1; i++) {
+      const distance = rods[i + 1]!.position.x - rods[i]!.position.x;
+      newSpans.push(distance);
+    }
+    newSpans.push(PLATE_PADDING_MM);
+
+    // Find matching SKU
+    const newSKU = AVAILABLE_PLATES.find(sku => {
+      if (sku.spans.length !== newSpans.length) return false;
+      return sku.spans.every((span, i) => span === newSpans[i]);
+    });
+
+    if (!newSKU) {
+      console.log('removeSegmentFromPlate: No matching SKU for trimmed plate, removing entirely');
+      return removePlate(plateId, shelf);
+    }
+
+    // Remove old plate and add new one
+    removePlate(plateId, shelf);
+    const newPlateId = addPlate(plate.y, newSKU.sku_id, newRods, shelf);
+    console.log('removeSegmentFromPlate: Right edge removed, new plate:', newPlateId);
+    return newPlateId !== -1;
+  }
+
+  // Case C: Remove middle segment - split into two plates
+  console.log('removeSegmentFromPlate: Removing middle segment, splitting plate');
+  const leftRods = plate.connections.slice(0, segmentIndex + 1);
+  const rightRods = plate.connections.slice(segmentIndex + 1);
+
+  // Calculate spans for left plate
+  const leftSpans = [PLATE_PADDING_MM];
+  const leftRodObjs = leftRods.map(id => shelf.rods.get(id)).filter(r => r !== undefined);
+  for (let i = 0; i < leftRodObjs.length - 1; i++) {
+    const distance = leftRodObjs[i + 1]!.position.x - leftRodObjs[i]!.position.x;
+    leftSpans.push(distance);
+  }
+  leftSpans.push(PLATE_PADDING_MM);
+
+  // Calculate spans for right plate
+  const rightSpans = [PLATE_PADDING_MM];
+  const rightRodObjs = rightRods.map(id => shelf.rods.get(id)).filter(r => r !== undefined);
+  for (let i = 0; i < rightRodObjs.length - 1; i++) {
+    const distance = rightRodObjs[i + 1]!.position.x - rightRodObjs[i]!.position.x;
+    rightSpans.push(distance);
+  }
+  rightSpans.push(PLATE_PADDING_MM);
+
+  // Find matching SKUs
+  const leftSKU = AVAILABLE_PLATES.find(sku => {
+    if (sku.spans.length !== leftSpans.length) return false;
+    return sku.spans.every((span, i) => span === leftSpans[i]);
+  });
+
+  const rightSKU = AVAILABLE_PLATES.find(sku => {
+    if (sku.spans.length !== rightSpans.length) return false;
+    return sku.spans.every((span, i) => span === rightSpans[i]);
+  });
+
+  if (!leftSKU || !rightSKU) {
+    console.log('removeSegmentFromPlate: Cannot split - no matching SKUs for both parts, removing entirely');
+    return removePlate(plateId, shelf);
+  }
+
+  // Remove old plate and add two new ones
+  removePlate(plateId, shelf);
+  const leftPlateId = addPlate(plate.y, leftSKU.sku_id, leftRods, shelf);
+  const rightPlateId = addPlate(plate.y, rightSKU.sku_id, rightRods, shelf);
+
+  console.log('removeSegmentFromPlate: Split complete, new plates:', leftPlateId, rightPlateId);
+  return leftPlateId !== -1 && rightPlateId !== -1;
+}
+
 function tryMergePlates(leftPlateId: number, rightPlateId: number, shelf: Shelf): number {
   const leftPlate = shelf.plates.get(leftPlateId);
   const rightPlate = shelf.plates.get(rightPlateId);

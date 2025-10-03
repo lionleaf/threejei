@@ -1,4 +1,4 @@
-import { type Shelf, removePlate, tryFillGapWithPlate } from './shelf-model.js';
+import { type Shelf, removePlate, removeSegmentFromPlate, tryFillGapWithPlate, type Plate } from './shelf-model.js';
 
 // Declare THREE as global (loaded via CDN)
 declare const THREE: any;
@@ -21,15 +21,40 @@ export function setupInteractions(
   // Raycasting setup
   const raycaster = new THREE.Raycaster();
 
-  function onPlateClick(plateId: number) {
-    console.log(`Deleting plate ${plateId}`);
-    const success = removePlate(plateId, shelf);
+  function calculateSegmentIndex(plate: Plate, hitX: number): number {
+    const rods = plate.connections.map(id => shelf.rods.get(id)).filter(r => r !== undefined);
+
+    for (let i = 0; i < rods.length - 1; i++) {
+      const leftX = rods[i]!.position.x;
+      const rightX = rods[i + 1]!.position.x;
+
+      if (hitX >= leftX && hitX <= rightX) {
+        return i;
+      }
+    }
+
+    return 0; // Fallback to first segment
+  }
+
+  function onPlateClick(plateId: number, hitPoint?: THREE.Vector3) {
+    console.log(`Removing segment from plate ${plateId}`);
+
+    const plate = shelf.plates.get(plateId);
+    if (!plate) {
+      console.log('Plate not found');
+      return;
+    }
+
+    // Calculate which segment was clicked
+    const segmentIndex = hitPoint ? calculateSegmentIndex(plate, hitPoint.x) : 0;
+
+    const success = removeSegmentFromPlate(plateId, segmentIndex, shelf);
 
     if (success) {
-      console.log(`Plate ${plateId} deleted successfully`);
+      console.log(`Plate segment removed successfully`);
       callbacks.rebuildGeometry();
     } else {
-      console.log(`Failed to delete plate ${plateId}`);
+      console.log(`Failed to remove plate segment`);
     }
   }
 
@@ -87,7 +112,7 @@ export function setupInteractions(
       const userData = hit.object.userData;
 
       if (userData?.type === 'plate') {
-        onPlateClick(userData.plateId);
+        onPlateClick(userData.plateId, hit.point);
         break; // Plates take priority
       } else if (userData?.type === 'gap') {
         console.log(`Filling gap between rods ${userData.rodIds} at height ${userData.y}`);
