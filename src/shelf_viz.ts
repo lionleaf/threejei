@@ -14,7 +14,7 @@ import { setupInteractions } from './interactions.js';
 declare const THREE: any;
 
 // Debug flag to make colliders visible
-const DEBUG_SHOW_COLLIDERS = true;
+const DEBUG_SHOW_COLLIDERS = false;
 
 // Rebuild all shelf geometry (rods, plates, gap colliders)
 function rebuildShelfGeometry(shelf: Shelf, scene: any): void {
@@ -191,7 +191,10 @@ const shelf = createEmptyShelf();
 
 const rod1 = addRod({ x: 0, y: 0 }, 6, shelf);
 const rod2 = addRod({ x: 600, y: 0 }, 6, shelf);
-const rod3 = addRod({ x: 1200, y: 0 }, 6, shelf);
+addRod({ x: 1200, y: 0 }, 6, shelf);
+addRod({ x: 1800, y: 0 }, 6, shelf);
+addRod({ x: 2400, y: 0 }, 6, shelf);
+addRod({ x: 3000, y: 0 }, 6, shelf);
 
 console.log(addPlate(200, 1, [rod1, rod2], shelf));
 

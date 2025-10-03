@@ -323,6 +323,100 @@ export function removePlate(plateId: number, shelf: Shelf): boolean {
   return true;
 }
 
+function tryMergePlates(leftPlateId: number, rightPlateId: number, shelf: Shelf): number {
+  const leftPlate = shelf.plates.get(leftPlateId);
+  const rightPlate = shelf.plates.get(rightPlateId);
+
+  if (!leftPlate || !rightPlate) {
+    console.log('tryMergePlates: One or both plates not found');
+    return -1;
+  }
+
+  // Plates must be at same height
+  if (leftPlate.y !== rightPlate.y) {
+    console.log('tryMergePlates: Plates at different heights', leftPlate.y, rightPlate.y);
+    return -1;
+  }
+
+  // Get the SKUs
+  const leftSKU = AVAILABLE_PLATES.find(p => p.sku_id === leftPlate.sku_id);
+  const rightSKU = AVAILABLE_PLATES.find(p => p.sku_id === rightPlate.sku_id);
+
+  if (!leftSKU || !rightSKU) {
+    console.log('tryMergePlates: SKU not found');
+    return -1;
+  }
+
+  // Verify plates have a gap between them (rightmost rod of left plate and leftmost rod of right plate are adjacent)
+  const leftRightmostRodId = leftPlate.connections[leftPlate.connections.length - 1];
+  const rightLeftmostRodId = rightPlate.connections[0];
+
+  console.log('tryMergePlates: Checking adjacency', {
+    leftRightmostRodId,
+    rightLeftmostRodId,
+    leftConnections: leftPlate.connections,
+    rightConnections: rightPlate.connections
+  });
+
+  // Get all rods sorted by X position to verify they are adjacent
+  const allRodsSorted = Array.from(shelf.rods.entries())
+    .sort((a, b) => a[1].position.x - b[1].position.x);
+
+  const leftRightmostIndex = allRodsSorted.findIndex(([id]) => id === leftRightmostRodId);
+  const rightLeftmostIndex = allRodsSorted.findIndex(([id]) => id === rightLeftmostRodId);
+
+  // Check if the rods are adjacent (right plate's leftmost rod is immediately after left plate's rightmost rod)
+  if (rightLeftmostIndex !== leftRightmostIndex + 1) {
+    console.log('tryMergePlates: Plates not adjacent - gap too large or overlapping');
+    return -1;
+  }
+
+  // Combine rod connections (include all rods from both plates)
+  const combinedRods = [...leftPlate.connections, ...rightPlate.connections];
+
+  // Get all rod objects to calculate distances
+  const rods = combinedRods.map(id => shelf.rods.get(id)).filter(r => r !== undefined);
+  if (rods.length !== combinedRods.length) {
+    console.log('tryMergePlates: Some rods not found');
+    return -1;
+  }
+
+  // Build span array: [padding, gap1, gap2, ..., padding]
+  const mergedSpans: number[] = [PLATE_PADDING_MM];
+  for (let i = 0; i < rods.length - 1; i++) {
+    const distance = rods[i + 1].position.x - rods[i].position.x;
+    mergedSpans.push(distance);
+  }
+  mergedSpans.push(PLATE_PADDING_MM);
+
+  console.log('tryMergePlates: Merged spans:', mergedSpans);
+
+  // Find matching plate SKU
+  const mergedSKU = AVAILABLE_PLATES.find(sku => {
+    if (sku.spans.length !== mergedSpans.length) return false;
+    return sku.spans.every((span, index) => span === mergedSpans[index]);
+  });
+
+  if (!mergedSKU) {
+    console.log('tryMergePlates: No matching SKU found for spans', mergedSpans);
+    return -1;
+  }
+
+  console.log('tryMergePlates: Found matching SKU:', mergedSKU.name);
+
+  // Perform the merge
+  // Remove old plates
+  removePlate(leftPlateId, shelf);
+  removePlate(rightPlateId, shelf);
+
+  // Add new merged plate
+  const mergedPlateId = addPlate(leftPlate.y, mergedSKU.sku_id, combinedRods, shelf);
+
+  console.log('tryMergePlates: Merge complete, new plate ID:', mergedPlateId);
+
+  return mergedPlateId;
+}
+
 export function tryFillGapWithPlate(leftRodId: number, rightRodId: number, height: number, shelf: Shelf): number {
   const leftRod = shelf.rods.get(leftRodId);
   const rightRod = shelf.rods.get(rightRodId);
@@ -377,8 +471,7 @@ export function tryFillGapWithPlate(leftRodId: number, rightRodId: number, heigh
     }
 
     // Different plates - try to merge them
-    // TODO: Implement tryMergePlates(leftPlateId, rightPlateId, shelf)
-    return -1;
+    return tryMergePlates(leftPlateId, rightPlateId, shelf);
   }
 
   return -1;
