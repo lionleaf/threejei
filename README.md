@@ -1,6 +1,12 @@
 # Threejei Shelf Configurator
 
+[![Deploy to GitHub Pages](https://github.com/lionleaf/threejei/actions/workflows/deploy.yml/badge.svg)](https://github.com/lionleaf/threejei/actions/workflows/deploy.yml)
+
 A TypeScript-based wall mounted shelf configurator system for designing custom shelving solutions.
+
+## 🚀 Live Demo
+
+Visit the live application: **https://lionleaf.github.io/threejei/**
 
 ## Quick Start
 
@@ -16,7 +22,7 @@ npm start
 This builds the TypeScript files and starts a local server at `http://localhost:8000`
 
 ### 3. Open Application
-Visit `http://localhost:8000/shelf.html` in your browser
+Visit `http://localhost:8000/` in your browser
 
 ## Development
 
@@ -59,7 +65,7 @@ npx http-server -p 8000
 ```
 
 **VS Code Live Server:**
-Install the "Live Server" extension and right-click `shelf.html`
+Install the "Live Server" extension and right-click `index.html`
 
 ## Project Structure
 
@@ -70,8 +76,19 @@ src/                 # TypeScript source files (edit these)
 └── test-shelf-model.ts # Test suite
 
 dist/                # Compiled JavaScript (auto-generated)
-shelf.html           # Main application page
+index.html           # Main application page
 ```
+
+## Deployment
+
+This project automatically deploys to GitHub Pages on every push to the `main` or `less-slop` branches.
+
+The deployment workflow:
+1. Compiles TypeScript files
+2. Bundles necessary assets
+3. Deploys to GitHub Pages
+
+See [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) for details.
 
 ## Why a Local Server?
 
