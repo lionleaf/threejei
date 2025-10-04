@@ -1135,6 +1135,197 @@ export function mergeColocatedRods(x: number, shelf: Shelf): void {
   console.log('mergeColocatedRods: Merge complete');
 }
 
+export function findNextExtensionUp(rodId: number, spanToAdd: number, shelf: Shelf): number | undefined {
+  const rod = shelf.rods.get(rodId);
+  if (!rod) return undefined;
+
+  const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+  if (!rodSKU) return undefined;
+
+  // Search for SKU where newSpans = [...oldSpans, spanToAdd]
+  const newSKU = AVAILABLE_RODS.find(sku => {
+    if (sku.spans.length !== rodSKU.spans.length + 1) return false;
+    // Check if it's the same pattern plus one more span
+    for (let i = 0; i < rodSKU.spans.length; i++) {
+      if (sku.spans[i] !== rodSKU.spans[i]) return false;
+    }
+    return sku.spans[sku.spans.length - 1] === spanToAdd;
+  });
+
+  return newSKU?.sku_id;
+}
+
+export function findNextExtensionDown(rodId: number, spanToAdd: number, shelf: Shelf): number | undefined {
+  const rod = shelf.rods.get(rodId);
+  if (!rod) return undefined;
+
+  const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+  if (!rodSKU) return undefined;
+
+  // Search for SKU where newSpans = [spanToAdd, ...oldSpans]
+  const newSKU = AVAILABLE_RODS.find(sku => {
+    if (sku.spans.length !== rodSKU.spans.length + 1) return false;
+    // Check if it's one more span at the start plus the same pattern
+    if (sku.spans[0] !== spanToAdd) return false;
+    for (let i = 0; i < rodSKU.spans.length; i++) {
+      if (sku.spans[i + 1] !== rodSKU.spans[i]) return false;
+    }
+    return true;
+  });
+
+  return newSKU?.sku_id;
+}
+
+export function findCommonExtension(rodIds: number[], direction: 'up' | 'down', shelf: Shelf): Map<number, {newSKU_id: number, spanToAdd: number}> | undefined {
+  // Try 200mm span first, then 300mm
+  for (const span of [200, 300]) {
+    const extensionMap = new Map<number, {newSKU_id: number, spanToAdd: number}>();
+    let allRodsCanExtend = true;
+
+    for (const rodId of rodIds) {
+      const newSKU_id = direction === 'up'
+        ? findNextExtensionUp(rodId, span, shelf)
+        : findNextExtensionDown(rodId, span, shelf);
+
+      if (newSKU_id === undefined) {
+        allRodsCanExtend = false;
+        break;
+      }
+
+      extensionMap.set(rodId, { newSKU_id, spanToAdd: span });
+    }
+
+    if (allRodsCanExtend) {
+      console.log(`findCommonExtension: All rods can extend ${direction} with ${span}mm span`);
+      return extensionMap;
+    }
+  }
+
+  console.log(`findCommonExtension: No common extension found for ${direction}`);
+  return undefined;
+}
+
+export function extendRodUp(rodId: number, newSKU_id: number, shelf: Shelf): boolean {
+  const rod = shelf.rods.get(rodId);
+  if (!rod) return false;
+
+  const oldSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+  const newSKU = AVAILABLE_RODS.find(r => r.sku_id === newSKU_id);
+
+  if (!oldSKU || !newSKU) return false;
+
+  // Validate: newSKU.spans = [...oldSKU.spans, additionalSpan]
+  if (newSKU.spans.length !== oldSKU.spans.length + 1) return false;
+  for (let i = 0; i < oldSKU.spans.length; i++) {
+    if (newSKU.spans[i] !== oldSKU.spans[i]) return false;
+  }
+
+  const additionalSpan = newSKU.spans[newSKU.spans.length - 1];
+
+  // Update rod SKU
+  rod.sku_id = newSKU_id;
+
+  // Calculate new attachment position
+  const oldAttachmentPositions = calculateAttachmentPositions(oldSKU);
+  const newRelativeY = oldAttachmentPositions[oldAttachmentPositions.length - 1] + additionalSpan;
+
+  // Add new attachment point
+  rod.attachmentPoints.push({ y: newRelativeY });
+
+  console.log(`extendRodUp: Extended rod ${rodId} upward with ${additionalSpan}mm span to SKU ${newSKU.name}`);
+  return true;
+}
+
+export function extendRodDown(rodId: number, newSKU_id: number, shelf: Shelf): boolean {
+  const rod = shelf.rods.get(rodId);
+  if (!rod) return false;
+
+  const oldSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+  const newSKU = AVAILABLE_RODS.find(r => r.sku_id === newSKU_id);
+
+  if (!oldSKU || !newSKU) return false;
+
+  // Validate: newSKU.spans = [additionalSpan, ...oldSKU.spans]
+  if (newSKU.spans.length !== oldSKU.spans.length + 1) return false;
+  const additionalSpan = newSKU.spans[0];
+  for (let i = 0; i < oldSKU.spans.length; i++) {
+    if (newSKU.spans[i + 1] !== oldSKU.spans[i]) return false;
+  }
+
+  // Adjust rod position downward to keep top fixed in world space
+  rod.position.y -= additionalSpan;
+
+  // Update rod SKU
+  rod.sku_id = newSKU_id;
+
+  // Rebuild entire attachment points array using new SKU
+  const newAttachmentPositions = calculateAttachmentPositions(newSKU);
+  rod.attachmentPoints = newAttachmentPositions.map(y => ({ y }));
+
+  // Re-attach plates (Y positions unchanged in world space, but attachment indices shift)
+  shelf.plates.forEach((plate, plateId) => {
+    if (plate.connections.includes(rodId)) {
+      const attachmentY = plate.y - rod.position.y; // Calculate relative Y
+      const attachmentIndex = rod.attachmentPoints.findIndex(ap => ap.y === attachmentY);
+      if (attachmentIndex !== -1) {
+        rod.attachmentPoints[attachmentIndex].plateId = plateId;
+      }
+    }
+  });
+
+  console.log(`extendRodDown: Extended rod ${rodId} downward with ${additionalSpan}mm span to SKU ${newSKU.name}`);
+  return true;
+}
+
+export function tryFillExtensionGap(rodIds: number[], y: number, direction: 'up' | 'down', requiredExtensions: Map<number, {newSKU_id: number, spanToAdd: number}>, shelf: Shelf): number {
+  console.log(`tryFillExtensionGap: Extending ${rodIds.length} rods ${direction} to create plate at Y=${y}`);
+
+  // Extend all rods first
+  for (const rodId of rodIds) {
+    const extension = requiredExtensions.get(rodId);
+    if (!extension) {
+      console.log(`tryFillExtensionGap: No extension info for rod ${rodId}`);
+      return -1;
+    }
+
+    const success = direction === 'up'
+      ? extendRodUp(rodId, extension.newSKU_id, shelf)
+      : extendRodDown(rodId, extension.newSKU_id, shelf);
+
+    if (!success) {
+      console.log(`tryFillExtensionGap: Failed to extend rod ${rodId}`);
+      // TODO: Implement rollback mechanism
+      return -1;
+    }
+  }
+
+  // Add plate between extended rods at Y-level
+  // For multiple rods, we need to create the plate spanning all of them
+  if (rodIds.length < 2) {
+    console.log('tryFillExtensionGap: Need at least 2 rods for a plate');
+    return -1;
+  }
+
+  // Sort rods by X position
+  const sortedRodIds = rodIds.sort((a, b) => {
+    const rodA = shelf.rods.get(a)!;
+    const rodB = shelf.rods.get(b)!;
+    return rodA.position.x - rodB.position.x;
+  });
+
+  // For now, only handle 2-rod case (single plate)
+  if (sortedRodIds.length === 2) {
+    const plateId = tryFillGapWithPlate(sortedRodIds[0], sortedRodIds[1], y, shelf);
+    if (plateId !== -1) {
+      console.log(`tryFillExtensionGap: Successfully created plate ${plateId}`);
+    }
+    return plateId;
+  }
+
+  console.log('tryFillExtensionGap: Multi-rod extension not yet implemented');
+  return -1;
+}
+
 // TODO: Add remaining exports as they are implemented
 export {
   // calculateRodBounds,
