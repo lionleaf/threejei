@@ -117,50 +117,64 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any): void {
     });
   });
 
-  // Generate gap colliders
+  // Generate plate gap colliders
   const rods = Array.from(shelf.rods.entries()).sort((a, b) => a[1].position.x - b[1].position.x);
 
   // Check each adjacent rod pair
   for (let i = 0; i < rods.length - 1; i++) {
     const [leftRodId, leftRod] = rods[i];
-    const [rightRodId, rightRod] = rods[i + 1];
 
-    // Calculate distance between rods
-    const gapDistance = rightRod.position.x - leftRod.position.x;
 
     // Find attachment points at matching Y heights on both rods
     for (const leftAP of leftRod.attachmentPoints) {
       const leftY = leftRod.position.y + leftAP.y;
 
-      for (const rightAP of rightRod.attachmentPoints) {
-        const rightY = rightRod.position.y + rightAP.y;
-
-        // Check if attachment points align and there isn't already a plate spanning the gap
-        const plateSpanningGap = (leftAP.plateId === rightAP.plateId) && leftAP.plateId != undefined;
-        if (leftY === rightY && !plateSpanningGap) {
-          // Create invisible collider
-          const centerX = (leftRod.position.x + rightRod.position.x) / 2;
-
-          const colliderGeometry = new THREE.BoxGeometry(gapDistance, 30, 200);
-          const colliderMaterial = new THREE.MeshBasicMaterial({
-            color: 0x00ff00,
-            transparent: true,
-            opacity: DEBUG_SHOW_COLLIDERS ? 0.2 : 0.0
-          });
-
-          const collider = new THREE.Mesh(colliderGeometry, colliderMaterial);
-          collider.position.set(centerX, leftY, 200 / 2);
-
-          // Store metadata for interaction handling
-          collider.userData = {
-            type: 'gap',
-            rodIds: [leftRodId, rightRodId],
-            y: leftY,
-          };
-
-          scene.add(collider);
+      let foundAP = false;
+      // Look through all rods of greater or equal X position (they are sorted)
+      // To find the closest attachment point at Y level
+      for(let k = i + 1; k < rods.length && !foundAP; k++){
+        const [rightRodId, rightRod] = rods[k];
+        // Calculate distance between rods
+        const gapDistance = rightRod.position.x - leftRod.position.x;
+        if(gapDistance == 0){
+          continue;
         }
-      }
+        // TODO: Optimization, break if length is larger than longest plate gap
+
+        for (const rightAP of rightRod.attachmentPoints) {
+          const rightY = rightRod.position.y + rightAP.y;
+
+          // Check if attachment points align and there isn't already a plate spanning the gap
+          if (leftY === rightY ) {
+            foundAP = true;
+            const plateSpanningGap = (leftAP.plateId === rightAP.plateId) && leftAP.plateId != undefined;
+            if(!plateSpanningGap){
+              // Create invisible collider
+              const centerX = (leftRod.position.x + rightRod.position.x) / 2;
+
+              const colliderGeometry = new THREE.BoxGeometry(gapDistance, 30, 200);
+              const colliderMaterial = new THREE.MeshBasicMaterial({
+                color: 0x00ff00,
+                transparent: true,
+                opacity: DEBUG_SHOW_COLLIDERS ? 0.2 : 0.0
+              });
+
+              const collider = new THREE.Mesh(colliderGeometry, colliderMaterial);
+              collider.position.set(centerX, leftY, 200 / 2);
+
+              // Store metadata for interaction handling
+              collider.userData = {
+                type: 'gap',
+                rodIds: [leftRodId, rightRodId],
+                y: leftY,
+              };
+
+              scene.add(collider);
+            }
+            break;
+          }
+        }
+    }
     }
   }
 }

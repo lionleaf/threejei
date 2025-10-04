@@ -323,6 +323,25 @@ export function removePlate(plateId: number, shelf: Shelf): boolean {
   return true;
 }
 
+export function removeRod(rodId: number, shelf: Shelf): boolean {
+  const rod = shelf.rods.get(rodId);
+  if (!rod) return false;
+
+  // Remove all plates connected to this rod
+  const platesToRemove: number[] = [];
+  shelf.plates.forEach((plate, plateId) => {
+    if (plate.connections.includes(rodId)) {
+      platesToRemove.push(plateId);
+    }
+  });
+
+  platesToRemove.forEach(plateId => removePlate(plateId, shelf));
+
+  // Remove the rod from the shelf
+  shelf.rods.delete(rodId);
+  return true;
+}
+
 export function removeRodSegment(rodId: number, segmentIndex: number, shelf: Shelf): boolean {
   const rod = shelf.rods.get(rodId);
   if (!rod) {
@@ -343,6 +362,13 @@ export function removeRodSegment(rodId: number, segmentIndex: number, shelf: She
     sku: rodSKU.name,
     segmentIndex
   });
+
+  // Special case: Rod with no segments (single attachment point like "1P")
+  // Remove the entire rod instead
+  if (numSegments === 0) {
+    console.log('removeRodSegment: Rod has no segments (single attachment point), removing entire rod');
+    return removeRod(rodId, shelf);
+  }
 
   // Validate segment index
   if (segmentIndex < 0 || segmentIndex >= numSegments) {
