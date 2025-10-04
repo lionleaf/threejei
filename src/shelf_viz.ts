@@ -120,10 +120,9 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any): void {
   // Generate plate gap colliders
   const rods = Array.from(shelf.rods.entries()).sort((a, b) => a[1].position.x - b[1].position.x);
 
-  // Check each adjacent rod pair
+  // Check each adjacent rod pair for gaps
   for (let i = 0; i < rods.length - 1; i++) {
     const [leftRodId, leftRod] = rods[i];
-
 
     // Find attachment points at matching Y heights on both rods
     for (const leftAP of leftRod.attachmentPoints) {
@@ -177,6 +176,83 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any): void {
     }
     }
   }
+
+  // Generate edge gap colliders for sideways extension (per Y-level)
+  // Collect all unique Y-levels and find leftmost/rightmost rods at each level
+  const yLevels = new Map<number, { leftmostRodId: number, rightmostRodId: number }>();
+
+  shelf.rods.forEach((rod, rodId) => {
+    rod.attachmentPoints.forEach(ap => {
+      const worldY = rod.position.y + ap.y;
+      const existing = yLevels.get(worldY);
+
+      if (!existing) {
+        yLevels.set(worldY, { leftmostRodId: rodId, rightmostRodId: rodId });
+      } else {
+        const leftmostRod = shelf.rods.get(existing.leftmostRodId)!;
+        const rightmostRod = shelf.rods.get(existing.rightmostRodId)!;
+
+        if (rod.position.x < leftmostRod.position.x) {
+          existing.leftmostRodId = rodId;
+        }
+        if (rod.position.x > rightmostRod.position.x) {
+          existing.rightmostRodId = rodId;
+        }
+      }
+    });
+  });
+
+  // Create edge gap colliders for each Y-level
+  const STANDARD_GAP = 600; // Standard 600mm gap between rods
+
+  yLevels.forEach((edgeInfo, y) => {
+    const leftmostRod = shelf.rods.get(edgeInfo.leftmostRodId)!;
+    const rightmostRod = shelf.rods.get(edgeInfo.rightmostRodId)!;
+
+    // Left edge gap collider
+    const leftEdgeX = leftmostRod.position.x - STANDARD_GAP;
+    const leftCenterX = (leftEdgeX + leftmostRod.position.x) / 2;
+
+    const leftCollider = new THREE.Mesh(
+      new THREE.BoxGeometry(STANDARD_GAP, 30, 200),
+      new THREE.MeshBasicMaterial({
+        color: 0x0088ff, // Blue for edge gaps
+        transparent: true,
+        opacity: DEBUG_SHOW_COLLIDERS ? 0.2 : 0.0
+      })
+    );
+    leftCollider.position.set(leftCenterX, y, 200 / 2);
+    leftCollider.userData = {
+      type: 'edge_gap',
+      direction: 'left',
+      edgeRodId: edgeInfo.leftmostRodId,
+      y: y,
+      newRodX: leftEdgeX
+    };
+    scene.add(leftCollider);
+
+    // Right edge gap collider
+    const rightEdgeX = rightmostRod.position.x + STANDARD_GAP;
+    const rightCenterX = (rightmostRod.position.x + rightEdgeX) / 2;
+
+    const rightCollider = new THREE.Mesh(
+      new THREE.BoxGeometry(STANDARD_GAP, 30, 200),
+      new THREE.MeshBasicMaterial({
+        color: 0x0088ff, // Blue for edge gaps
+        transparent: true,
+        opacity: DEBUG_SHOW_COLLIDERS ? 0.2 : 0.0
+      })
+    );
+    rightCollider.position.set(rightCenterX, y, 200 / 2);
+    rightCollider.userData = {
+      type: 'edge_gap',
+      direction: 'right',
+      edgeRodId: edgeInfo.rightmostRodId,
+      y: y,
+      newRodX: rightEdgeX
+    };
+    scene.add(rightCollider);
+  });
 }
 
 // General shelf visualizer

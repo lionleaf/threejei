@@ -1,4 +1,4 @@
-import { type Shelf, removePlate, removeSegmentFromPlate, removeRodSegment, tryFillGapWithPlate, type Plate, type Rod, AVAILABLE_RODS, calculateAttachmentPositions } from './shelf-model.js';
+import { type Shelf, removePlate, removeSegmentFromPlate, removeRodSegment, tryFillGapWithPlate, tryFillEdgeGap, type Plate, type Rod, AVAILABLE_RODS, calculateAttachmentPositions } from './shelf-model.js';
 
 // Declare THREE as global (loaded via CDN)
 declare const THREE: any;
@@ -113,12 +113,12 @@ export function setupInteractions(
       (plate as any).isHovered = false;
     });
     scene.children.forEach((child: any) => {
-      if (child.userData?.type === 'gap' && child.material) {
+      if ((child.userData?.type === 'gap' || child.userData?.type === 'edge_gap') && child.material) {
         child.material.opacity = 0.0;
       }
     });
 
-    // Find first hit with userData.type (either plate or gap)
+    // Find first hit with userData.type (either plate, gap, or edge_gap)
     for (const hit of intersects) {
       const userData = hit.object.userData;
 
@@ -128,7 +128,7 @@ export function setupInteractions(
           (plate as any).isHovered = true;
         }
         break; // Plates take priority
-      } else if (userData?.type === 'gap') {
+      } else if (userData?.type === 'gap' || userData?.type === 'edge_gap') {
         (hit.object.material as any).opacity = 0.4;
         break;
       }
@@ -144,7 +144,7 @@ export function setupInteractions(
     raycaster.setFromCamera(pointer, camera);
     const intersects = raycaster.intersectObjects(scene.children, true);
 
-    // Find first hit with userData.type (plate, gap, or rod)
+    // Find first hit with userData.type (plate, gap, edge_gap, or rod)
     for (const hit of intersects) {
       const userData = hit.object.userData;
 
@@ -160,6 +160,17 @@ export function setupInteractions(
           callbacks.rebuildGeometry();
         } else {
           console.log(`Failed to fill gap`);
+        }
+        break;
+      } else if (userData?.type === 'edge_gap') {
+        console.log(`Filling edge gap at ${userData.direction} of rod ${userData.edgeRodId} at height ${userData.y}`);
+        const plateId = tryFillEdgeGap(userData.edgeRodId, userData.y, userData.direction, shelf);
+
+        if (plateId !== -1) {
+          console.log(`Edge gap filled successfully with plate ${plateId}`);
+          callbacks.rebuildGeometry();
+        } else {
+          console.log(`Failed to fill edge gap`);
         }
         break;
       } else if (userData?.type === 'rod') {

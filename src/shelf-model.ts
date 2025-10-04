@@ -876,6 +876,265 @@ export function tryFillGapWithPlate(leftRodId: number, rightRodId: number, heigh
   return -1;
 }
 
+export function tryFillEdgeGap(edgeRodId: number, y: number, direction: 'left' | 'right', shelf: Shelf): number {
+  const edgeRod = shelf.rods.get(edgeRodId);
+  if (!edgeRod) {
+    console.log('tryFillEdgeGap: Edge rod not found');
+    return -1;
+  }
+
+  // Calculate new rod X position (600mm away from edge rod)
+  const STANDARD_GAP = 600;
+  const newRodX = direction === 'left' ? edgeRod.position.x - STANDARD_GAP : edgeRod.position.x + STANDARD_GAP;
+
+  console.log(`tryFillEdgeGap: Adding rod at X=${newRodX}, Y-level=${y}, direction=${direction}`);
+
+  // Check if rod already exists at newRodX (within 1mm tolerance)
+  let targetRodId: number | undefined = undefined;
+  shelf.rods.forEach((rod, rodId) => {
+    if (Math.abs(rod.position.x - newRodX) < 1) {
+      targetRodId = rodId;
+    }
+  });
+
+  if (targetRodId !== undefined) {
+    // Rod exists at target position - check if it has attachment at Y
+    const targetRod = shelf.rods.get(targetRodId)!;
+    const attachmentY = y - targetRod.position.y;
+    const hasAttachment = targetRod.attachmentPoints.some(ap => ap.y === attachmentY);
+
+    if (hasAttachment) {
+      // Rod has attachment - just fill the gap normally
+      console.log('tryFillEdgeGap: Rod exists with attachment, filling gap normally');
+      const leftRodId = direction === 'left' ? targetRodId : edgeRodId;
+      const rightRodId = direction === 'left' ? edgeRodId : targetRodId;
+      return tryFillGapWithPlate(leftRodId, rightRodId, y, shelf);
+    } else {
+      // Rod exists but needs attachment at this Y - extend it
+      console.log('tryFillEdgeGap: Rod exists but missing attachment at Y, extending rod');
+      const success = extendRodToHeight(targetRodId, y, shelf);
+      if (!success) {
+        console.log('tryFillEdgeGap: Failed to extend existing rod to height');
+        return -1;
+      }
+
+      // Now fill the gap
+      const leftRodId = direction === 'left' ? targetRodId : edgeRodId;
+      const rightRodId = direction === 'left' ? edgeRodId : targetRodId;
+      return tryFillGapWithPlate(leftRodId, rightRodId, y, shelf);
+    }
+  } else {
+    // No rod at target position - create new one with minimal SKU
+    console.log('tryFillEdgeGap: Creating new rod at target position');
+
+    // Find minimal rod SKU (single attachment point: "1P")
+    const minimalRodSKU = AVAILABLE_RODS.find(r => r.name === "1P");
+    if (!minimalRodSKU) {
+      console.log('tryFillEdgeGap: No minimal rod SKU found');
+      return -1;
+    }
+
+    // Create new rod at Y position (so attachment at relative y=0 is at world Y)
+    const newRodId = addRod({ x: newRodX, y: y }, minimalRodSKU.sku_id, shelf);
+
+    // Fill the gap
+    const leftRodId = direction === 'left' ? newRodId : edgeRodId;
+    const rightRodId = direction === 'left' ? edgeRodId : newRodId;
+    const plateId = tryFillGapWithPlate(leftRodId, rightRodId, y, shelf);
+
+    if (plateId === -1) {
+      console.log('tryFillEdgeGap: Failed to add plate, removing new rod');
+      removeRod(newRodId, shelf);
+      return -1;
+    }
+
+    // Try to merge colocated rods at this X position
+    mergeColocatedRods(newRodX, shelf);
+
+    return plateId;
+  }
+}
+
+export function extendRodToHeight(rodId: number, targetY: number, shelf: Shelf): boolean {
+  const rod = shelf.rods.get(rodId);
+  if (!rod) return false;
+
+  const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+  if (!rodSKU) return false;
+
+  // Calculate current rod top and bottom in world space
+  const attachmentPositions = calculateAttachmentPositions(rodSKU);
+  const currentBottom = rod.position.y + attachmentPositions[0];
+  const currentTop = rod.position.y + attachmentPositions[attachmentPositions.length - 1];
+
+  console.log(`extendRodToHeight: Current rod Y range: ${currentBottom} to ${currentTop}, target: ${targetY}`);
+
+  // Check if target is already covered
+  if (targetY >= currentBottom && targetY <= currentTop) {
+    // Check if there's an attachment point exactly at targetY
+    const hasAttachment = attachmentPositions.some(pos => rod.position.y + pos === targetY);
+    return hasAttachment; // Already has attachment at this height
+  }
+
+  // Determine if we need to extend up or down
+  if (targetY > currentTop) {
+    // Extend upward
+    const gap = targetY - currentTop;
+    console.log(`extendRodToHeight: Need to extend upward by ${gap}mm`);
+
+    // Try 200mm span first, then 300mm
+    for (const span of [200, 300]) {
+      if (Math.abs(gap - span) < 1) {
+        // Find SKU with additional span
+        const newSKU = AVAILABLE_RODS.find(sku => {
+          if (sku.spans.length !== rodSKU.spans.length + 1) return false;
+          // Check if it's the same pattern plus one more span
+          for (let i = 0; i < rodSKU.spans.length; i++) {
+            if (sku.spans[i] !== rodSKU.spans[i]) return false;
+          }
+          return sku.spans[sku.spans.length - 1] === span;
+        });
+
+        if (newSKU) {
+          rod.sku_id = newSKU.sku_id;
+          // Add new attachment point
+          const newRelativeY = attachmentPositions[attachmentPositions.length - 1] + span;
+          rod.attachmentPoints.push({ y: newRelativeY });
+          console.log(`extendRodToHeight: Extended upward with ${span}mm span to SKU ${newSKU.name}`);
+          return true;
+        }
+      }
+    }
+  } else {
+    // Extend downward
+    const gap = currentBottom - targetY;
+    console.log(`extendRodToHeight: Need to extend downward by ${gap}mm`);
+
+    // Try 200mm span first, then 300mm
+    for (const span of [200, 300]) {
+      if (Math.abs(gap - span) < 1) {
+        // Find SKU with additional span at beginning
+        const newSKU = AVAILABLE_RODS.find(sku => {
+          if (sku.spans.length !== rodSKU.spans.length + 1) return false;
+          // Check if it's one more span at the start plus the same pattern
+          if (sku.spans[0] !== span) return false;
+          for (let i = 0; i < rodSKU.spans.length; i++) {
+            if (sku.spans[i + 1] !== rodSKU.spans[i]) return false;
+          }
+          return true;
+        });
+
+        if (newSKU) {
+          // Adjust rod position downward to keep top fixed
+          rod.position.y -= span;
+          rod.sku_id = newSKU.sku_id;
+
+          // Rebuild attachment points
+          const newAttachmentPositions = calculateAttachmentPositions(newSKU);
+          rod.attachmentPoints = newAttachmentPositions.map(y => ({ y }));
+
+          // Re-attach plates (Y positions unchanged, but indices shift)
+          shelf.plates.forEach((plate, plateId) => {
+            if (plate.connections.includes(rodId)) {
+              const attachmentY = plate.y - rod.position.y;
+              const attachmentIndex = rod.attachmentPoints.findIndex(ap => ap.y === attachmentY);
+              if (attachmentIndex !== -1) {
+                rod.attachmentPoints[attachmentIndex].plateId = plateId;
+              }
+            }
+          });
+
+          console.log(`extendRodToHeight: Extended downward with ${span}mm span to SKU ${newSKU.name}`);
+          return true;
+        }
+      }
+    }
+  }
+
+  console.log('extendRodToHeight: No matching SKU found for extension');
+  return false;
+}
+
+export function mergeColocatedRods(x: number, shelf: Shelf): void {
+  // Find all rods at X position (within 1mm tolerance)
+  const colocatedRods: Array<[number, Rod]> = [];
+  shelf.rods.forEach((rod, rodId) => {
+    if (Math.abs(rod.position.x - x) < 1) {
+      colocatedRods.push([rodId, rod]);
+    }
+  });
+
+  if (colocatedRods.length <= 1) {
+    console.log('mergeColocatedRods: Only one rod at this position, no merge needed');
+    return;
+  }
+
+  console.log(`mergeColocatedRods: Found ${colocatedRods.length} rods at X=${x}`);
+
+  // Collect all attachment Y positions (world space) from all rods
+  const allAttachmentYs = new Set<number>();
+  colocatedRods.forEach(([rodId, rod]) => {
+    rod.attachmentPoints.forEach(ap => {
+      allAttachmentYs.add(rod.position.y + ap.y);
+    });
+  });
+
+  const sortedYs = Array.from(allAttachmentYs).sort((a, b) => a - b);
+  console.log('mergeColocatedRods: All attachment heights:', sortedYs);
+
+  // Calculate spans between attachment points
+  const spans: number[] = [];
+  for (let i = 0; i < sortedYs.length - 1; i++) {
+    spans.push(sortedYs[i + 1] - sortedYs[i]);
+  }
+
+  // Find SKU that matches this span pattern
+  const matchingSKU = AVAILABLE_RODS.find(sku => {
+    if (sku.spans.length !== spans.length) return false;
+    return sku.spans.every((span, i) => span === spans[i]);
+  });
+
+  if (!matchingSKU) {
+    console.log('mergeColocatedRods: No SKU found matching combined pattern, leaving rods separate');
+    return;
+  }
+
+  console.log(`mergeColocatedRods: Found matching SKU: ${matchingSKU.name}`);
+
+  // Create merged rod at the lowest Y position
+  const mergedRodY = sortedYs[0];
+  const mergedRodId = addRod({ x, y: mergedRodY }, matchingSKU.sku_id, shelf);
+
+  // Update all plate connections from old rods to merged rod
+  shelf.plates.forEach((plate, plateId) => {
+    for (let i = 0; i < plate.connections.length; i++) {
+      const connectedRodId = plate.connections[i];
+      const isOldRod = colocatedRods.some(([id]) => id === connectedRodId);
+
+      if (isOldRod) {
+        console.log(`mergeColocatedRods: Updating plate ${plateId} connection from rod ${connectedRodId} to ${mergedRodId}`);
+        plate.connections[i] = mergedRodId;
+
+        // Update merged rod's attachment point
+        const mergedRod = shelf.rods.get(mergedRodId)!;
+        const attachmentY = plate.y - mergedRod.position.y;
+        const attachmentIndex = mergedRod.attachmentPoints.findIndex(ap => ap.y === attachmentY);
+        if (attachmentIndex !== -1) {
+          mergedRod.attachmentPoints[attachmentIndex].plateId = plateId;
+        }
+      }
+    }
+  });
+
+  // Delete old rods
+  colocatedRods.forEach(([rodId]) => {
+    console.log(`mergeColocatedRods: Deleting old rod ${rodId}`);
+    shelf.rods.delete(rodId);
+  });
+
+  console.log('mergeColocatedRods: Merge complete');
+}
+
 // TODO: Add remaining exports as they are implemented
 export {
   // calculateRodBounds,
