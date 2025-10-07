@@ -379,38 +379,34 @@ export function removeRodSegment(rodId: number, segmentIndex: number, shelf: She
   const removedSegmentSpan = rodSKU.spans[segmentIndex];
 
   // Case A: Remove bottom segment - adjust rod Y position to keep top fixed
-  // Keep removing segments until we hit one with a plate
+  // Keep removing segments until we hit an attachment point with a plate
   if (segmentIndex === 0) {
     console.log('removeRodSegment: Removing bottom segment(s), adjusting Y position');
 
-    // Check which segments have plates
-    const segmentsWithPlates = new Set<number>();
-    rod.attachmentPoints.forEach((ap, index) => {
-      if (ap.plateId !== undefined) {
-        // Find which segment this attachment point belongs to
-        // Attachment points are at segment boundaries (index 0, 1, 2, ...)
-        // Segment 0 is between attachments 0 and 1, etc.
-        if (index > 0) segmentsWithPlates.add(index - 1); // Segment below this attachment
-        if (index < rod.attachmentPoints.length - 1) segmentsWithPlates.add(index); // Segment above this attachment
+    // Find first attachment point (from bottom) that has a plate
+    let firstPlateAttachmentIndex = -1;
+    for (let i = 0; i < rod.attachmentPoints.length; i++) {
+      if (rod.attachmentPoints[i].plateId !== undefined) {
+        firstPlateAttachmentIndex = i;
+        break;
       }
-    });
-
-    // Find how many bottom segments to remove (until we hit a plate or run out)
-    let segmentsToRemove = 0;
-    for (let i = 0; i < numSegments; i++) {
-      if (segmentsWithPlates.has(i)) {
-        break; // Stop at first segment with plate
-      }
-      segmentsToRemove++;
     }
 
-    // If all segments have no plates, remove entire rod
-    if (segmentsToRemove === numSegments) {
+    // If no plates on rod, remove entire rod
+    if (firstPlateAttachmentIndex === -1) {
       console.log('removeRodSegment: No plates on rod, removing entire rod');
       return removeRod(rodId, shelf);
     }
 
-    console.log(`removeRodSegment: Removing ${segmentsToRemove} bottom segment(s)`);
+    // Calculate how many segments to remove (segments below the first plate attachment)
+    const segmentsToRemove = firstPlateAttachmentIndex;
+
+    if (segmentsToRemove === 0) {
+      console.log('removeRodSegment: Bottom attachment point has plate, cannot remove');
+      return false;
+    }
+
+    console.log(`removeRodSegment: Removing ${segmentsToRemove} bottom segment(s) to reach first plate at attachment ${firstPlateAttachmentIndex}`);
 
     const newSpans = rodSKU.spans.slice(segmentsToRemove); // Remove first N segments
 
@@ -456,36 +452,36 @@ export function removeRodSegment(rodId: number, segmentIndex: number, shelf: She
   }
 
   // Case B: Remove top segment - no Y adjustment needed
-  // Keep removing segments until we hit one with a plate
+  // Keep removing segments until we hit an attachment point with a plate
   if (segmentIndex === numSegments - 1) {
     console.log('removeRodSegment: Removing top segment(s)');
 
-    // Check which segments have plates
-    const segmentsWithPlates = new Set<number>();
-    rod.attachmentPoints.forEach((ap, index) => {
-      if (ap.plateId !== undefined) {
-        // Find which segment this attachment point belongs to
-        if (index > 0) segmentsWithPlates.add(index - 1); // Segment below this attachment
-        if (index < rod.attachmentPoints.length - 1) segmentsWithPlates.add(index); // Segment above this attachment
+    // Find last attachment point (from top) that has a plate
+    let lastPlateAttachmentIndex = -1;
+    for (let i = rod.attachmentPoints.length - 1; i >= 0; i--) {
+      if (rod.attachmentPoints[i].plateId !== undefined) {
+        lastPlateAttachmentIndex = i;
+        break;
       }
-    });
-
-    // Find how many top segments to remove (until we hit a plate or run out)
-    let segmentsToRemove = 0;
-    for (let i = numSegments - 1; i >= 0; i--) {
-      if (segmentsWithPlates.has(i)) {
-        break; // Stop at first segment with plate
-      }
-      segmentsToRemove++;
     }
 
-    // If all segments have no plates, remove entire rod
-    if (segmentsToRemove === numSegments) {
+    // If no plates on rod, remove entire rod
+    if (lastPlateAttachmentIndex === -1) {
       console.log('removeRodSegment: No plates on rod, removing entire rod');
       return removeRod(rodId, shelf);
     }
 
-    console.log(`removeRodSegment: Removing ${segmentsToRemove} top segment(s)`);
+    // Calculate how many segments to remove (segments above the last plate attachment)
+    // Number of attachment points = number of segments + 1
+    // So segments to remove = (total attachment points - 1) - lastPlateAttachmentIndex
+    const segmentsToRemove = (rod.attachmentPoints.length - 1) - lastPlateAttachmentIndex;
+
+    if (segmentsToRemove === 0) {
+      console.log('removeRodSegment: Top attachment point has plate, cannot remove');
+      return false;
+    }
+
+    console.log(`removeRodSegment: Removing ${segmentsToRemove} top segment(s) to reach last plate at attachment ${lastPlateAttachmentIndex}`);
 
     const newSpans = rodSKU.spans.slice(0, numSegments - segmentsToRemove); // Remove last N segments
 
