@@ -379,10 +379,40 @@ export function removeRodSegment(rodId: number, segmentIndex: number, shelf: She
   const removedSegmentSpan = rodSKU.spans[segmentIndex];
 
   // Case A: Remove bottom segment - adjust rod Y position to keep top fixed
+  // Keep removing segments until we hit one with a plate
   if (segmentIndex === 0) {
-    console.log('removeRodSegment: Removing bottom segment, adjusting Y position');
+    console.log('removeRodSegment: Removing bottom segment(s), adjusting Y position');
 
-    const newSpans = rodSKU.spans.slice(1); // Remove first segment
+    // Check which segments have plates
+    const segmentsWithPlates = new Set<number>();
+    rod.attachmentPoints.forEach((ap, index) => {
+      if (ap.plateId !== undefined) {
+        // Find which segment this attachment point belongs to
+        // Attachment points are at segment boundaries (index 0, 1, 2, ...)
+        // Segment 0 is between attachments 0 and 1, etc.
+        if (index > 0) segmentsWithPlates.add(index - 1); // Segment below this attachment
+        if (index < rod.attachmentPoints.length - 1) segmentsWithPlates.add(index); // Segment above this attachment
+      }
+    });
+
+    // Find how many bottom segments to remove (until we hit a plate or run out)
+    let segmentsToRemove = 0;
+    for (let i = 0; i < numSegments; i++) {
+      if (segmentsWithPlates.has(i)) {
+        break; // Stop at first segment with plate
+      }
+      segmentsToRemove++;
+    }
+
+    // If all segments have no plates, remove entire rod
+    if (segmentsToRemove === numSegments) {
+      console.log('removeRodSegment: No plates on rod, removing entire rod');
+      return removeRod(rodId, shelf);
+    }
+
+    console.log(`removeRodSegment: Removing ${segmentsToRemove} bottom segment(s)`);
+
+    const newSpans = rodSKU.spans.slice(segmentsToRemove); // Remove first N segments
 
     const newRodSKU = AVAILABLE_RODS.find(sku => {
       if (sku.spans.length !== newSpans.length) return false;
@@ -394,8 +424,11 @@ export function removeRodSegment(rodId: number, segmentIndex: number, shelf: She
       return false;
     }
 
-    // Adjust Y position upward by the removed segment span to keep top fixed
-    rod.position.y += removedSegmentSpan;
+    // Calculate total Y adjustment
+    const totalAdjustment = rodSKU.spans.slice(0, segmentsToRemove).reduce((sum, span) => sum + span, 0);
+
+    // Adjust Y position upward to keep top fixed
+    rod.position.y += totalAdjustment;
 
     // Update SKU
     rod.sku_id = newRodSKU.sku_id;
@@ -418,15 +451,43 @@ export function removeRodSegment(rodId: number, segmentIndex: number, shelf: She
       }
     });
 
-    console.log('removeRodSegment: Bottom segment removed, Y adjusted by', removedSegmentSpan);
+    console.log(`removeRodSegment: ${segmentsToRemove} bottom segment(s) removed, Y adjusted by`, totalAdjustment);
     return true;
   }
 
   // Case B: Remove top segment - no Y adjustment needed
+  // Keep removing segments until we hit one with a plate
   if (segmentIndex === numSegments - 1) {
-    console.log('removeRodSegment: Removing top segment');
+    console.log('removeRodSegment: Removing top segment(s)');
 
-    const newSpans = rodSKU.spans.slice(0, -1); // Remove last segment
+    // Check which segments have plates
+    const segmentsWithPlates = new Set<number>();
+    rod.attachmentPoints.forEach((ap, index) => {
+      if (ap.plateId !== undefined) {
+        // Find which segment this attachment point belongs to
+        if (index > 0) segmentsWithPlates.add(index - 1); // Segment below this attachment
+        if (index < rod.attachmentPoints.length - 1) segmentsWithPlates.add(index); // Segment above this attachment
+      }
+    });
+
+    // Find how many top segments to remove (until we hit a plate or run out)
+    let segmentsToRemove = 0;
+    for (let i = numSegments - 1; i >= 0; i--) {
+      if (segmentsWithPlates.has(i)) {
+        break; // Stop at first segment with plate
+      }
+      segmentsToRemove++;
+    }
+
+    // If all segments have no plates, remove entire rod
+    if (segmentsToRemove === numSegments) {
+      console.log('removeRodSegment: No plates on rod, removing entire rod');
+      return removeRod(rodId, shelf);
+    }
+
+    console.log(`removeRodSegment: Removing ${segmentsToRemove} top segment(s)`);
+
+    const newSpans = rodSKU.spans.slice(0, numSegments - segmentsToRemove); // Remove last N segments
 
     const newRodSKU = AVAILABLE_RODS.find(sku => {
       if (sku.spans.length !== newSpans.length) return false;
@@ -491,7 +552,7 @@ export function removeRodSegment(rodId: number, segmentIndex: number, shelf: She
       }
     });
 
-    console.log('removeRodSegment: Top segment removed');
+    console.log(`removeRodSegment: ${segmentsToRemove} top segment(s) removed`);
     return true;
   }
 
