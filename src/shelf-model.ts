@@ -76,10 +76,10 @@ export const AVAILABLE_RODS: RodSKU[] = [
 ];
 
 export const AVAILABLE_PLATES: PlateSKU[] = [
-  { sku_id: 1, name: "670mm", spans: [PLATE_PADDING_MM, 600, PLATE_PADDING_MM], depth:200 },
-  { sku_id: 2, name: "1270mm-single", spans: [PLATE_PADDING_MM, 1200, PLATE_PADDING_MM], depth:200 },
-  { sku_id: 3, name: "1270mm-double", spans: [PLATE_PADDING_MM, 600, 600, PLATE_PADDING_MM], depth:200 },
-  { sku_id: 4, name: "1870mm", spans: [PLATE_PADDING_MM, 600, 600, 600, PLATE_PADDING_MM], depth:200 }
+  { sku_id: 1, name: "670mm", spans: [PLATE_PADDING_MM, 600, PLATE_PADDING_MM], depth: 200 },
+  { sku_id: 2, name: "1270mm-single", spans: [PLATE_PADDING_MM, 1200, PLATE_PADDING_MM], depth: 200 },
+  { sku_id: 3, name: "1270mm-double", spans: [PLATE_PADDING_MM, 600, 600, PLATE_PADDING_MM], depth: 200 },
+  { sku_id: 4, name: "1870mm", spans: [PLATE_PADDING_MM, 600, 600, 600, PLATE_PADDING_MM], depth: 200 }
 ];
 
 // Core functions
@@ -108,9 +108,9 @@ export function findClosestAttachment(cursorY: number, attachmentPoints: Attachm
   return closestIndex;
 }
 
-export function intersectRay(ray: {origin: Vec3f, dir: Vec3f}, shelf: Shelf): any {
+export function intersectRay(ray: { origin: Vec3f, dir: Vec3f }, shelf: Shelf): any {
   // Basic raycasting implementation - find closest rod or plate intersection
-  const intersections: {type: 'rod' | 'plate', id: number, distance: number}[] = [];
+  const intersections: { type: 'rod' | 'plate', id: number, distance: number }[] = [];
 
   // For now, return null as this requires more complex 3D geometry calculations
   // that would need specific bounding box/mesh intersection logic
@@ -186,12 +186,12 @@ export function addPlate(height: number, sku_id: number, rodIds: number[], shelf
     const attachmentIndex = rod.attachmentPoints.findIndex(point => (rodBaseHeight + point.y) === height);
 
     // Make sure the rod has an attachment point at the desired plate height
-    if (attachmentIndex === -1){
-      console.warn("Rod "+rodId+" does not have an attachment at the right height");
-      for(const a of rod.attachmentPoints){
+    if (attachmentIndex === -1) {
+      console.warn("Rod " + rodId + " does not have an attachment at the right height");
+      for (const a of rod.attachmentPoints) {
         console.log(rodBaseHeight + a.y);
       }
-     return -1;
+      return -1;
     }
 
 
@@ -211,7 +211,7 @@ function findAttachmentPointByY(rod: Rod, targetY: number): number | undefined {
   return undefined;
 }
 
-export function tryExtendPlate(plateId: number, extendDirection: Direction, shelf: Shelf): boolean{
+export function tryExtendPlate(plateId: number, extendDirection: Direction, shelf: Shelf): boolean {
   // Get the plate and validate it exists
   const plate = shelf.plates.get(plateId);
   if (!plate) return false;
@@ -877,16 +877,37 @@ export function tryFillGapWithPlate(leftRodId: number, rightRodId: number, heigh
   const leftRod = shelf.rods.get(leftRodId);
   const rightRod = shelf.rods.get(rightRodId);
 
-  if (!leftRod || !rightRod) return -1;
+  if (!leftRod || !rightRod) {
+    console.log('tryFillGapWithPlate: Rod not found', { leftRodId, rightRodId });
+    return -1;
+  }
 
   // Check if both rods have attachment points at the specified height
   const leftAttachmentY = height - leftRod.position.y;
   const rightAttachmentY = height - rightRod.position.y;
 
+  console.log('tryFillGapWithPlate: Looking for attachments', {
+    height,
+    leftRodId,
+    leftRodPosY: leftRod.position.y,
+    leftAttachmentY,
+    leftAttachments: leftRod.attachmentPoints.map(ap => ap.y),
+    rightRodId,
+    rightRodPosY: rightRod.position.y,
+    rightAttachmentY,
+    rightAttachments: rightRod.attachmentPoints.map(ap => ap.y)
+  });
+
   const leftAttachment = leftRod.attachmentPoints.find(ap => ap.y === leftAttachmentY);
   const rightAttachment = rightRod.attachmentPoints.find(ap => ap.y === rightAttachmentY);
 
-  if (!leftAttachment || !rightAttachment) return -1;
+  if (!leftAttachment || !rightAttachment) {
+    console.log('tryFillGapWithPlate: Missing attachment point', {
+      leftAttachment: !!leftAttachment,
+      rightAttachment: !!rightAttachment
+    });
+    return -1;
+  }
 
   const leftPlateId = leftAttachment.plateId;
   const rightPlateId = rightAttachment.plateId;
@@ -970,46 +991,43 @@ export function tryFillEdgeGap(edgeRodId: number, y: number, direction: 'left' |
       // Rod exists but needs attachment at this Y - extend it
       console.log('tryFillEdgeGap: Rod exists but missing attachment at Y, extending rod');
       const success = extendRodToHeight(targetRodId, y, shelf);
-      if (!success) {
-        console.log('tryFillEdgeGap: Failed to extend existing rod to height');
-        return -1;
+      if (success) {
+        // Now fill the gap
+        const leftRodId = direction === 'left' ? targetRodId : edgeRodId;
+        const rightRodId = direction === 'left' ? edgeRodId : targetRodId;
+        return tryFillGapWithPlate(leftRodId, rightRodId, y, shelf);
       }
-
-      // Now fill the gap
-      const leftRodId = direction === 'left' ? targetRodId : edgeRodId;
-      const rightRodId = direction === 'left' ? edgeRodId : targetRodId;
-      return tryFillGapWithPlate(leftRodId, rightRodId, y, shelf);
     }
-  } else {
-    // No rod at target position - create new one with minimal SKU
-    console.log('tryFillEdgeGap: Creating new rod at target position');
-
-    // Find minimal rod SKU (single attachment point: "1P")
-    const minimalRodSKU = AVAILABLE_RODS.find(r => r.name === "1P");
-    if (!minimalRodSKU) {
-      console.log('tryFillEdgeGap: No minimal rod SKU found');
-      return -1;
-    }
-
-    // Create new rod at Y position (so attachment at relative y=0 is at world Y)
-    const newRodId = addRod({ x: newRodX, y: y }, minimalRodSKU.sku_id, shelf);
-
-    // Fill the gap
-    const leftRodId = direction === 'left' ? newRodId : edgeRodId;
-    const rightRodId = direction === 'left' ? edgeRodId : newRodId;
-    const plateId = tryFillGapWithPlate(leftRodId, rightRodId, y, shelf);
-
-    if (plateId === -1) {
-      console.log('tryFillEdgeGap: Failed to add plate, removing new rod');
-      removeRod(newRodId, shelf);
-      return -1;
-    }
-
-    // Try to merge colocated rods at this X position
-    mergeColocatedRods(newRodX, shelf);
-
-    return plateId;
   }
+
+  // No rod that can be extended - create new one with minimal SKU
+  console.log('tryFillEdgeGap: Creating new rod at target position');
+
+  // Find minimal rod SKU (single attachment point: "1P")
+  const minimalRodSKU = AVAILABLE_RODS.find(r => r.name === "1P");
+  if (!minimalRodSKU) {
+    console.log('tryFillEdgeGap: No minimal rod SKU found');
+    return -1;
+  }
+
+  // Create new rod at Y position (so attachment at relative y=0 is at world Y)
+  const newRodId = addRod({ x: newRodX, y: y }, minimalRodSKU.sku_id, shelf);
+
+  // Fill the gap
+  const leftRodId = direction === 'left' ? newRodId : edgeRodId;
+  const rightRodId = direction === 'left' ? edgeRodId : newRodId;
+  const plateId = tryFillGapWithPlate(leftRodId, rightRodId, y, shelf);
+
+  if (plateId === -1) {
+    console.log('tryFillEdgeGap: Failed to add plate, removing new rod');
+    removeRod(newRodId, shelf);
+    return -1;
+  }
+
+  // Try to merge colocated rods at this X position
+  mergeColocatedRods(newRodX, shelf);
+
+  return plateId;
 }
 
 export function extendRodToHeight(rodId: number, targetY: number, shelf: Shelf): boolean {
@@ -1233,10 +1251,10 @@ export function findNextExtensionDown(rodId: number, spanToAdd: number, shelf: S
   return newSKU?.sku_id;
 }
 
-export function findCommonExtension(rodIds: number[], direction: 'up' | 'down', shelf: Shelf): Map<number, {newSKU_id: number, spanToAdd: number}> | undefined {
+export function findCommonExtension(rodIds: number[], direction: 'up' | 'down', shelf: Shelf): Map<number, { newSKU_id: number, spanToAdd: number }> | undefined {
   // Try 200mm span first, then 300mm
   for (const span of [200, 300]) {
-    const extensionMap = new Map<number, {newSKU_id: number, spanToAdd: number}>();
+    const extensionMap = new Map<number, { newSKU_id: number, spanToAdd: number }>();
     let allRodsCanExtend = true;
 
     for (const rodId of rodIds) {
@@ -1334,7 +1352,7 @@ export function extendRodDown(rodId: number, newSKU_id: number, shelf: Shelf): b
   return true;
 }
 
-export function tryFillExtensionGap(rodIds: number[], y: number, direction: 'up' | 'down', requiredExtensions: Map<number, {newSKU_id: number, spanToAdd: number}>, shelf: Shelf): number {
+export function tryFillExtensionGap(rodIds: number[], y: number, direction: 'up' | 'down', requiredExtensions: Map<number, { newSKU_id: number, spanToAdd: number }>, shelf: Shelf): number {
   console.log(`tryFillExtensionGap: Extending ${rodIds.length} rods ${direction} to create plate at Y=${y}`);
 
   // Extend all rods first

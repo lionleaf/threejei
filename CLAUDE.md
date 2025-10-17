@@ -33,7 +33,7 @@ The configurator must work within specific size constraints and available compon
 - Mimic existing code style, imports, and framework choices
 
 ### Task Management
-- Write todos into this file frequently for complex tasks
+- Development tasks are tracked in TODO.md (separate file)
 - Mark todos as completed immediately when finished
 - When done with a task commit that with git commit -am "Task description"
 - Re-read this file after task completion and proceed to the next one
@@ -97,11 +97,7 @@ The currently available plates are:
 
 ## Development Tasks
 
-### Phase 1: Foundation
-- [x] Expand on the constraints and requirement and show a few sample configurations with ASCII
-- [x] Create data models for components in a separate typescript file.
-- [x] Rewrite data models using hybrid approach optimized for interactive editing
-- [x] Write test framework
+See [TODO.md](TODO.md) for current development tasks and roadmap.
 
 ### Sample Configurations
 
