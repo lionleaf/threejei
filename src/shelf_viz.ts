@@ -20,15 +20,8 @@ const DEBUG_SHOW_COLLIDERS = false;
 
 // Rebuild all shelf geometry (rods, plates, gap colliders)
 function rebuildShelfGeometry(shelf: Shelf, scene: any): void {
-  // Remove all existing shelf geometry from scene
-  const objectsToRemove = scene.children.filter((child: any) =>
-    child.userData?.type === 'rod' ||
-    child.userData?.type === 'plate' ||
-    child.userData?.type === 'gap' ||
-    child.userData?.type === 'attachment_point' ||
-    child.userData?.type === 'connection_point'
-  );
-  objectsToRemove.forEach((obj: any) => scene.remove(obj));
+  // Remove all children from scene
+  scene.clear();
 
   // Generate rod geometry (each logical rod is two physical rods)
   shelf.rods.forEach((rod, rodId) => {
