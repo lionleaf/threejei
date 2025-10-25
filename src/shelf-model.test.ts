@@ -1,4 +1,4 @@
-import { createEmptyShelf, addRod, addPlate, tryExtendPlate, Direction, AVAILABLE_PLATES } from './shelf-model.js';
+import { createEmptyShelf, addRod, addPlate, tryExtendPlate, tryFillEdgeGap, Direction, AVAILABLE_PLATES } from './shelf-model.js';
 import { test, testGroup, assertEquals, assertTrue, printResults } from './test-framework.js';
 
 testGroup('Plate Addition Validation - Valid Plates', () => {
@@ -204,33 +204,40 @@ testGroup('Plate Extension Bug - Extending Beyond Available SKUs', () => {
     assertEquals(shelf.plates.get(plateId)?.connections.length, initialConnections, 'Plate connections should remain unchanged');
   });
 
-  test('BUG: Repeatedly extending from edge should respect plate SKU limits', () => {
+  test('BUG: Repeatedly clicking edge gap should respect plate SKU limits', () => {
     const shelf = createEmptyShelf();
     const rod1 = addRod({ x: 0, y: 0 }, 1, shelf);
     const rod2 = addRod({ x: 600, y: 0 }, 1, shelf);
 
-    const plateId = addPlate(0, 1, [rod1, rod2], shelf);
-    assertTrue(plateId > 0, 'Should create initial 670mm plate');
-
+    let edgeRodId = rod2;
     let extendCount = 0;
     const maxIterations = 10;
 
     for (let i = 0; i < maxIterations; i++) {
-      const currentPlate = shelf.plates.get(plateId);
-      if (!currentPlate) break;
+      const edgeRod = shelf.rods.get(edgeRodId);
+      if (!edgeRod) break;
 
-      const success = tryExtendPlate(plateId, Direction.Right, shelf);
-      if (success) {
+      const plateId = tryFillEdgeGap(edgeRodId, 0, 'right', shelf);
+      if (plateId > 0) {
         extendCount++;
+
+        const plate = shelf.plates.get(plateId);
+        if (!plate) break;
+
+        const rightmostRodId = plate.connections[plate.connections.length - 1];
+        edgeRodId = rightmostRodId;
       } else {
         break;
       }
     }
 
-    const finalPlate = shelf.plates.get(plateId);
-    assertTrue(extendCount <= 2, `Should extend at most 2 times (670->1270->1870), extended ${extendCount} times. Final SKU: ${finalPlate?.sku_id}, connections: ${finalPlate?.connections.length}`);
+    assertTrue(extendCount <= 3, `Should extend at most 3 times (create 670, extend to 1270, extend to 1870), extended ${extendCount} times`);
 
-    if (finalPlate) {
+    const allPlates = Array.from(shelf.plates.values());
+    assertTrue(allPlates.length === 1, `Should only have 1 plate, but has ${allPlates.length}`);
+
+    if (allPlates.length > 0) {
+      const finalPlate = allPlates[0];
       assertEquals(finalPlate.sku_id, 4, `Final plate should be 1870mm (sku_id=4), but got sku_id=${finalPlate.sku_id}`);
     }
   });

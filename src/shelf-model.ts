@@ -986,6 +986,16 @@ export function calculateEdgeGapPlate(edgeRodId: number, y: number, direction: '
   const edgeRod = shelf.rods.get(edgeRodId);
   if (!edgeRod) return undefined;
 
+  // Check if edge rod already has a plate at this height
+  const edgeAttachmentY = y - edgeRod.position.y;
+  const edgeAttachment = edgeRod.attachmentPoints.find(ap => ap.y === edgeAttachmentY);
+
+  if (edgeAttachment && edgeAttachment.plateId !== undefined) {
+    // Edge rod already has a plate - this should not create a new plate
+    // The caller should handle extending the existing plate instead
+    return undefined;
+  }
+
   const STANDARD_GAP = 600;
   const newRodX = direction === 'left' ? edgeRod.position.x - STANDARD_GAP : edgeRod.position.x + STANDARD_GAP;
 
@@ -1026,6 +1036,61 @@ export function calculateEdgeGapPlate(edgeRodId: number, y: number, direction: '
 }
 
 export function tryFillEdgeGap(edgeRodId: number, y: number, direction: 'left' | 'right', shelf: Shelf): number {
+  // First check if edge rod already has a plate at this height that needs to be extended
+  const edgeRod = shelf.rods.get(edgeRodId);
+  if (edgeRod) {
+    const edgeAttachmentY = y - edgeRod.position.y;
+    const edgeAttachment = edgeRod.attachmentPoints.find(ap => ap.y === edgeAttachmentY);
+
+    if (edgeAttachment && edgeAttachment.plateId !== undefined) {
+      // Edge rod has a plate - try to extend it
+      console.log(`tryFillEdgeGap: Edge rod has existing plate ${edgeAttachment.plateId}, attempting to extend`);
+      const plate = shelf.plates.get(edgeAttachment.plateId);
+      if (!plate) return -1;
+
+      const extendDir = direction === 'left' ? Direction.Left : Direction.Right;
+      const success = tryExtendPlate(edgeAttachment.plateId, extendDir, shelf);
+
+      if (success) {
+        return edgeAttachment.plateId;
+      }
+
+      // Extension failed - check if we need to create a new rod at the edge
+      // Get the current plate SKU to see if we've reached maximum size
+      const currentSKU = AVAILABLE_PLATES.find(p => p.sku_id === plate.sku_id);
+      if (!currentSKU) return -1;
+
+      // Check if this is already the maximum plate size (1870mm = 4 spans + 2 padding)
+      if (currentSKU.spans.length >= 6) {
+        console.log('tryFillEdgeGap: Plate already at maximum size, cannot extend further');
+        return -1;
+      }
+
+      // Create a new rod at standard distance and try again
+      const STANDARD_GAP = 600;
+      const newRodX = direction === 'left' ? edgeRod.position.x - STANDARD_GAP : edgeRod.position.x + STANDARD_GAP;
+
+      console.log(`tryFillEdgeGap: Creating new rod at X=${newRodX} to extend plate`);
+
+      const minimalRodSKU = AVAILABLE_RODS.find(r => r.name === "1P");
+      if (!minimalRodSKU) return -1;
+
+      const newRodId = addRod({ x: newRodX, y: y }, minimalRodSKU.sku_id, shelf);
+
+      // Try extending again with the new rod
+      const successAfterNewRod = tryExtendPlate(edgeAttachment.plateId, extendDir, shelf);
+
+      if (successAfterNewRod) {
+        mergeColocatedRods(newRodX, shelf);
+        return edgeAttachment.plateId;
+      } else {
+        // Extension still failed, remove the rod we just created
+        removeRod(newRodId, shelf);
+        return -1;
+      }
+    }
+  }
+
   const plateConfig = calculateEdgeGapPlate(edgeRodId, y, direction, shelf);
   if (!plateConfig) {
     console.log('tryFillEdgeGap: Cannot calculate edge gap plate');
@@ -1033,7 +1098,6 @@ export function tryFillEdgeGap(edgeRodId: number, y: number, direction: 'left' |
   }
 
   const STANDARD_GAP = 600;
-  const edgeRod = shelf.rods.get(edgeRodId);
   if (!edgeRod) {
     console.log('tryFillEdgeGap: Edge rod not found');
     return -1;
