@@ -16,7 +16,7 @@ import { setupInteractions } from './interactions.js';
 declare const THREE: any;
 
 // Debug flag to make colliders visible
-const DEBUG_SHOW_COLLIDERS = false;
+export const DEBUG_SHOW_COLLIDERS = false;
 
 // Rebuild all shelf geometry (rods, plates, gap colliders)
 function rebuildShelfGeometry(shelf: Shelf, scene: any): void {
@@ -126,11 +126,11 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any): void {
       let foundAP = false;
       // Look through all rods of greater or equal X position (they are sorted)
       // To find the closest attachment point at Y level
-      for(let k = i + 1; k < rods.length && !foundAP; k++){
+      for (let k = i + 1; k < rods.length && !foundAP; k++) {
         const [rightRodId, rightRod] = rods[k];
         // Calculate distance between rods
         const gapDistance = rightRod.position.x - leftRod.position.x;
-        if(gapDistance == 0){
+        if (gapDistance == 0) {
           continue;
         }
         // TODO: Optimization, break if length is larger than longest plate gap
@@ -139,10 +139,10 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any): void {
           const rightY = rightRod.position.y + rightAP.y;
 
           // Check if attachment points align and there isn't already a plate spanning the gap
-          if (leftY === rightY ) {
+          if (leftY === rightY) {
             foundAP = true;
             const plateSpanningGap = (leftAP.plateId === rightAP.plateId) && leftAP.plateId != undefined;
-            if(!plateSpanningGap){
+            if (!plateSpanningGap) {
               // Create invisible collider
               const centerX = (leftRod.position.x + rightRod.position.x) / 2;
 
@@ -168,7 +168,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any): void {
             break;
           }
         }
-    }
+      }
     }
   }
 
@@ -204,49 +204,56 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any): void {
     const leftmostRod = shelf.rods.get(edgeInfo.leftmostRodId)!;
     const rightmostRod = shelf.rods.get(edgeInfo.rightmostRodId)!;
 
+    // Find attachment points at this Y level
+    const leftAP = leftmostRod.attachmentPoints.find(ap => leftmostRod.position.y + ap.y === y);
+    const rightAP = rightmostRod.attachmentPoints.find(ap => rightmostRod.position.y + ap.y === y);
+
     // Left edge gap collider
-    const leftEdgeX = leftmostRod.position.x - STANDARD_GAP;
-    const leftCenterX = (leftEdgeX + leftmostRod.position.x) / 2;
+    if (leftAP) {
+      const leftEdgeX = leftmostRod.position.x - STANDARD_GAP;
+      const leftCenterX = (leftEdgeX + leftmostRod.position.x) / 2;
 
-    const leftCollider = new THREE.Mesh(
-      new THREE.BoxGeometry(STANDARD_GAP, 30, 200),
-      new THREE.MeshBasicMaterial({
-        color: 0x0088ff, // Blue for edge gaps
-        transparent: true,
-        opacity: DEBUG_SHOW_COLLIDERS ? 0.2 : 0.0
-      })
-    );
-    leftCollider.position.set(leftCenterX, y, 200 / 2);
-    leftCollider.userData = {
-      type: 'edge_gap',
-      direction: 'left',
-      edgeRodId: edgeInfo.leftmostRodId,
-      y: y,
-      newRodX: leftEdgeX
-    };
-    scene.add(leftCollider);
+      const leftCollider = new THREE.Mesh(
+        new THREE.BoxGeometry(STANDARD_GAP, 30, 200),
+        new THREE.MeshBasicMaterial({
+          color: 0x0088ff, // Blue for edge gaps
+          transparent: true,
+          opacity: DEBUG_SHOW_COLLIDERS ? 0.2 : 0.0
+        })
+      );
+      leftCollider.position.set(leftCenterX, y, 200 / 2);
+      leftCollider.userData = {
+        type: 'edge_gap',
+        direction: 'left',
+        edgeRodId: edgeInfo.leftmostRodId,
+        y: y,
+        newRodX: leftEdgeX
+      };
+      scene.add(leftCollider);
+    }
 
-    // Right edge gap collider
-    const rightEdgeX = rightmostRod.position.x + STANDARD_GAP;
-    const rightCenterX = (rightmostRod.position.x + rightEdgeX) / 2;
+    if (rightAP) {
+      const rightEdgeX = rightmostRod.position.x + STANDARD_GAP;
+      const rightCenterX = (rightmostRod.position.x + rightEdgeX) / 2;
 
-    const rightCollider = new THREE.Mesh(
-      new THREE.BoxGeometry(STANDARD_GAP, 30, 200),
-      new THREE.MeshBasicMaterial({
-        color: 0x0088ff, // Blue for edge gaps
-        transparent: true,
-        opacity: DEBUG_SHOW_COLLIDERS ? 0.2 : 0.0
-      })
-    );
-    rightCollider.position.set(rightCenterX, y, 200 / 2);
-    rightCollider.userData = {
-      type: 'edge_gap',
-      direction: 'right',
-      edgeRodId: edgeInfo.rightmostRodId,
-      y: y,
-      newRodX: rightEdgeX
-    };
-    scene.add(rightCollider);
+      const rightCollider = new THREE.Mesh(
+        new THREE.BoxGeometry(STANDARD_GAP, 30, 200),
+        new THREE.MeshBasicMaterial({
+          color: 0x0088ff, // Blue for edge gaps
+          transparent: true,
+          opacity: DEBUG_SHOW_COLLIDERS ? 0.2 : 0.0
+        })
+      );
+      rightCollider.position.set(rightCenterX, y, 200 / 2);
+      rightCollider.userData = {
+        type: 'edge_gap',
+        direction: 'right',
+        edgeRodId: edgeInfo.rightmostRodId,
+        y: y,
+        newRodX: rightEdgeX
+      };
+      scene.add(rightCollider);
+    }
   });
 
   // Generate extension ghost plates for up/down extension

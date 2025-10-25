@@ -1,4 +1,5 @@
 import { type Shelf, removePlate, removeSegmentFromPlate, removeRodSegment, tryFillGapWithPlate, tryFillEdgeGap, tryFillExtensionGap, type Plate, type Rod, AVAILABLE_RODS, calculateAttachmentPositions } from './shelf-model.js';
+import { DEBUG_SHOW_COLLIDERS } from './shelf_viz.js';
 
 // Declare THREE as global (loaded via CDN)
 declare const THREE: any;
@@ -114,7 +115,7 @@ export function setupInteractions(
     });
     scene.children.forEach((child: any) => {
       if ((child.userData?.type === 'gap' || child.userData?.type === 'edge_gap' || child.userData?.type === 'extension_gap') && child.material) {
-        child.material.opacity = 0.0;
+        child.material.opacity = DEBUG_SHOW_COLLIDERS ? 0.2 : 0.0;
       }
     });
 
