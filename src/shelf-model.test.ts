@@ -274,8 +274,8 @@ testGroup('Edge Gap Merge Bug - Should merge with existing plates', () => {
     const shelf = createEmptyShelf();
     const rod1 = addRod({ x: 0, y: 0 }, 1, shelf);
     const rod2 = addRod({ x: 600, y: 0 }, 1, shelf);
-    const rod3 = addRod({ x: 1800, y: 0 }, 1, shelf);
-    const rod4 = addRod({ x: 2400, y: 0 }, 1, shelf);
+    const rod3 = addRod({ x: 1200, y: 0 }, 1, shelf);
+    const rod4 = addRod({ x: 1800, y: 0 }, 1, shelf);
 
     const plate1 = addPlate(0, 1, [rod1, rod2], shelf);
     const plate2 = addPlate(0, 1, [rod3, rod4], shelf);
@@ -284,6 +284,7 @@ testGroup('Edge Gap Merge Bug - Should merge with existing plates', () => {
     assertTrue(plate2 > 0, 'Should create second plate');
     assertEquals(shelf.plates.size, 2, 'Should have 2 plates initially');
 
+    // Click edge gap at rod2 going right - should bridge to rod3 and merge plates
     const resultPlateId = tryFillEdgeGap(rod2, 0, 'right', shelf);
 
     assertTrue(resultPlateId > 0, 'Edge gap fill should succeed');

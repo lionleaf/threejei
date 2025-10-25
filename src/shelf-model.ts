@@ -1070,6 +1070,36 @@ export function tryFillEdgeGap(edgeRodId: number, y: number, direction: 'left' |
       const STANDARD_GAP = 600;
       const newRodX = direction === 'left' ? edgeRod.position.x - STANDARD_GAP : edgeRod.position.x + STANDARD_GAP;
 
+      // Check if there's already a rod at the target position with a plate
+      let existingTargetRodId: number | undefined = undefined;
+      shelf.rods.forEach((rod, rodId) => {
+        if (Math.abs(rod.position.x - newRodX) < 1) {
+          existingTargetRodId = rodId;
+        }
+      });
+
+      if (existingTargetRodId !== undefined) {
+        // Target rod exists - check if it has a plate at this height
+        const targetRod = shelf.rods.get(existingTargetRodId)!;
+        const targetAttachmentY = y - targetRod.position.y;
+        const targetAttachment = targetRod.attachmentPoints.find(ap => ap.y === targetAttachmentY);
+
+        if (targetAttachment && targetAttachment.plateId !== undefined) {
+          // Target rod has a plate - try to merge plates
+          console.log(`tryFillEdgeGap: Target rod ${existingTargetRodId} has plate ${targetAttachment.plateId}, attempting to merge`);
+          const leftPlateId = direction === 'left' ? targetAttachment.plateId : edgeAttachment.plateId;
+          const rightPlateId = direction === 'left' ? edgeAttachment.plateId : targetAttachment.plateId;
+
+          const mergedPlateId = tryMergePlates(leftPlateId, rightPlateId, shelf);
+          if (mergedPlateId !== -1) {
+            console.log(`tryFillEdgeGap: Successfully merged plates into ${mergedPlateId}`);
+            return mergedPlateId;
+          }
+          console.log('tryFillEdgeGap: Plate merge failed');
+          return -1;
+        }
+      }
+
       console.log(`tryFillEdgeGap: Creating new rod at X=${newRodX} to extend plate`);
 
       const minimalRodSKU = AVAILABLE_RODS.find(r => r.name === "1P");
@@ -1082,6 +1112,60 @@ export function tryFillEdgeGap(edgeRodId: number, y: number, direction: 'left' |
 
       if (successAfterNewRod) {
         mergeColocatedRods(newRodX, shelf);
+
+        // After successfully extending, check if there's an adjacent plate to merge with
+        const extendedPlate = shelf.plates.get(edgeAttachment.plateId);
+        if (extendedPlate) {
+          const extendedRightmostRodId = extendedPlate.connections[extendedPlate.connections.length - 1];
+          const extendedLeftmostRodId = extendedPlate.connections[0];
+
+          // Check for adjacent plate on the right
+          if (direction === 'right') {
+            const rightmostRod = shelf.rods.get(extendedRightmostRodId);
+            if (rightmostRod) {
+              const nextRodId = findClosestRod(shelf, rightmostRod, Direction.Right);
+              if (nextRodId !== undefined) {
+                const nextRod = shelf.rods.get(nextRodId);
+                if (nextRod) {
+                  const nextAttachmentY = y - nextRod.position.y;
+                  const nextAttachment = nextRod.attachmentPoints.find(ap => ap.y === nextAttachmentY);
+                  if (nextAttachment && nextAttachment.plateId !== undefined) {
+                    console.log(`tryFillEdgeGap: Found adjacent plate ${nextAttachment.plateId} to merge with`);
+                    const mergedPlateId = tryMergePlates(edgeAttachment.plateId, nextAttachment.plateId, shelf);
+                    if (mergedPlateId !== -1) {
+                      console.log(`tryFillEdgeGap: Successfully merged into ${mergedPlateId}`);
+                      return mergedPlateId;
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          // Check for adjacent plate on the left
+          if (direction === 'left') {
+            const leftmostRod = shelf.rods.get(extendedLeftmostRodId);
+            if (leftmostRod) {
+              const nextRodId = findClosestRod(shelf, leftmostRod, Direction.Left);
+              if (nextRodId !== undefined) {
+                const nextRod = shelf.rods.get(nextRodId);
+                if (nextRod) {
+                  const nextAttachmentY = y - nextRod.position.y;
+                  const nextAttachment = nextRod.attachmentPoints.find(ap => ap.y === nextAttachmentY);
+                  if (nextAttachment && nextAttachment.plateId !== undefined) {
+                    console.log(`tryFillEdgeGap: Found adjacent plate ${nextAttachment.plateId} to merge with`);
+                    const mergedPlateId = tryMergePlates(nextAttachment.plateId, edgeAttachment.plateId, shelf);
+                    if (mergedPlateId !== -1) {
+                      console.log(`tryFillEdgeGap: Successfully merged into ${mergedPlateId}`);
+                      return mergedPlateId;
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+
         return edgeAttachment.plateId;
       } else {
         // Extension still failed, remove the rod we just created
