@@ -16,7 +16,7 @@ import { setupInteractions } from './interactions.js';
 declare const THREE: any;
 
 // Debug flag to make colliders visible
-export const DEBUG_SHOW_COLLIDERS = false;
+export const DEBUG_SHOW_COLLIDERS = true;
 
 // Rebuild all shelf geometry (rods, plates, gap colliders)
 function rebuildShelfGeometry(shelf: Shelf, scene: any): void {

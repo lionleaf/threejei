@@ -8,7 +8,7 @@
     "build:watch": "tsc --watch",
     "dev": "tsc --watch",
     "test": "node dist/test-shelf-model.js",
-    "serve": "http-server -p 8000 -c-1",
+    "serve": "http-server -p 3000 -c-1",
     "start": "npm run build && npm run serve"
   },
   "devDependencies": {
