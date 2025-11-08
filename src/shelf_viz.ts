@@ -6,7 +6,7 @@ import {
   AVAILABLE_RODS,
   AVAILABLE_PLATES,
   calculateAttachmentPositions,
-  findCommonExtension,
+  regenerateGhostPlates,
   type Shelf
 } from './shelf-model.js';
 
@@ -112,151 +112,50 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any): void {
     });
   });
 
-  // Generate plate gap colliders
-  const rods = Array.from(shelf.rods.entries()).sort((a, b) => a[1].position.x - b[1].position.x);
+  // Generate ghost plate visualizations
+  regenerateGhostPlates(shelf);
 
-  // Check each adjacent rod pair for gaps
-  for (let i = 0; i < rods.length - 1; i++) {
-    const [leftRodId, leftRod] = rods[i];
+  shelf.ghostPlates.forEach((ghostPlate, index) => {
+    // Determine plate width and position
+    let plateWidth = 670; // Default single-span plate
+    let centerX = ghostPlate.position.x;
 
-    // Find attachment points at matching Y heights on both rods
-    for (const leftAP of leftRod.attachmentPoints) {
-      const leftY = leftRod.position.y + leftAP.y;
+    if (ghostPlate.sku_id && ghostPlate.connections) {
+      const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === ghostPlate.sku_id);
+      if (plateSKU) {
+        plateWidth = plateSKU.spans.reduce((sum, span) => sum + span, 0);
 
-      let foundAP = false;
-      // Look through all rods of greater or equal X position (they are sorted)
-      // To find the closest attachment point at Y level
-      for (let k = i + 1; k < rods.length && !foundAP; k++) {
-        const [rightRodId, rightRod] = rods[k];
-        // Calculate distance between rods
-        const gapDistance = rightRod.position.x - leftRod.position.x;
-        if (gapDistance == 0) {
-          continue;
-        }
-        // TODO: Optimization, break if length is larger than longest plate gap
+        // Calculate actual center from rod positions if we have connections
+        const connectedRods = ghostPlate.connections
+          .map(id => id === -1 ? null : shelf.rods.get(id))
+          .filter(rod => rod !== null);
 
-        for (const rightAP of rightRod.attachmentPoints) {
-          const rightY = rightRod.position.y + rightAP.y;
-
-          // Check if attachment points align and there isn't already a plate spanning the gap
-          if (leftY === rightY) {
-            foundAP = true;
-            const plateSpanningGap = (leftAP.plateId === rightAP.plateId) && leftAP.plateId != undefined;
-            if (!plateSpanningGap) {
-              // Create invisible collider
-              const centerX = (leftRod.position.x + rightRod.position.x) / 2;
-
-              const colliderGeometry = new THREE.BoxGeometry(gapDistance, 30, 200);
-              const colliderMaterial = new THREE.MeshBasicMaterial({
-                color: 0x00ff00,
-                transparent: true,
-                opacity: DEBUG_SHOW_COLLIDERS ? 0.2 : 0.0
-              });
-
-              const collider = new THREE.Mesh(colliderGeometry, colliderMaterial);
-              collider.position.set(centerX, leftY, 200 / 2);
-
-              // Store metadata for interaction handling
-              collider.userData = {
-                type: 'gap',
-                rodIds: [leftRodId, rightRodId],
-                y: leftY,
-              };
-
-              scene.add(collider);
-            }
-            break;
-          }
+        if (connectedRods.length > 0) {
+          centerX = connectedRods.reduce((sum, rod) => sum + rod!.position.x, 0) / connectedRods.length;
         }
       }
     }
-  }
 
-  // Generate edge gap colliders for sideways extension (per Y-level)
-  // Collect all unique Y-levels and find leftmost/rightmost rods at each level
-  const yLevels = new Map<number, { leftmostRodId: number, rightmostRodId: number }>();
+    // Create ghost plate mesh
+    const ghostMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(plateWidth, 30, 200),
+      new THREE.MeshBasicMaterial({
+        color: ghostPlate.legal ? 0x00ff00 : 0xff0000, // Green if legal, red if illegal
+        transparent: true,
+        opacity: DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0,
+        wireframe: !ghostPlate.legal // Wireframe for illegal plates
+      })
+    );
 
-  shelf.rods.forEach((rod, rodId) => {
-    rod.attachmentPoints.forEach(ap => {
-      const worldY = rod.position.y + ap.y;
-      const existing = yLevels.get(worldY);
+    ghostMesh.position.set(centerX, ghostPlate.position.y, 200 / 2);
+    ghostMesh.userData = {
+      type: 'ghost_plate',
+      ghostPlateIndex: index,
+      ghostPlate: ghostPlate
+    };
 
-      if (!existing) {
-        yLevels.set(worldY, { leftmostRodId: rodId, rightmostRodId: rodId });
-      } else {
-        const leftmostRod = shelf.rods.get(existing.leftmostRodId)!;
-        const rightmostRod = shelf.rods.get(existing.rightmostRodId)!;
-
-        if (rod.position.x < leftmostRod.position.x) {
-          existing.leftmostRodId = rodId;
-        }
-        if (rod.position.x > rightmostRod.position.x) {
-          existing.rightmostRodId = rodId;
-        }
-      }
-    });
+    scene.add(ghostMesh);
   });
-
-  // Create edge gap colliders for each Y-level
-  const STANDARD_GAP = 600; // Standard 600mm gap between rods
-
-  yLevels.forEach((edgeInfo, y) => {
-    const leftmostRod = shelf.rods.get(edgeInfo.leftmostRodId)!;
-    const rightmostRod = shelf.rods.get(edgeInfo.rightmostRodId)!;
-
-    // Find attachment points at this Y level
-    const leftAP = leftmostRod.attachmentPoints.find(ap => leftmostRod.position.y + ap.y === y);
-    const rightAP = rightmostRod.attachmentPoints.find(ap => rightmostRod.position.y + ap.y === y);
-
-    // Left edge gap collider
-    if (leftAP) {
-      const leftEdgeX = leftmostRod.position.x - STANDARD_GAP;
-      const leftCenterX = (leftEdgeX + leftmostRod.position.x) / 2;
-
-      const leftCollider = new THREE.Mesh(
-        new THREE.BoxGeometry(STANDARD_GAP, 30, 200),
-        new THREE.MeshBasicMaterial({
-          color: 0x0088ff, // Blue for edge gaps
-          transparent: true,
-          opacity: DEBUG_SHOW_COLLIDERS ? 0.2 : 0.0
-        })
-      );
-      leftCollider.position.set(leftCenterX, y, 200 / 2);
-      leftCollider.userData = {
-        type: 'edge_gap',
-        direction: 'left',
-        edgeRodId: edgeInfo.leftmostRodId,
-        y: y,
-        newRodX: leftEdgeX
-      };
-      scene.add(leftCollider);
-    }
-
-    if (rightAP) {
-      const rightEdgeX = rightmostRod.position.x + STANDARD_GAP;
-      const rightCenterX = (rightmostRod.position.x + rightEdgeX) / 2;
-
-      const rightCollider = new THREE.Mesh(
-        new THREE.BoxGeometry(STANDARD_GAP, 30, 200),
-        new THREE.MeshBasicMaterial({
-          color: 0x0088ff, // Blue for edge gaps
-          transparent: true,
-          opacity: DEBUG_SHOW_COLLIDERS ? 0.2 : 0.0
-        })
-      );
-      rightCollider.position.set(rightCenterX, y, 200 / 2);
-      rightCollider.userData = {
-        type: 'edge_gap',
-        direction: 'right',
-        edgeRodId: edgeInfo.rightmostRodId,
-        y: y,
-        newRodX: rightEdgeX
-      };
-      scene.add(rightCollider);
-    }
-  });
-
-  // TODO: Generate extension ghost plates for up/down extension using regenerateGhostPlates
 }
 
 
