@@ -336,6 +336,71 @@ export function canExtendPlate(plateId: number, extendDirection: Direction, shel
   return [targetSKU.sku_id, newConnections];
 }
 
+export function tryExtendPlate(plateId: number, extendDirection: Direction, shelf: Shelf): boolean {
+  const result = canExtendPlate(plateId, extendDirection, shelf);
+  return result !== undefined;
+}
+
+export function tryMergePlates(leftPlateId: number, rightPlateId: number, shelf: Shelf): number {
+  const leftPlate = shelf.plates.get(leftPlateId);
+  const rightPlate = shelf.plates.get(rightPlateId);
+
+  if (!leftPlate || !rightPlate) return -1;
+  if (leftPlate.y !== rightPlate.y) return -1;
+
+  const leftSKU = AVAILABLE_PLATES.find(p => p.sku_id === leftPlate.sku_id);
+  const rightSKU = AVAILABLE_PLATES.find(p => p.sku_id === rightPlate.sku_id);
+  if (!leftSKU || !rightSKU) return -1;
+
+  const leftRightmostRodId = leftPlate.connections[leftPlate.connections.length - 1];
+  const rightLeftmostRodId = rightPlate.connections[0];
+
+  const leftRightmostRod = shelf.rods.get(leftRightmostRodId);
+  const rightLeftmostRod = shelf.rods.get(rightLeftmostRodId);
+
+  if (!leftRightmostRod || !rightLeftmostRod) return -1;
+
+  const combinedRods = [...leftPlate.connections, ...rightPlate.connections];
+  let mergedSpans: number[];
+
+  if (leftRightmostRodId === rightLeftmostRodId) {
+    mergedSpans = [
+      ...leftSKU.spans.slice(0, -1),
+      ...rightSKU.spans.slice(1)
+    ];
+  } else {
+    const gapDistance = rightLeftmostRod.position.x - leftRightmostRod.position.x;
+    mergedSpans = [
+      ...leftSKU.spans.slice(0, -1),
+      gapDistance,
+      ...rightSKU.spans.slice(1)
+    ];
+  }
+
+  const mergedSKU = AVAILABLE_PLATES.find(sku => {
+    if (sku.spans.length !== mergedSpans.length) return false;
+    return sku.spans.every((span, index) => span === mergedSpans[index]);
+  });
+
+  if (!mergedSKU) return -1;
+
+  removePlate(rightPlateId, shelf);
+  leftPlate.sku_id = mergedSKU.sku_id;
+  leftPlate.connections = combinedRods;
+
+  for (const rodId of combinedRods) {
+    const rod = shelf.rods.get(rodId);
+    if (!rod) continue;
+    const attachmentY = leftPlate.y - rod.position.y;
+    const attachment = rod.attachmentPoints.find(ap => ap.y === attachmentY);
+    if (attachment) {
+      attachment.plateId = leftPlateId;
+    }
+  }
+
+  return leftPlateId;
+}
+
 export function removeRod(rodId: number, shelf: Shelf): boolean {
   const rod = shelf.rods.get(rodId);
   if (!rod) return false;
@@ -885,6 +950,201 @@ export interface PlateConfig {
   sku_id: number;
   rodIds: number[];
   y: number;
+}
+
+export interface ExtensionInfo {
+  newSKU_id: number;
+  spanToAdd: number;
+}
+
+export type PlateAction = 'create' | 'extend' | 'merge';
+
+export interface PlateSegmentResult {
+  sku_id: number;
+  rodIds: number[];
+  y: number;
+  action: PlateAction;
+  existingPlateId?: number;
+  requiresNewRod?: { x: number; y: number };
+  requiresExtension?: Map<number, ExtensionInfo>;
+}
+
+function findPlateForGap(gapDistance: number): PlateSKU | undefined {
+  return AVAILABLE_PLATES.find(p => p.spans.length === 3 && p.spans[1] === gapDistance);
+}
+
+function checkAttachmentExists(rodId: number, y: number, shelf: Shelf): boolean {
+  const rod = shelf.rods.get(rodId);
+  if (!rod) return false;
+  const attachmentY = y - rod.position.y;
+  return rod.attachmentPoints.some(ap => ap.y === attachmentY);
+}
+
+function getAttachmentPlateId(rodId: number, y: number, shelf: Shelf): number | undefined {
+  const rod = shelf.rods.get(rodId);
+  if (!rod) return undefined;
+  const attachmentY = y - rod.position.y;
+  const attachment = rod.attachmentPoints.find(ap => ap.y === attachmentY);
+  return attachment?.plateId;
+}
+
+function findTargetRod(fromRodId: number, direction: 'left' | 'right', shelf: Shelf): number | undefined {
+  const STANDARD_GAP = 600;
+  const fromRod = shelf.rods.get(fromRodId);
+  if (!fromRod) return undefined;
+
+  const targetX = direction === 'left' ? fromRod.position.x - STANDARD_GAP : fromRod.position.x + STANDARD_GAP;
+
+  let targetRodId: number | undefined = undefined;
+  shelf.rods.forEach((rod, rodId) => {
+    if (Math.abs(rod.position.x - targetX) < 1) {
+      targetRodId = rodId;
+    }
+  });
+
+  return targetRodId;
+}
+
+function calculateGapPlate(leftRodId: number, rightRodId: number, height: number, shelf: Shelf): PlateConfig | undefined {
+  const leftRod = shelf.rods.get(leftRodId);
+  const rightRod = shelf.rods.get(rightRodId);
+  if (!leftRod || !rightRod) return undefined;
+
+  const leftAttachmentY = height - leftRod.position.y;
+  const rightAttachmentY = height - rightRod.position.y;
+  const leftAttachment = leftRod.attachmentPoints.find(ap => ap.y === leftAttachmentY);
+  const rightAttachment = rightRod.attachmentPoints.find(ap => ap.y === rightAttachmentY);
+
+  if (!leftAttachment || !rightAttachment) return undefined;
+  if (leftAttachment.plateId !== undefined || rightAttachment.plateId !== undefined) return undefined;
+
+  const gapDistance = rightRod.position.x - leftRod.position.x;
+  const plateSKU = findPlateForGap(gapDistance);
+  if (!plateSKU) return undefined;
+
+  return {
+    sku_id: plateSKU.sku_id,
+    rodIds: [leftRodId, rightRodId],
+    y: height
+  };
+}
+
+export function canAddPlateSegment(rodId: number, y: number, direction: 'left' | 'right', shelf: Shelf): PlateSegmentResult | undefined {
+  const STANDARD_GAP = 600;
+  const rod = shelf.rods.get(rodId);
+  if (!rod) return undefined;
+
+  if (!checkAttachmentExists(rodId, y, shelf)) return undefined;
+
+  const sourcePlateId = getAttachmentPlateId(rodId, y, shelf);
+  const targetRodId = findTargetRod(rodId, direction, shelf);
+
+  if (targetRodId !== undefined) {
+    const targetPlateId = getAttachmentPlateId(targetRodId, y, shelf);
+
+    if (sourcePlateId !== undefined && targetPlateId !== undefined) {
+      if (sourcePlateId === targetPlateId) {
+        return undefined;
+      }
+      const leftRodId = direction === 'left' ? targetRodId : rodId;
+      const rightRodId = direction === 'left' ? rodId : targetRodId;
+      const leftRod = shelf.rods.get(leftRodId)!;
+      const rightRod = shelf.rods.get(rightRodId)!;
+      const gapDistance = rightRod.position.x - leftRod.position.x;
+      const plateSKU = findPlateForGap(gapDistance);
+      if (!plateSKU) return undefined;
+
+      return {
+        sku_id: plateSKU.sku_id,
+        rodIds: [leftRodId, rightRodId],
+        y: y,
+        action: 'merge',
+        existingPlateId: sourcePlateId
+      };
+    }
+
+    if (sourcePlateId !== undefined && targetPlateId === undefined) {
+      if (!checkAttachmentExists(targetRodId, y, shelf)) return undefined;
+
+      const leftRodId = direction === 'left' ? targetRodId : rodId;
+      const rightRodId = direction === 'left' ? rodId : targetRodId;
+      const leftRod = shelf.rods.get(leftRodId)!;
+      const rightRod = shelf.rods.get(rightRodId)!;
+      const gapDistance = rightRod.position.x - leftRod.position.x;
+      const plateSKU = findPlateForGap(gapDistance);
+      if (!plateSKU) return undefined;
+
+      return {
+        sku_id: plateSKU.sku_id,
+        rodIds: [leftRodId, rightRodId],
+        y: y,
+        action: 'extend',
+        existingPlateId: sourcePlateId
+      };
+    }
+
+    if (sourcePlateId === undefined && targetPlateId !== undefined) {
+      if (!checkAttachmentExists(targetRodId, y, shelf)) return undefined;
+
+      const leftRodId = direction === 'left' ? targetRodId : rodId;
+      const rightRodId = direction === 'left' ? rodId : targetRodId;
+      const leftRod = shelf.rods.get(leftRodId)!;
+      const rightRod = shelf.rods.get(rightRodId)!;
+      const gapDistance = rightRod.position.x - leftRod.position.x;
+      const plateSKU = findPlateForGap(gapDistance);
+      if (!plateSKU) return undefined;
+
+      return {
+        sku_id: plateSKU.sku_id,
+        rodIds: [leftRodId, rightRodId],
+        y: y,
+        action: 'extend',
+        existingPlateId: targetPlateId
+      };
+    }
+
+    if (sourcePlateId === undefined && targetPlateId === undefined) {
+      if (!checkAttachmentExists(targetRodId, y, shelf)) return undefined;
+
+      const leftRodId = direction === 'left' ? targetRodId : rodId;
+      const rightRodId = direction === 'left' ? rodId : targetRodId;
+      const leftRod = shelf.rods.get(leftRodId)!;
+      const rightRod = shelf.rods.get(rightRodId)!;
+      const gapDistance = rightRod.position.x - leftRod.position.x;
+      const plateSKU = findPlateForGap(gapDistance);
+      if (!plateSKU) return undefined;
+
+      return {
+        sku_id: plateSKU.sku_id,
+        rodIds: [leftRodId, rightRodId],
+        y: y,
+        action: 'create'
+      };
+    }
+  }
+
+  const targetX = direction === 'left' ? rod.position.x - STANDARD_GAP : rod.position.x + STANDARD_GAP;
+  const plateSKU = findPlateForGap(STANDARD_GAP);
+  if (!plateSKU) return undefined;
+
+  if (sourcePlateId !== undefined) {
+    return {
+      sku_id: plateSKU.sku_id,
+      rodIds: direction === 'left' ? [-1, rodId] : [rodId, -1],
+      y: y,
+      action: 'extend',
+      existingPlateId: sourcePlateId,
+      requiresNewRod: { x: targetX, y: y }
+    };
+  }
+
+  return {
+    sku_id: plateSKU.sku_id,
+    rodIds: direction === 'left' ? [-1, rodId] : [rodId, -1],
+    y: y,
+    action: 'create',
+    requiresNewRod: { x: targetX, y: y }
+  };
 }
 
 export function canFillGapWithPlate(leftRodId: number, rightRodId: number, height: number, shelf: Shelf): PlateConfig | undefined {
@@ -1670,137 +1930,65 @@ export function regenerateGhostPlates(shelf: Shelf): void {
     const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
     if (!rodSKU) continue;
 
-    let hasLeftPlate = false;
-    let hasRightPlate = false;
-
     // Iterate through each attachment point, looking for extensions left or right
     for (const ap of rod.attachmentPoints) {
+      const y = rod.position.y + ap.y;
       const plate = ap.plateId ? shelf.plates.get(ap.plateId) : undefined;
+
+      let hasLeftPlate = false;
+      let hasRightPlate = false;
 
       for (const plateRodId of plate?.connections ?? []) {
         const plateRod = shelf.rods.get(plateRodId)
         if (!plateRod) { continue; }
-        if (plateRod?.position.x < rod.position.x) {
+        if (plateRod.position.x < rod.position.x) {
           hasLeftPlate = true;
-        } else if (plateRod?.position.x > rod.position.x) {
+        } else if (plateRod.position.x > rod.position.x) {
           hasRightPlate = true;
         }
       }
 
       if (!hasLeftPlate) {
-        const [plateSKU, rodIds, _] = canAddPlateSegment(rod, ap.y, "left")
-        if (plateSKU) {
-          const ghostInfo: PlateGhostInfo = { legal: true }
-          shelf.ghostPlates.add()
-          shelf.addPlate(plateSKU, rodIds, ghostInfo)
+        const result = canAddPlateSegment(rodId, y, "left", shelf);
+        if (result) {
+          shelf.ghostPlates.push({
+            sku_id: result.sku_id,
+            connections: result.rodIds,
+            position: {
+              x: result.requiresNewRod ? result.requiresNewRod.x : rod.position.x - 300,
+              y: result.y
+            },
+            legal: true
+          });
         } else {
-          const ghostInfo: PlateGhostInfo = { legal: false }
-          shelf.addPlate(ILLEGAL_GHOST_PLATE_SKU, { rod }, ghostInfo)
+          shelf.ghostPlates.push({
+            position: { x: rod.position.x - 300, y: y },
+            legal: false
+          });
         }
       }
 
       if (!hasRightPlate) {
-        const [plateSKU, rodIds, _] = canAddPlateSegment(rod, ap.y, "left")
-        if (plateSKU) {
-          const ghostInfo: PlateGhostInfo = { legal: true }
-          shelf.addPlate(plateSKU, rodIds, ghostInfo)
+        const result = canAddPlateSegment(rodId, y, "right", shelf);
+        if (result) {
+          shelf.ghostPlates.push({
+            sku_id: result.sku_id,
+            connections: result.rodIds,
+            position: {
+              x: result.requiresNewRod ? result.requiresNewRod.x : rod.position.x + 300,
+              y: result.y
+            },
+            legal: true
+          });
         } else {
-          const ghostInfo: PlateGhostInfo = { legal: false }
-          shelf.addPlate(ILLEGAL_GHOST_PLATE_SKU, { rod }, ghostInfo)
+          shelf.ghostPlates.push({
+            position: { x: rod.position.x + 300, y: y },
+            legal: false
+          });
         }
       }
     }
 
-    // Look for extension oppurtunities up / down
-
-    /*
-    // Calculate rod tops and bottoms in world space
-    const attachments = calculateAttachmentPositions(rodSKU);
-
-    const top = rod.position.y + attachments[attachments.length - 1];
-    const bottom = rod.position.y + attachments[0];
-
-    // Check upward extension
-    // Both rods must have same top height to extend together
-    if (Math.abs(leftTop - rightTop) < 1) {
-      const commonExtension = findCommonExtension([leftRodId, rightRodId], 'up', shelf);
-
-      if (commonExtension) {
-        const extension = commonExtension.values().next().value;
-        if (!extension) continue;
-        const newY = leftTop + extension.spanToAdd;
-
-        // Create ghost plate collider
-        const gapDistance = rightRod.position.x - leftRod.position.x;
-        const centerX = (leftRod.position.x + rightRod.position.x) / 2;
-
-        const ghostCollider = new THREE.Mesh(
-          new THREE.BoxGeometry(gapDistance, 30, 200),
-          new THREE.MeshBasicMaterial({
-            color: 0xff00ff, // Purple for extension gaps
-            transparent: true,
-            opacity: DEBUG_SHOW_COLLIDERS ? 0.2 : 0.0
-          })
-        );
-
-        ghostCollider.position.set(centerX, newY, 200 / 2);
-        ghostCollider.userData = {
-          type: 'extension_gap',
-          direction: 'up',
-          rodIds: [leftRodId, rightRodId],
-          y: newY,
-          requiredExtensions: commonExtension
-        };
-
-        scene.add(ghostCollider);
-      }
-    }
-
-    // Check downward extension
-    // Both rods must have same bottom height to extend together
-    if (Math.abs(leftBottom - rightBottom) < 1) {
-      const commonExtension = findCommonExtension([leftRodId, rightRodId], 'down', shelf);
-
-      if (commonExtension) {
-        const extension = commonExtension.values().next().value;
-        if (!extension) continue;
-        const newY = leftBottom - extension.spanToAdd;
-
-        // Create ghost plate collider
-        const gapDistance = rightRod.position.x - leftRod.position.x;
-        const centerX = (leftRod.position.x + rightRod.position.x) / 2;
-
-        const ghostCollider = new THREE.Mesh(
-          new THREE.BoxGeometry(gapDistance, 30, 200),
-          new THREE.MeshBasicMaterial({
-            color: 0xff00ff, // Purple for extension gaps
-            transparent: true,
-            opacity: DEBUG_SHOW_COLLIDERS ? 0.2 : 0.0
-          })
-        );
-
-        ghostCollider.position.set(centerX, newY, 200 / 2);
-        ghostCollider.userData = {
-          type: 'extension_gap',
-          direction: 'down',
-          rodIds: [leftRodId, rightRodId],
-          y: newY,
-          requiredExtensions: commonExtension
-        };
-
-        scene.add(ghostCollider);
-      }
-    }
-  } */
+      // TODO: Look for extension opportunities up/down
   }
-
-  // TODO: Add remaining exports as they are implemented
-  export {
-    // calculateRodBounds,
-    // calculatePlateBounds,
-    // isPointInBounds,
-    // updateSpatialIndex,
-    // updateRodPattern,
-    // serializeShelfToString,
-    // parseShelfFromString
-  };
+}

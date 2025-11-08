@@ -256,8 +256,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any): void {
     }
   });
 
-  // Generate extension ghost plates for up/down extension
-  regenerateExtensionGhostPlates(shelf, scene);
+  // TODO: Generate extension ghost plates for up/down extension using regenerateGhostPlates
 }
 
 
