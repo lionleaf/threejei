@@ -25,6 +25,7 @@ export interface Vec3f {
 export interface AttachmentPoint {
   y: number;
   plateId?: number;
+  ghostPlateIds?: Array<number>
 }
 
 export interface Rod {
@@ -33,15 +34,20 @@ export interface Rod {
   attachmentPoints: AttachmentPoint[];
 }
 
-export interface PlateGhostInfo {
-  legal: boolean;
-}
-
 export interface Plate {
   sku_id: number; // ID to match with a PlateSKU
   connections: number[]; // rodIds, attachmentIndex implicit by order
   y: number; // Y coordinate of the plate (constant across all attachment points)
-  ghost?: PlateGhostInfo;
+}
+
+// A GhostPlate is a UX element of a plate that is not part of the shelf yet
+// but provides information about potential shelf modifications,
+// and includes the information to allow the user to add this plate (or information why it's illegal)
+export interface GhostPlate {
+  sku_id?: number; // ID to match with a PlateSKU
+  connections?: number[]; // rodIds, attachmentIndex implicit by order
+  position: Vec2f;
+  legal: boolean;
 }
 
 export interface ShelfMetadata {
@@ -56,6 +62,7 @@ export enum Direction {
 export interface Shelf {
   rods: Map<number, Rod>; // id -> Rod
   plates: Map<number, Plate>; // id -> Plate
+  ghostPlates: Array<GhostPlate>
   metadata: ShelfMetadata;
 }
 
@@ -92,6 +99,7 @@ export function createEmptyShelf(): Shelf {
   return {
     rods: new Map(),
     plates: new Map(),
+    ghostPlates: new Array(),
     metadata: { nextId: 1 }
   };
 }
@@ -1654,18 +1662,11 @@ export function tryFillExtensionGap(rodIds: number[], y: number, direction: 'up'
 
 export function regenerateGhostPlates(shelf: Shelf): void {
 
-  // Remove all ghost plates
-  [...shelf.plates]
-    .filter(([_, plate]) => plate.ghost !== undefined)
-    .forEach(([plateId]) => removePlate(plateId, shelf));
-
-
-  // Get all rod pairs sorted by X position
-  const rods = Array.from(shelf.rods.entries()).sort((a, b) => a[1].position.x - b[1].position.x);
+  shelf.ghostPlates.length = 0
 
   // Iterate through each rod
-  for (let i = 0; i < rods.length - 1; i++) {
-    const [rodId, rod] = rods[i];
+  for (let [rodId, rod] of shelf.rods) {
+
     const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
     if (!rodSKU) continue;
 
@@ -1675,6 +1676,7 @@ export function regenerateGhostPlates(shelf: Shelf): void {
     // Iterate through each attachment point, looking for extensions left or right
     for (const ap of rod.attachmentPoints) {
       const plate = ap.plateId ? shelf.plates.get(ap.plateId) : undefined;
+
       for (const plateRodId of plate?.connections ?? []) {
         const plateRod = shelf.rods.get(plateRodId)
         if (!plateRod) { continue; }
@@ -1689,6 +1691,7 @@ export function regenerateGhostPlates(shelf: Shelf): void {
         const [plateSKU, rodIds, _] = canAddPlateSegment(rod, ap.y, "left")
         if (plateSKU) {
           const ghostInfo: PlateGhostInfo = { legal: true }
+          shelf.ghostPlates.add()
           shelf.addPlate(plateSKU, rodIds, ghostInfo)
         } else {
           const ghostInfo: PlateGhostInfo = { legal: false }
