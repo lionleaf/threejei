@@ -120,27 +120,21 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any): void {
     let plateWidth = 670; // Default single-span plate
     let centerX = ghostPlate.position.x;
 
-    if (ghostPlate.sku_id && ghostPlate.connections) {
-      const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === ghostPlate.sku_id);
-      if (plateSKU) {
-        plateWidth = plateSKU.spans.reduce((sum, span) => sum + span, 0);
-
-        // Calculate actual center from rod positions if we have connections
-        const connectedRods = ghostPlate.connections
-          .map(id => id === -1 ? null : shelf.rods.get(id))
-          .filter(rod => rod !== null);
-
-        if (connectedRods.length > 0) {
-          centerX = connectedRods.reduce((sum, rod) => sum + rod!.position.x, 0) / connectedRods.length;
-        }
-      }
+    // Create ghost plate mesh
+    // Different colors for debugging: cyan (left), yellow (right), green (unknown), red (illegal)
+    let ghostColor = 0x00ff00; // Default green
+    if (!ghostPlate.legal) {
+      ghostColor = 0xff0000; // Red for illegal
+    } else if (ghostPlate.direction === 'left') {
+      ghostColor = 0x00ffff; // Cyan for left
+    } else if (ghostPlate.direction === 'right') {
+      ghostColor = 0xffff00; // Yellow for right
     }
 
-    // Create ghost plate mesh
     const ghostMesh = new THREE.Mesh(
       new THREE.BoxGeometry(plateWidth, 30, 200),
       new THREE.MeshBasicMaterial({
-        color: ghostPlate.legal ? 0x00ff00 : 0xff0000, // Green if legal, red if illegal
+        color: ghostColor,
         transparent: true,
         opacity: DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0,
         wireframe: !ghostPlate.legal // Wireframe for illegal plates

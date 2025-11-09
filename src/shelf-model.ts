@@ -48,6 +48,7 @@ export interface GhostPlate {
   connections?: number[]; // rodIds, attachmentIndex implicit by order
   position: Vec2f;
   legal: boolean;
+  direction?: 'left' | 'right'; // For debugging: which direction was this ghost generated from
 }
 
 export interface ShelfMetadata {
@@ -1920,6 +1921,33 @@ export function tryFillExtensionGap(rodIds: number[], y: number, direction: 'up'
   return plateId;
 }
 
+function ghostPlateExists(ghostPlates: GhostPlate[], candidate: GhostPlate): boolean {
+  // For legal ghost plates: check by connections + Y position
+  if (candidate.legal && candidate.connections) {
+    const sortedCandidateRods = [...candidate.connections].sort((a, b) => a - b);
+
+    return ghostPlates.some(existing => {
+      if (!existing.legal || !existing.connections) return false;
+      if (existing.position.y !== candidate.position.y) return false;
+
+      const sortedExistingRods = [...existing.connections].sort((a, b) => a - b);
+
+      // Check if rod arrays are equal
+      if (sortedExistingRods.length !== sortedCandidateRods.length) return false;
+      return sortedExistingRods.every((id, i) => id === sortedCandidateRods[i]);
+    });
+  }
+
+  // For illegal ghost plates: check by position (approximate X + Y)
+  // Two illegal ghosts are the same if they're at roughly the same position
+  return ghostPlates.some(existing => {
+    if (existing.legal) return false;
+    if (Math.abs(existing.position.y - candidate.position.y) > 1) return false;
+    if (Math.abs(existing.position.x - candidate.position.x) > 1) return false;
+    return true;
+  });
+}
+
 export function regenerateGhostPlates(shelf: Shelf): void {
 
   shelf.ghostPlates.length = 0
@@ -1950,45 +1978,49 @@ export function regenerateGhostPlates(shelf: Shelf): void {
 
       if (!hasLeftPlate) {
         const result = canAddPlateSegment(rodId, y, "left", shelf);
-        if (result) {
-          shelf.ghostPlates.push({
-            sku_id: result.sku_id,
-            connections: result.rodIds,
-            position: {
-              x: result.requiresNewRod ? result.requiresNewRod.x : rod.position.x - 300,
-              y: result.y
-            },
-            legal: true
-          });
-        } else {
-          shelf.ghostPlates.push({
-            position: { x: rod.position.x - 300, y: y },
-            legal: false
-          });
+        const candidate: GhostPlate = result ? {
+          sku_id: result.sku_id,
+          connections: result.rodIds,
+          position: {
+            x: result.requiresNewRod ? result.requiresNewRod.x : rod.position.x - 300,
+            y: result.y
+          },
+          legal: true,
+          direction: 'left'
+        } : {
+          position: { x: rod.position.x - 300, y: y },
+          legal: false,
+          direction: 'left'
+        };
+
+        if (!ghostPlateExists(shelf.ghostPlates, candidate)) {
+          shelf.ghostPlates.push(candidate);
         }
       }
 
       if (!hasRightPlate) {
         const result = canAddPlateSegment(rodId, y, "right", shelf);
-        if (result) {
-          shelf.ghostPlates.push({
-            sku_id: result.sku_id,
-            connections: result.rodIds,
-            position: {
-              x: result.requiresNewRod ? result.requiresNewRod.x : rod.position.x + 300,
-              y: result.y
-            },
-            legal: true
-          });
-        } else {
-          shelf.ghostPlates.push({
-            position: { x: rod.position.x + 300, y: y },
-            legal: false
-          });
+        const candidate: GhostPlate = result ? {
+          sku_id: result.sku_id,
+          connections: result.rodIds,
+          position: {
+            x: result.requiresNewRod ? result.requiresNewRod.x : rod.position.x + 300,
+            y: result.y
+          },
+          legal: true,
+          direction: 'right'
+        } : {
+          position: { x: rod.position.x + 300, y: y },
+          legal: false,
+          direction: 'right'
+        };
+
+        if (!ghostPlateExists(shelf.ghostPlates, candidate)) {
+          shelf.ghostPlates.push(candidate);
         }
       }
     }
 
-      // TODO: Look for extension opportunities up/down
+    // TODO: Look for extension opportunities up/down
   }
 }
