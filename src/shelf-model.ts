@@ -306,7 +306,8 @@ export function canExtendPlate(plateId: number, extendDirection: Direction, shel
   if (targetRod === undefined) return undefined;
 
   // Check if target rod has available attachment points at same Y level
-  const targetAttachmentIndex = findAttachmentPointByY(targetRod, plate.y);
+  const targetAttachmentY = plate.y - targetRod.position.y; // Convert to relative Y
+  const targetAttachmentIndex = findAttachmentPointByY(targetRod, targetAttachmentY);
   if (targetAttachmentIndex === undefined) {
     // TODO: Call to function to see if we can swap the rod with a different SKU without moving any other plates
     // And if we can, we should make sure to only change the rod SKU once we know the plate extension succeeds
