@@ -49,6 +49,8 @@ export interface GhostPlate {
   position: Vec2f;
   legal: boolean;
   direction?: 'left' | 'right'; // For debugging: which direction was this ghost generated from
+  action?: 'create' | 'extend' | 'merge'; // What action to take when clicking this ghost
+  existingPlateId?: number; // For extend/merge actions, which plate to modify
 }
 
 export interface ShelfMetadata {
@@ -1986,7 +1988,9 @@ export function regenerateGhostPlates(shelf: Shelf): void {
             y: result.y
           },
           legal: true,
-          direction: 'left'
+          direction: 'left',
+          action: result.action,
+          existingPlateId: result.existingPlateId
         } : {
           position: { x: rod.position.x - 300, y: y },
           legal: false,
@@ -2008,7 +2012,9 @@ export function regenerateGhostPlates(shelf: Shelf): void {
             y: result.y
           },
           legal: true,
-          direction: 'right'
+          direction: 'right',
+          action: result.action,
+          existingPlateId: result.existingPlateId
         } : {
           position: { x: rod.position.x + 300, y: y },
           legal: false,
