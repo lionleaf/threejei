@@ -19,9 +19,14 @@ declare const THREE: any;
 export const DEBUG_SHOW_COLLIDERS = true;
 
 // Rebuild all shelf geometry (rods, plates, gap colliders)
-function rebuildShelfGeometry(shelf: Shelf, scene: any): void {
+function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLDivElement): void {
   // Remove all children from scene
   scene.clear();
+
+  // Update SKU list if container is provided
+  if (skuListContainer) {
+    updateSKUList(shelf, skuListContainer);
+  }
 
   // Generate rod geometry (each logical rod is two physical rods)
   shelf.rods.forEach((rod, rodId) => {
@@ -153,6 +158,48 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any): void {
 }
 
 
+// Update SKU list UI
+function updateSKUList(shelf: Shelf, container: HTMLDivElement): void {
+  const rodCounts = new Map<string, number>();
+  const plateCounts = new Map<string, number>();
+
+  shelf.rods.forEach((rod) => {
+    const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+    if (rodSKU) {
+      rodCounts.set(rodSKU.name, (rodCounts.get(rodSKU.name) || 0) + 1);
+    }
+  });
+
+  shelf.plates.forEach((plate) => {
+    const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === plate.sku_id);
+    if (plateSKU) {
+      plateCounts.set(plateSKU.name, (plateCounts.get(plateSKU.name) || 0) + 1);
+    }
+  });
+
+  let html = '<div style="font-weight: bold; margin-bottom: 8px; font-size: 14px;">SKU List</div>';
+
+  if (rodCounts.size > 0) {
+    html += '<div style="margin-bottom: 6px; font-weight: bold; font-size: 12px;">Rods:</div>';
+    rodCounts.forEach((count, name) => {
+      html += `<div style="margin-left: 8px; font-size: 11px;">${count}x ${name}</div>`;
+    });
+  }
+
+  if (plateCounts.size > 0) {
+    html += '<div style="margin-bottom: 6px; margin-top: 8px; font-weight: bold; font-size: 12px;">Plates:</div>';
+    plateCounts.forEach((count, name) => {
+      html += `<div style="margin-left: 8px; font-size: 11px;">${count}x ${name}</div>`;
+    });
+  }
+
+  if (rodCounts.size === 0 && plateCounts.size === 0) {
+    html += '<div style="font-size: 11px; color: #888;">Empty shelf</div>';
+  }
+
+  container.innerHTML = html;
+}
+
 // General shelf visualizer
 function visualizeShelf(shelf: Shelf): void {
   const scene = new THREE.Scene();
@@ -162,8 +209,25 @@ function visualizeShelf(shelf: Shelf): void {
   renderer.setClearColor(0x444444);
   document.body.appendChild(renderer.domElement);
 
+  // Create SKU list container
+  const skuListContainer = document.createElement('div');
+  skuListContainer.style.position = 'absolute';
+  skuListContainer.style.top = '10px';
+  skuListContainer.style.left = '10px';
+  skuListContainer.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
+  skuListContainer.style.padding = '12px';
+  skuListContainer.style.borderRadius = '6px';
+  skuListContainer.style.fontFamily = 'monospace';
+  skuListContainer.style.fontSize = '12px';
+  skuListContainer.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.2)';
+  skuListContainer.style.minWidth = '150px';
+  skuListContainer.style.zIndex = '1000';
+  document.body.appendChild(skuListContainer);
+
+  updateSKUList(shelf, skuListContainer);
+
   // Initial geometry rendering
-  rebuildShelfGeometry(shelf, scene);
+  rebuildShelfGeometry(shelf, scene, skuListContainer);
 
   // Calculate shelf center for camera target
   const rods = Array.from(shelf.rods.values());
@@ -201,7 +265,7 @@ function visualizeShelf(shelf: Shelf): void {
     camera,
     renderer,
     {
-      rebuildGeometry: () => { rebuildShelfGeometry(shelf, scene); }
+      rebuildGeometry: () => { rebuildShelfGeometry(shelf, scene, skuListContainer); }
     }
   );
 
