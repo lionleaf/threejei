@@ -363,15 +363,17 @@ export function tryMergePlates(leftPlateId: number, rightPlateId: number, shelf:
 
   if (!leftRightmostRod || !rightLeftmostRod) return -1;
 
-  const combinedRods = [...leftPlate.connections, ...rightPlate.connections];
+  let combinedRods: number[];
   let mergedSpans: number[];
 
   if (leftRightmostRodId === rightLeftmostRodId) {
+    combinedRods = [...leftPlate.connections, ...rightPlate.connections.slice(1)];
     mergedSpans = [
       ...leftSKU.spans.slice(0, -1),
       ...rightSKU.spans.slice(1)
     ];
   } else {
+    combinedRods = [...leftPlate.connections, ...rightPlate.connections];
     const gapDistance = rightLeftmostRod.position.x - leftRightmostRod.position.x;
     mergedSpans = [
       ...leftSKU.spans.slice(0, -1),
@@ -909,7 +911,13 @@ function canMergePlates(leftPlateId: number, rightPlateId: number, shelf: Shelf)
   }
 
   // Combine rod connections (include all rods from both plates)
-  const combinedRods = [...leftPlate.connections, ...rightPlate.connections];
+  // If plates share a rod, skip the duplicate
+  let combinedRods: number[];
+  if (leftRightmostRodId === rightLeftmostRodId) {
+    combinedRods = [...leftPlate.connections, ...rightPlate.connections.slice(1)];
+  } else {
+    combinedRods = [...leftPlate.connections, ...rightPlate.connections];
+  }
 
   // Get all rod objects to calculate distances
   const rods = combinedRods.map(id => shelf.rods.get(id)).filter(r => r !== undefined);
