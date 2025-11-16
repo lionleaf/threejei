@@ -1001,20 +1001,29 @@ function getAttachmentPlateId(rodId: number, y: number, shelf: Shelf): number | 
 }
 
 function findTargetRod(fromRodId: number, direction: 'left' | 'right', shelf: Shelf): number | undefined {
-  const STANDARD_GAP = 600;
   const fromRod = shelf.rods.get(fromRodId);
   if (!fromRod) return undefined;
 
-  const targetX = direction === 'left' ? fromRod.position.x - STANDARD_GAP : fromRod.position.x + STANDARD_GAP;
+  let closestRodId: number | undefined = undefined;
+  let closestDistance = Infinity;
 
-  let targetRodId: number | undefined = undefined;
   shelf.rods.forEach((rod, rodId) => {
-    if (Math.abs(rod.position.x - targetX) < 1) {
-      targetRodId = rodId;
+    if (rodId === fromRodId) return; // Skip the source rod itself
+
+    const isInCorrectDirection = direction === 'left'
+      ? rod.position.x < fromRod.position.x
+      : rod.position.x > fromRod.position.x;
+
+    if (isInCorrectDirection) {
+      const distance = Math.abs(rod.position.x - fromRod.position.x);
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestRodId = rodId;
+      }
     }
   });
 
-  return targetRodId;
+  return closestRodId;
 }
 
 function calculateGapPlate(leftRodId: number, rightRodId: number, height: number, shelf: Shelf): PlateConfig | undefined {
