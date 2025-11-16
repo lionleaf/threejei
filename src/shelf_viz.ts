@@ -7,7 +7,8 @@ import {
   AVAILABLE_PLATES,
   calculateAttachmentPositions,
   regenerateGhostPlates,
-  type Shelf
+  type Shelf,
+  type Rod
 } from './shelf-model.js';
 
 import { setupInteractions } from './interactions.js';
@@ -121,19 +122,26 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
   regenerateGhostPlates(shelf);
 
   shelf.ghostPlates.forEach((ghostPlate, index) => {
-    // Determine plate width and position
-    let plateWidth = 670; // Default single-span plate
-    let centerX = ghostPlate.position.x;
+    const plateWidth = ghostPlate.width || 670;
 
-    // Create ghost plate mesh
-    // Different colors for debugging: cyan (left), yellow (right), green (unknown), red (illegal)
-    let ghostColor = 0x00ff00; // Default green
+    let centerX = ghostPlate.position.x;
+    if (ghostPlate.connections && ghostPlate.connections.length > 0) {
+      const connectedRods = ghostPlate.connections
+        .map(id => id === -1 ? null : shelf.rods.get(id))
+        .filter((rod): rod is Rod => rod !== null && rod !== undefined);
+
+      if (connectedRods.length > 0) {
+        centerX = connectedRods.reduce((sum, rod) => sum + rod.position.x, 0) / connectedRods.length;
+      }
+    }
+
+    let ghostColor = 0x00ff00;
     if (!ghostPlate.legal) {
-      ghostColor = 0xff0000; // Red for illegal
+      ghostColor = 0xff0000;
     } else if (ghostPlate.direction === 'left') {
-      ghostColor = 0x00ffff; // Cyan for left
+      ghostColor = 0x00ffff;
     } else if (ghostPlate.direction === 'right') {
-      ghostColor = 0xffff00; // Yellow for right
+      ghostColor = 0xffff00;
     }
 
     const ghostMesh = new THREE.Mesh(
@@ -142,7 +150,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
         color: ghostColor,
         transparent: true,
         opacity: DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0,
-        wireframe: !ghostPlate.legal // Wireframe for illegal plates
+        wireframe: !ghostPlate.legal
       })
     );
 

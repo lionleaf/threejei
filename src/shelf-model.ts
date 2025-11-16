@@ -51,6 +51,7 @@ export interface GhostPlate {
   direction?: 'left' | 'right'; // For debugging: which direction was this ghost generated from
   action?: 'create' | 'extend' | 'merge'; // What action to take when clicking this ghost
   existingPlateId?: number; // For extend/merge actions, which plate to modify
+  width?: number;
 }
 
 export interface ShelfMetadata {
@@ -1998,22 +1999,33 @@ export function regenerateGhostPlates(shelf: Shelf): void {
 
       if (!hasLeftPlate) {
         const result = canAddPlateSegment(rodId, y, "left", shelf);
-        const candidate: GhostPlate = result ? {
-          sku_id: result.sku_id,
-          connections: result.rodIds,
-          position: {
-            x: result.requiresNewRod ? result.requiresNewRod.x : rod.position.x - 300,
-            y: result.y
-          },
-          legal: true,
-          direction: 'left',
-          action: result.action,
-          existingPlateId: result.existingPlateId
-        } : {
-          position: { x: rod.position.x - 300, y: y },
-          legal: false,
-          direction: 'left'
-        };
+        let candidate: GhostPlate;
+
+        if (result) {
+          const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === result.sku_id);
+          const width = plateSKU ? plateSKU.spans.reduce((sum, span) => sum + span, 0) : 670;
+
+          candidate = {
+            sku_id: result.sku_id,
+            connections: result.rodIds,
+            position: {
+              x: result.requiresNewRod ? result.requiresNewRod.x : rod.position.x - 300,
+              y: result.y
+            },
+            legal: true,
+            direction: 'left',
+            action: result.action,
+            existingPlateId: result.existingPlateId,
+            width: width
+          };
+        } else {
+          candidate = {
+            position: { x: rod.position.x - 300, y: y },
+            legal: false,
+            direction: 'left',
+            width: 670
+          };
+        }
 
         if (!ghostPlateExists(shelf.ghostPlates, candidate)) {
           shelf.ghostPlates.push(candidate);
@@ -2022,22 +2034,33 @@ export function regenerateGhostPlates(shelf: Shelf): void {
 
       if (!hasRightPlate) {
         const result = canAddPlateSegment(rodId, y, "right", shelf);
-        const candidate: GhostPlate = result ? {
-          sku_id: result.sku_id,
-          connections: result.rodIds,
-          position: {
-            x: result.requiresNewRod ? result.requiresNewRod.x : rod.position.x + 300,
-            y: result.y
-          },
-          legal: true,
-          direction: 'right',
-          action: result.action,
-          existingPlateId: result.existingPlateId
-        } : {
-          position: { x: rod.position.x + 300, y: y },
-          legal: false,
-          direction: 'right'
-        };
+        let candidate: GhostPlate;
+
+        if (result) {
+          const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === result.sku_id);
+          const width = plateSKU ? plateSKU.spans.reduce((sum, span) => sum + span, 0) : 670;
+
+          candidate = {
+            sku_id: result.sku_id,
+            connections: result.rodIds,
+            position: {
+              x: result.requiresNewRod ? result.requiresNewRod.x : rod.position.x + 300,
+              y: result.y
+            },
+            legal: true,
+            direction: 'right',
+            action: result.action,
+            existingPlateId: result.existingPlateId,
+            width: width
+          };
+        } else {
+          candidate = {
+            position: { x: rod.position.x + 300, y: y },
+            legal: false,
+            direction: 'right',
+            width: 670
+          };
+        }
 
         if (!ghostPlateExists(shelf.ghostPlates, candidate)) {
           shelf.ghostPlates.push(candidate);
