@@ -239,7 +239,7 @@ export function removePlate(plateId: number, shelf: Shelf): boolean {
   for (const rodId of plate.connections) {
     const rod = shelf.rods.get(rodId);
     if (rod) {
-      const attachmentIndex = findAttachmentPointByY(rod, plate.y);
+      const attachmentIndex = findAttachmentPointByY(rod, plate.y - rod.position.y);
       if (attachmentIndex !== undefined) {
         const attachmentPoint = rod.attachmentPoints[attachmentIndex];
         if (attachmentPoint.plateId === plateId) {
@@ -333,19 +333,46 @@ export function canExtendPlate(plateId: number, extendDirection: Direction, shel
   });
   if (!targetSKU) return undefined; // No plate available for this span pattern
 
-  // Perform the extension
-  plate.sku_id = targetSKU.sku_id;
-  plate.connections = newConnections;
-  if (targetRod.attachmentPoints[targetAttachmentIndex]) {
-    targetRod.attachmentPoints[targetAttachmentIndex].plateId = plateId;
-  }
 
   return [targetSKU.sku_id, newConnections];
 }
 
+export function extendPlate(plateId: number, newSkuId: number, newConnections: number[], shelf: Shelf) {
+  const plate = shelf.plates.get(plateId);
+  if (!plate) return undefined;
+
+  plate.sku_id = newSkuId;
+  plate.connections = newConnections;
+
+  for (const rodId of newConnections) {
+    const rod = shelf.rods.get(rodId)
+    if (rod === undefined) {
+      console.error("Unexpected invalid rod Id: ", rodId)
+      return
+    }
+
+    const attachmentIndex = findAttachmentPointByY(rod, plate.y - rod.position.y)
+    if (attachmentIndex === undefined) {
+      console.error("Unexpected missing attachment for rod Id: ", rodId)
+      return;
+    }
+
+    if (rod.attachmentPoints[attachmentIndex]) {
+      rod.attachmentPoints[attachmentIndex].plateId = plateId;
+    }
+
+  }
+}
+
 export function tryExtendPlate(plateId: number, extendDirection: Direction, shelf: Shelf): boolean {
   const result = canExtendPlate(plateId, extendDirection, shelf);
-  return result !== undefined;
+  if (result === undefined) {
+    return false;
+  }
+  const [newSkuId, newConnections] = result
+
+  extendPlate(plateId, newSkuId, newConnections, shelf)
+  return true;
 }
 
 export function tryMergePlates(leftPlateId: number, rightPlateId: number, shelf: Shelf): number {
@@ -982,6 +1009,7 @@ export interface PlateSegmentResult {
   existingPlateId?: number;
   requiresNewRod?: { x: number; y: number };
   requiresExtension?: Map<number, ExtensionInfo>;
+  segmentWidth: number; // Width of the segment being added (distance between rods)
 }
 
 function findPlateForGap(gapDistance: number): PlateSKU | undefined {
@@ -1064,7 +1092,7 @@ function calculateGapPlate(leftRodId: number, rightRodId: number, height: number
   };
 }
 
-export function canAddPlateSegment(rodId: number, y: number, direction: 'left' | 'right', shelf: Shelf): PlateSegmentResult | undefined {
+export function canAddPlateSegment(rodId: number, y: number, direction: Direction, shelf: Shelf): PlateSegmentResult | undefined {
   const STANDARD_GAP = 600;
   const rod = shelf.rods.get(rodId);
   if (!rod) return undefined;
@@ -1111,18 +1139,23 @@ export function canAddPlateSegment(rodId: number, y: number, direction: 'left' |
         rodIds: [leftRodId, rightRodId],
         y: y,
         action: 'merge',
-        existingPlateId: sourcePlateId
+        existingPlateId: sourcePlateId,
+        segmentWidth: gapDistance
       };
     }
 
     if (sourcePlateId !== undefined && targetPlateId === undefined) {
+      const extendInfo = canExtendPlate(sourcePlateId, direction, shelf);
+      if (!extendInfo) return undefined;
+      const [sku_id, newConnections] = extendInfo;
       // Extend the plate that exist on current rod
       return {
-        sku_id: plateSKU.sku_id,
-        rodIds: [leftRodId, rightRodId],
+        existingPlateId: sourcePlateId,
+        sku_id: sku_id,
+        rodIds: newConnections,
         y: y,
         action: 'extend',
-        existingPlateId: sourcePlateId
+        segmentWidth: gapDistance
       };
     }
 
@@ -1133,7 +1166,8 @@ export function canAddPlateSegment(rodId: number, y: number, direction: 'left' |
         rodIds: [leftRodId, rightRodId],
         y: y,
         action: 'extend',
-        existingPlateId: targetPlateId
+        existingPlateId: targetPlateId,
+        segmentWidth: gapDistance
       };
     }
 
@@ -1143,7 +1177,8 @@ export function canAddPlateSegment(rodId: number, y: number, direction: 'left' |
         sku_id: plateSKU.sku_id,
         rodIds: [leftRodId, rightRodId],
         y: y,
-        action: 'create'
+        action: 'create',
+        segmentWidth: gapDistance
       };
     }
   }
@@ -1168,7 +1203,8 @@ export function canAddPlateSegment(rodId: number, y: number, direction: 'left' |
       y: y,
       action: 'extend',
       existingPlateId: sourcePlateId,
-      requiresNewRod: { x: targetX, y: y }
+      requiresNewRod: { x: targetX, y: y },
+      segmentWidth: defaultPlateGapWidth
     };
   }
 
@@ -1177,7 +1213,8 @@ export function canAddPlateSegment(rodId: number, y: number, direction: 'left' |
     rodIds: direction === 'left' ? [-1, rodId] : [rodId, -1],
     y: y,
     action: 'create',
-    requiresNewRod: { x: targetX, y: y }
+    requiresNewRod: { x: targetX, y: y },
+    segmentWidth: defaultPlateGapWidth
   };
 }
 
@@ -1971,25 +2008,22 @@ export function regenerateGhostPlates(shelf: Shelf): void {
       }
 
       if (!hasLeftPlate) {
-        const result = canAddPlateSegment(rodId, y, "left", shelf);
+        const result = canAddPlateSegment(rodId, y, Direction.Left, shelf);
         let candidate: GhostPlate;
 
         if (result) {
-          const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === result.sku_id);
-          const width = plateSKU ? plateSKU.spans.reduce((sum, span) => sum + span, 0) : 670;
-
           candidate = {
             sku_id: result.sku_id,
             connections: result.rodIds,
             position: {
-              x: result.requiresNewRod ? result.requiresNewRod.x : rod.position.x - 300,
+              x: result.requiresNewRod ? result.requiresNewRod.x : rod.position.x,
               y: result.y
             },
             legal: true,
             direction: 'left',
             action: result.action,
             existingPlateId: result.existingPlateId,
-            width: width
+            width: result.segmentWidth
           };
         } else {
           candidate = {
@@ -2006,13 +2040,10 @@ export function regenerateGhostPlates(shelf: Shelf): void {
       }
 
       if (!hasRightPlate) {
-        const result = canAddPlateSegment(rodId, y, "right", shelf);
+        const result = canAddPlateSegment(rodId, y, Direction.Right, shelf);
         let candidate: GhostPlate;
 
         if (result) {
-          const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === result.sku_id);
-          const width = plateSKU ? plateSKU.spans.reduce((sum, span) => sum + span, 0) : 670;
-
           candidate = {
             sku_id: result.sku_id,
             connections: result.rodIds,
@@ -2024,7 +2055,7 @@ export function regenerateGhostPlates(shelf: Shelf): void {
             direction: 'right',
             action: result.action,
             existingPlateId: result.existingPlateId,
-            width: width
+            width: result.segmentWidth
           };
         } else {
           candidate = {

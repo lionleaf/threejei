@@ -1,4 +1,4 @@
-import { type Shelf, removePlate, removeSegmentFromPlate, removeRodSegment, addPlate, addRod, type Plate, type Rod, AVAILABLE_RODS, calculateAttachmentPositions, mergeColocatedRods, tryMergePlates, tryExtendPlate, Direction, type PlateSegmentResult } from './shelf-model.js';
+import { type Shelf, removePlate, removeSegmentFromPlate, removeRodSegment, addPlate, addRod, type Plate, type Rod, AVAILABLE_RODS, calculateAttachmentPositions, mergeColocatedRods, tryMergePlates, extendPlate, Direction, type PlateSegmentResult, GhostPlate } from './shelf-model.js';
 import { DEBUG_SHOW_COLLIDERS } from './shelf_viz.js';
 
 // Declare THREE as global (loaded via CDN)
@@ -94,7 +94,7 @@ export function setupInteractions(
     }
   }
 
-  function onGhostPlateClick(ghostPlate: any) {
+  function onGhostPlateClick(ghostPlate: GhostPlate) {
     if (!ghostPlate.legal) {
       console.log('Cannot add plate here - illegal placement');
       return;
@@ -105,7 +105,7 @@ export function setupInteractions(
       return;
     }
 
-    const action = ghostPlate.action || 'create';
+    const action = ghostPlate.action || 'error';
     console.log(`Ghost plate action: ${action}, sku_id=${ghostPlate.sku_id}, connections=${ghostPlate.connections}`);
 
     let success = false;
@@ -145,19 +145,9 @@ export function setupInteractions(
         }
       }
     } else if (action === 'extend') {
-      console.log('Executing extend action');
-
-      if (ghostPlate.existingPlateId !== undefined && ghostPlate.direction) {
-        const extendDirection = ghostPlate.direction === 'left' ? Direction.Left : Direction.Right;
-        console.log(`Extending plate ${ghostPlate.existingPlateId} in direction ${extendDirection}`);
-
-        success = tryExtendPlate(ghostPlate.existingPlateId, extendDirection, shelf);
-
-        if (success) {
-          console.log(`Successfully extended plate ${ghostPlate.existingPlateId}`);
-        } else {
-          console.log('Extend failed, falling back to create');
-        }
+      console.log('Executing extend action', ghostPlate);
+      if (ghostPlate.existingPlateId !== undefined) {
+        extendPlate(ghostPlate.existingPlateId, ghostPlate.sku_id, ghostPlate.connections, shelf)
       }
     }
 
