@@ -17,7 +17,8 @@ export function setupInteractions(
   scene: any,
   camera: any,
   renderer: any,
-  callbacks: RegenerationCallbacks
+  callbacks: RegenerationCallbacks,
+  tooltipContainer?: HTMLDivElement
 ): InteractionSystem {
   // Raycasting setup
   const raycaster = new THREE.Raycaster();
@@ -216,6 +217,11 @@ export function setupInteractions(
       }
     });
 
+    // Hide tooltip by default
+    if (tooltipContainer) {
+      tooltipContainer.style.display = 'none';
+    }
+
     // Find first hit with userData.type (plate or ghost_plate)
     for (const hit of intersects) {
       const userData = hit.object.userData;
@@ -232,6 +238,14 @@ export function setupInteractions(
           (hit.object.material as any).opacity = 0.5;
         } else {
           (hit.object.material as any).opacity = 0.3;
+        }
+
+        // Show tooltip in debug mode
+        if (DEBUG_SHOW_COLLIDERS && tooltipContainer) {
+          tooltipContainer.style.display = 'block';
+          tooltipContainer.style.left = `${event.clientX + 20}px`;
+          tooltipContainer.style.top = `${event.clientY + 20}px`;
+          tooltipContainer.textContent = JSON.stringify(ghostPlate, null, 2);
         }
         break;
       }

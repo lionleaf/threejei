@@ -16,8 +16,8 @@ import { setupInteractions } from './interactions.js';
 // Declare THREE as global (loaded via CDN)
 declare const THREE: any;
 
-// Debug flag to make colliders visible
-export const DEBUG_SHOW_COLLIDERS = true;
+// Debug state to make colliders visible
+export let DEBUG_SHOW_COLLIDERS = false;
 
 // Rebuild all shelf geometry (rods, plates, gap colliders)
 function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLDivElement): void {
@@ -187,6 +187,14 @@ function updateSKUList(shelf: Shelf, container: HTMLDivElement): void {
 
   let html = '<div style="font-weight: bold; margin-bottom: 8px; font-size: 14px;">SKU List</div>';
 
+  // Add debug checkbox
+  html += '<div style="margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #ccc;">';
+  html += '<label style="display: flex; align-items: center; cursor: pointer; font-size: 11px;">';
+  html += `<input type="checkbox" id="debugCheckbox" ${DEBUG_SHOW_COLLIDERS ? 'checked' : ''} style="margin-right: 6px;">`;
+  html += 'Debug Mode';
+  html += '</label>';
+  html += '</div>';
+
   if (rodCounts.size > 0) {
     html += '<div style="margin-bottom: 6px; font-weight: bold; font-size: 12px;">Rods:</div>';
     rodCounts.forEach((count, name) => {
@@ -232,7 +240,35 @@ function visualizeShelf(shelf: Shelf): void {
   skuListContainer.style.zIndex = '1000';
   document.body.appendChild(skuListContainer);
 
+  // Create tooltip container
+  const tooltipContainer = document.createElement('div');
+  tooltipContainer.style.position = 'absolute';
+  tooltipContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.9)';
+  tooltipContainer.style.color = '#fff';
+  tooltipContainer.style.padding = '8px';
+  tooltipContainer.style.borderRadius = '4px';
+  tooltipContainer.style.fontFamily = 'monospace';
+  tooltipContainer.style.fontSize = '10px';
+  tooltipContainer.style.pointerEvents = 'none';
+  tooltipContainer.style.display = 'none';
+  tooltipContainer.style.zIndex = '2000';
+  tooltipContainer.style.maxWidth = '400px';
+  tooltipContainer.style.whiteSpace = 'pre-wrap';
+  document.body.appendChild(tooltipContainer);
+
   updateSKUList(shelf, skuListContainer);
+
+  // Setup debug checkbox event listener
+  const setupDebugCheckbox = () => {
+    const checkbox = document.getElementById('debugCheckbox') as HTMLInputElement;
+    if (checkbox) {
+      checkbox.addEventListener('change', (e) => {
+        DEBUG_SHOW_COLLIDERS = (e.target as HTMLInputElement).checked;
+        rebuildShelfGeometry(shelf, scene, skuListContainer);
+      });
+    }
+  };
+  setupDebugCheckbox();
 
   // Initial geometry rendering
   rebuildShelfGeometry(shelf, scene, skuListContainer);
@@ -273,8 +309,12 @@ function visualizeShelf(shelf: Shelf): void {
     camera,
     renderer,
     {
-      rebuildGeometry: () => { rebuildShelfGeometry(shelf, scene, skuListContainer); }
-    }
+      rebuildGeometry: () => {
+        rebuildShelfGeometry(shelf, scene, skuListContainer);
+        setupDebugCheckbox();
+      }
+    },
+    tooltipContainer
   );
 
   // Handle window resize
