@@ -1,4 +1,4 @@
-import { type Shelf, removePlate, removeSegmentFromPlate, removeRodSegment, addPlate, addRod, type Plate, type Rod, AVAILABLE_RODS, calculateAttachmentPositions, mergeColocatedRods, tryMergePlates, extendPlate, Direction, type PlateSegmentResult, GhostPlate } from './shelf-model.js';
+import { type Shelf, removePlate, removeSegmentFromPlate, removeRodSegment, addPlate, addRod, type Plate, type Rod, AVAILABLE_RODS, calculateAttachmentPositions, tryMergePlates, extendPlate, Direction, type PlateSegmentResult, GhostPlate, resolveRodConnections } from './shelf-model.js';
 import { DEBUG_SHOW_COLLIDERS } from './shelf_viz.js';
 
 // Declare THREE as global (loaded via CDN)
@@ -122,7 +122,7 @@ export function setupInteractions(
         const rightRod = shelf.rods.get(rightRodId);
 
         if (leftRod && rightRod) {
-          const y = ghostPlate.position.y;
+          const y = ghostPlate.midpointPosition.y;
           const leftAttachmentY = y - leftRod.position.y;
           const rightAttachmentY = y - rightRod.position.y;
 
@@ -147,51 +147,30 @@ export function setupInteractions(
       }
     } else if (action === 'extend') {
       console.log('Executing extend action', ghostPlate);
-      if (ghostPlate.existingPlateId !== undefined) {
-        extendPlate(ghostPlate.existingPlateId, ghostPlate.sku_id, ghostPlate.connections, shelf)
+      if (ghostPlate.existingPlateId !== undefined && ghostPlate.connections) {
+        const actualRodIds = resolveRodConnections(ghostPlate.connections, ghostPlate.newRodPosition, shelf);
+        extendPlate(ghostPlate.existingPlateId, ghostPlate.sku_id, actualRodIds, shelf);
+
+        success = true;
       }
     }
 
     if (!success && action === 'create') {
       console.log('Executing create action');
 
-      const actualRodIds = ghostPlate.connections.map((rodId: number) => {
-        if (rodId === -1) {
-          const newRodId = addRod({ x: ghostPlate.position.x, y: ghostPlate.position.y }, 1, shelf);
-          console.log(`Created new rod ${newRodId} at (${ghostPlate.position.x}, ${ghostPlate.position.y})`);
-          return newRodId;
-        }
-        return rodId;
-      });
+      const actualRodIds = resolveRodConnections(ghostPlate.connections, ghostPlate.newRodPosition, shelf);
 
-      const plateId = addPlate(ghostPlate.position.y, ghostPlate.sku_id, actualRodIds, shelf);
+      const plateId = addPlate(ghostPlate.midpointPosition.y, ghostPlate.sku_id, actualRodIds, shelf);
 
       if (plateId !== -1) {
         console.log(`Ghost plate created successfully as plate ${plateId}`);
-
-        const newRodXPositions = new Set<number>();
-        ghostPlate.connections.forEach((rodId: number, index: number) => {
-          if (rodId === -1) {
-            const rod = shelf.rods.get(actualRodIds[index]);
-            if (rod) {
-              newRodXPositions.add(rod.position.x);
-            }
-          }
-        });
-
-        newRodXPositions.forEach(x => {
-          mergeColocatedRods(x, shelf);
-        });
-
         success = true;
       } else {
         console.log('Failed to create plate');
       }
     }
 
-    if (success) {
-      callbacks.rebuildGeometry();
-    }
+    callbacks.rebuildGeometry();
   }
 
   // Pointer event handling for raycasting

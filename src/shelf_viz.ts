@@ -17,7 +17,7 @@ import { setupInteractions } from './interactions.js';
 declare const THREE: any;
 
 // Debug state to make colliders visible
-export let DEBUG_SHOW_COLLIDERS = false;
+export let DEBUG_SHOW_COLLIDERS = true;
 
 // Rebuild all shelf geometry (rods, plates, gap colliders)
 function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLDivElement): void {
@@ -122,18 +122,8 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
   regenerateGhostPlates(shelf);
 
   shelf.ghostPlates.forEach((ghostPlate, index) => {
-    const plateWidth = ghostPlate.width || 670;
-
-    let centerX = ghostPlate.position.x;
-    if (ghostPlate.connections && ghostPlate.connections.length > 0) {
-      const connectedRods = ghostPlate.connections
-        .map(id => id === -1 ? null : shelf.rods.get(id))
-        .filter((rod): rod is Rod => rod !== null && rod !== undefined);
-
-      if (connectedRods.length > 0) {
-        centerX = connectedRods.reduce((sum, rod) => sum + rod.position.x, 0) / connectedRods.length;
-      }
-    }
+    const segmentWidth = ghostPlate.width || 600;
+    const centerX = ghostPlate.midpointPosition.x;
 
     let ghostColor = 0x00ff00;
     if (!ghostPlate.legal) {
@@ -145,7 +135,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
     }
 
     const ghostMesh = new THREE.Mesh(
-      new THREE.BoxGeometry(plateWidth, 30, 200),
+      new THREE.BoxGeometry(segmentWidth, 30, 200),
       new THREE.MeshBasicMaterial({
         color: ghostColor,
         transparent: true,
@@ -154,7 +144,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
       })
     );
 
-    ghostMesh.position.set(centerX, ghostPlate.position.y, 200 / 2);
+    ghostMesh.position.set(centerX, ghostPlate.midpointPosition.y, 200 / 2);
     ghostMesh.userData = {
       type: 'ghost_plate',
       ghostPlateIndex: index,
@@ -256,8 +246,6 @@ function visualizeShelf(shelf: Shelf): void {
   tooltipContainer.style.whiteSpace = 'pre-wrap';
   document.body.appendChild(tooltipContainer);
 
-  updateSKUList(shelf, skuListContainer);
-
   // Setup debug checkbox event listener
   const setupDebugCheckbox = () => {
     const checkbox = document.getElementById('debugCheckbox') as HTMLInputElement;
@@ -265,13 +253,14 @@ function visualizeShelf(shelf: Shelf): void {
       checkbox.addEventListener('change', (e) => {
         DEBUG_SHOW_COLLIDERS = (e.target as HTMLInputElement).checked;
         rebuildShelfGeometry(shelf, scene, skuListContainer);
+        setupDebugCheckbox(); // Re-attach after rebuild recreates checkbox
       });
     }
   };
-  setupDebugCheckbox();
 
-  // Initial geometry rendering
+  // Initial geometry rendering (this calls updateSKUList which creates the checkbox)
   rebuildShelfGeometry(shelf, scene, skuListContainer);
+  setupDebugCheckbox();
 
   // Calculate shelf center for camera target
   const rods = Array.from(shelf.rods.values());
@@ -338,12 +327,12 @@ function visualizeShelf(shelf: Shelf): void {
 const shelf = createEmptyShelf();
 
 const rod1 = addRod({ x: 0, y: 0 }, 6, shelf);
-const rod2 = addRod({ x: 600, y: 0 }, 6, shelf);
-addRod({ x: 1200, y: 0 }, 15, shelf);
-addRod({ x: 1800, y: 0 }, 15, shelf);
-addRod({ x: 2400, y: 0 }, 15, shelf);
-addRod({ x: 3000, y: 0 }, 15, shelf);
+const rod2 = addRod({ x: 600, y: 0 }, 15, shelf);
+// addRod({ x: 1200, y: 0 }, 15, shelf);
+// addRod({ x: 1800, y: 0 }, 6, shelf);
+// // addRod({ x: 2400, y: 0 }, 15, shelf);
+// addRod({ x: 3000, y: 0 }, 15, shelf);
 
-console.log(addPlate(200, 1, [rod1, rod2], shelf));
+// console.log(addPlate(200, 1, [rod1, rod2], shelf));
 
 visualizeShelf(shelf);
