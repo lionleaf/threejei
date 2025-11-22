@@ -1,4 +1,4 @@
-import { type Shelf, removePlate, removeSegmentFromPlate, removeRodSegment, addPlate, addRod, type Plate, type Rod, AVAILABLE_RODS, calculateAttachmentPositions, tryMergePlates, extendPlate, Direction, type PlateSegmentResult, GhostPlate, resolveRodConnections } from './shelf-model.js';
+import { type Shelf, removePlate, removeSegmentFromPlate, removeRodSegment, addPlate, addRod, type Plate, type Rod, AVAILABLE_RODS, calculateAttachmentPositions, mergePlates, extendPlate, Direction, type PlateSegmentResult, GhostPlate, resolveRodConnections } from './shelf-model.js';
 import { DEBUG_SHOW_COLLIDERS } from './shelf_viz.js';
 
 // Declare THREE as global (loaded via CDN)
@@ -113,36 +113,20 @@ export function setupInteractions(
 
     if (action === 'merge') {
       console.log('Executing merge action');
-
-      if (ghostPlate.connections.length >= 2) {
-        const leftRodId = ghostPlate.connections[0];
-        const rightRodId = ghostPlate.connections[ghostPlate.connections.length - 1];
-
-        const leftRod = shelf.rods.get(leftRodId);
-        const rightRod = shelf.rods.get(rightRodId);
-
-        if (leftRod && rightRod) {
-          const y = ghostPlate.midpointPosition.y;
-          const leftAttachmentY = y - leftRod.position.y;
-          const rightAttachmentY = y - rightRod.position.y;
-
-          const leftAttachment = leftRod.attachmentPoints.find(ap => ap.y === leftAttachmentY);
-          const rightAttachment = rightRod.attachmentPoints.find(ap => ap.y === rightAttachmentY);
-
-          if (leftAttachment?.plateId !== undefined && rightAttachment?.plateId !== undefined) {
-            const leftPlateId = leftAttachment.plateId;
-            const rightPlateId = rightAttachment.plateId;
-
-            console.log(`Merging plates ${leftPlateId} and ${rightPlateId}`);
-            const mergedPlateId = tryMergePlates(leftPlateId, rightPlateId, shelf);
-            success = mergedPlateId !== -1;
-
-            if (success) {
-              console.log(`Successfully merged into plate ${mergedPlateId}`);
-            } else {
-              console.log('Merge failed, falling back to create');
-            }
-          }
+      if (ghostPlate.existingPlateId !== undefined &&
+          ghostPlate.targetPlateId !== undefined &&
+          ghostPlate.sku_id !== undefined &&
+          ghostPlate.connections) {
+        const mergedPlateId = mergePlates(
+          ghostPlate.existingPlateId,
+          ghostPlate.targetPlateId,
+          ghostPlate.sku_id,
+          ghostPlate.connections,
+          shelf
+        );
+        success = mergedPlateId !== -1;
+        if (success) {
+          console.log(`Successfully merged into plate ${mergedPlateId}`);
         }
       }
     } else if (action === 'extend') {

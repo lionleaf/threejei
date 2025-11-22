@@ -51,6 +51,7 @@ export interface GhostPlate {
   direction?: 'left' | 'right'; // For debugging: which direction was this ghost generated from
   action?: 'create' | 'extend' | 'merge'; // What action to take when clicking this ghost
   existingPlateId?: number; // For extend/merge actions, which plate to modify
+  targetPlateId?: number; // For merge actions, the second plate to merge with
   width?: number;
   newRodPosition?: Vec2f; // Position where a new rod should be created (for edge ghost plates)
 }
@@ -422,16 +423,53 @@ export function tryExtendPlate(plateId: number, extendDirection: Direction, shel
   return true;
 }
 
+// Apply a merge operation directly - assumes all parameters are valid
+export function mergePlates(
+  leftPlateId: number,
+  rightPlateId: number,
+  newSkuId: number,
+  newConnections: number[],
+  shelf: Shelf
+): number {
+  const leftPlate = shelf.plates.get(leftPlateId);
+  if (!leftPlate) return -1;
+
+  removePlate(rightPlateId, shelf);
+  leftPlate.sku_id = newSkuId;
+  leftPlate.connections = newConnections;
+
+  for (const rodId of newConnections) {
+    const rod = shelf.rods.get(rodId);
+    if (!rod) continue;
+    const attachmentY = leftPlate.y - rod.position.y;
+    const attachment = rod.attachmentPoints.find(ap => ap.y === attachmentY);
+    if (attachment) {
+      attachment.plateId = leftPlateId;
+    }
+  }
+
+  return leftPlateId;
+}
+
+// Calculate merge parameters and apply if valid
 export function tryMergePlates(leftPlateId: number, rightPlateId: number, shelf: Shelf): number {
+  const mergeParams = canMergePlates(leftPlateId, rightPlateId, shelf);
+  if (!mergeParams) return -1;
+
+  return mergePlates(leftPlateId, rightPlateId, mergeParams.sku_id, mergeParams.connections, shelf);
+}
+
+// Check if two plates can be merged and return the merge parameters
+export function canMergePlates(leftPlateId: number, rightPlateId: number, shelf: Shelf): { sku_id: number, connections: number[] } | undefined {
   const leftPlate = shelf.plates.get(leftPlateId);
   const rightPlate = shelf.plates.get(rightPlateId);
 
-  if (!leftPlate || !rightPlate) return -1;
-  if (leftPlate.y !== rightPlate.y) return -1;
+  if (!leftPlate || !rightPlate) return undefined;
+  if (leftPlate.y !== rightPlate.y) return undefined;
 
   const leftSKU = AVAILABLE_PLATES.find(p => p.sku_id === leftPlate.sku_id);
   const rightSKU = AVAILABLE_PLATES.find(p => p.sku_id === rightPlate.sku_id);
-  if (!leftSKU || !rightSKU) return -1;
+  if (!leftSKU || !rightSKU) return undefined;
 
   const leftRightmostRodId = leftPlate.connections[leftPlate.connections.length - 1];
   const rightLeftmostRodId = rightPlate.connections[0];
@@ -439,7 +477,7 @@ export function tryMergePlates(leftPlateId: number, rightPlateId: number, shelf:
   const leftRightmostRod = shelf.rods.get(leftRightmostRodId);
   const rightLeftmostRod = shelf.rods.get(rightLeftmostRodId);
 
-  if (!leftRightmostRod || !rightLeftmostRod) return -1;
+  if (!leftRightmostRod || !rightLeftmostRod) return undefined;
 
   let combinedRods: number[];
   let mergedSpans: number[];
@@ -465,23 +503,9 @@ export function tryMergePlates(leftPlateId: number, rightPlateId: number, shelf:
     return sku.spans.every((span, index) => span === mergedSpans[index]);
   });
 
-  if (!mergedSKU) return -1;
+  if (!mergedSKU) return undefined;
 
-  removePlate(rightPlateId, shelf);
-  leftPlate.sku_id = mergedSKU.sku_id;
-  leftPlate.connections = combinedRods;
-
-  for (const rodId of combinedRods) {
-    const rod = shelf.rods.get(rodId);
-    if (!rod) continue;
-    const attachmentY = leftPlate.y - rod.position.y;
-    const attachment = rod.attachmentPoints.find(ap => ap.y === attachmentY);
-    if (attachment) {
-      attachment.plateId = leftPlateId;
-    }
-  }
-
-  return leftPlateId;
+  return { sku_id: mergedSKU.sku_id, connections: combinedRods };
 }
 
 export function removeRod(rodId: number, shelf: Shelf): boolean {
@@ -940,101 +964,6 @@ export function removeSegmentFromPlate(plateId: number, segmentIndex: number, sh
   return leftPlateId !== -1 && rightPlateId !== -1;
 }
 
-function canMergePlates(leftPlateId: number, rightPlateId: number, shelf: Shelf): [y: number, sku_id: number, rods: number[]] | undefined {
-  const leftPlate = shelf.plates.get(leftPlateId);
-  const rightPlate = shelf.plates.get(rightPlateId);
-
-  if (!leftPlate || !rightPlate) {
-    console.log('tryMergePlates: One or both plates not found');
-    return undefined;
-  }
-
-  // Plates must be at same height
-  if (leftPlate.y !== rightPlate.y) {
-    console.log('tryMergePlates: Plates at different heights', leftPlate.y, rightPlate.y);
-    return undefined;
-  }
-
-  // Get the SKUs
-  const leftSKU = AVAILABLE_PLATES.find(p => p.sku_id === leftPlate.sku_id);
-  const rightSKU = AVAILABLE_PLATES.find(p => p.sku_id === rightPlate.sku_id);
-
-  if (!leftSKU || !rightSKU) {
-    console.log('tryMergePlates: SKU not found');
-    return undefined;
-  }
-
-  // Verify plates have a gap between them (rightmost rod of left plate and leftmost rod of right plate are adjacent)
-  const leftRightmostRodId = leftPlate.connections[leftPlate.connections.length - 1];
-  const rightLeftmostRodId = rightPlate.connections[0];
-
-  console.log('tryMergePlates: Checking adjacency', {
-    leftRightmostRodId,
-    rightLeftmostRodId,
-    leftConnections: leftPlate.connections,
-    rightConnections: rightPlate.connections
-  });
-
-  // Get all rods sorted by X position to verify they are adjacent
-  const allRodsSorted = Array.from(shelf.rods.entries())
-    .sort((a, b) => a[1].position.x - b[1].position.x);
-
-  const leftRightmostIndex = allRodsSorted.findIndex(([id]) => id === leftRightmostRodId);
-  const rightLeftmostIndex = allRodsSorted.findIndex(([id]) => id === rightLeftmostRodId);
-
-  // Check if the rods are adjacent (right plate's leftmost rod is immediately after left plate's rightmost rod)
-  if (rightLeftmostIndex !== leftRightmostIndex + 1) {
-    console.log('tryMergePlates: Plates not adjacent - gap too large or overlapping');
-    return undefined;
-  }
-
-  // Combine rod connections (include all rods from both plates)
-  // If plates share a rod, skip the duplicate
-  let combinedRods: number[];
-  if (leftRightmostRodId === rightLeftmostRodId) {
-    combinedRods = [...leftPlate.connections, ...rightPlate.connections.slice(1)];
-  } else {
-    combinedRods = [...leftPlate.connections, ...rightPlate.connections];
-  }
-
-  // Get all rod objects to calculate distances
-  const rods = combinedRods.map(id => shelf.rods.get(id)).filter(r => r !== undefined);
-  if (rods.length !== combinedRods.length) {
-    console.log('tryMergePlates: Some rods not found');
-    return undefined;
-  }
-
-  // Build span array: [padding, gap1, gap2, ..., padding]
-  const mergedSpans: number[] = [PLATE_PADDING_MM];
-  for (let i = 0; i < rods.length - 1; i++) {
-    const distance = rods[i + 1].position.x - rods[i].position.x;
-    mergedSpans.push(distance);
-  }
-  mergedSpans.push(PLATE_PADDING_MM);
-
-  console.log('tryMergePlates: Merged spans:', mergedSpans);
-
-  // Find matching plate SKU
-  const mergedSKU = AVAILABLE_PLATES.find(sku => {
-    if (sku.spans.length !== mergedSpans.length) return false;
-    return sku.spans.every((span, index) => span === mergedSpans[index]);
-  });
-
-  if (!mergedSKU) {
-    console.log('tryMergePlates: No matching SKU found for spans', mergedSpans);
-    return undefined;
-  }
-
-  console.log('tryMergePlates: Found matching SKU:', mergedSKU.name);
-
-  // Perform the merge
-  // Remove old plates
-  // Add new merged plate
-  // const mergedPlateId = addPlate(leftPlate.y, mergedSKU.sku_id, combinedRods, shelf);
-
-  return [leftPlate.y, mergedSKU.sku_id, combinedRods];
-}
-
 export interface PlateConfig {
   sku_id: number;
   rodIds: number[];
@@ -1054,6 +983,7 @@ export interface PlateSegmentResult {
   y: number;
   action: PlateAction;
   existingPlateId?: number;
+  targetPlateId?: number; // For merge actions, the second plate to merge with
   requiresNewRod?: { x: number; y: number };
   requiresExtension?: Map<number, ExtensionInfo>;
   segmentWidth: number; // Width of the segment being added (distance between rods)
@@ -1142,14 +1072,19 @@ export function canAddPlateSegment(rodId: number, y: number, direction: Directio
 
 
     if (sourcePlateId !== undefined && targetPlateId !== undefined) {
-      // TODO: Verify whether the merge operation can succeed / is legal or not.
-      // Plate on both ends that we have to merge
+      // Plate on both ends - check if merge is possible
+      const leftPlateId = direction === 'left' ? targetPlateId : sourcePlateId;
+      const rightPlateId = direction === 'left' ? sourcePlateId : targetPlateId;
+      const mergeParams = canMergePlates(leftPlateId, rightPlateId, shelf);
+      if (!mergeParams) return undefined;
+
       return {
-        sku_id: plateSKU.sku_id,
-        rodIds: [leftRodId, rightRodId],
+        sku_id: mergeParams.sku_id,
+        rodIds: mergeParams.connections,
         y: y,
         action: 'merge',
-        existingPlateId: sourcePlateId,
+        existingPlateId: leftPlateId,
+        targetPlateId: rightPlateId,
         segmentWidth: gapDistance
       };
     }
@@ -1984,6 +1919,7 @@ export function regenerateGhostPlates(shelf: Shelf): void {
             direction: 'left',
             action: result.action,
             existingPlateId: result.existingPlateId,
+            targetPlateId: result.targetPlateId,
             width: segmentWidth,
             newRodPosition: result.requiresNewRod
           };
@@ -2019,6 +1955,7 @@ export function regenerateGhostPlates(shelf: Shelf): void {
             direction: 'right',
             action: result.action,
             existingPlateId: result.existingPlateId,
+            targetPlateId: result.targetPlateId,
             width: segmentWidth,
             newRodPosition: result.requiresNewRod
           };
