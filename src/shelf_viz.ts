@@ -17,7 +17,7 @@ import { setupInteractions } from './interactions.js';
 declare const THREE: any;
 
 // Debug state to make colliders visible
-export let DEBUG_SHOW_COLLIDERS = true;
+export let DEBUG_SHOW_COLLIDERS = false;
 
 // Rebuild all shelf geometry (rods, plates, gap colliders)
 function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLDivElement): void {
@@ -278,13 +278,14 @@ function visualizeShelf(shelf: Shelf): void {
   controls.enableRotate = true;
 
   // Set camera target to shelf center
-  controls.target.set(centerX, centerY, 0);
+  controls.target.set(centerX, centerY, 100);
 
   // Position camera for wall-mounted shelf view (looking at XY plane from positive Z)
+  // Camera is higher and further back, looking down at the shelf
   const shelfWidth = maxX - minX;
   const shelfHeight = maxY - minY + 300; // Add rod height
-  const cameraDistance = Math.max(shelfWidth, shelfHeight) * 0.8 + 400;
-  camera.position.set(centerX, centerY, cameraDistance);
+  const cameraDistance = Math.max(shelfWidth, shelfHeight) * 0.8 + 800;
+  camera.position.set(centerX, centerY + 400, cameraDistance);
   controls.update();
 
   // Setup interactions with regeneration callback
@@ -319,16 +320,12 @@ function visualizeShelf(shelf: Shelf): void {
   animate();
 }
 
-// Create and display a sample shelf
+// Create and display a simple default shelf
 const shelf = createEmptyShelf();
 
-const rod1 = addRod({ x: 0, y: 0 }, 6, shelf);
-const rod2 = addRod({ x: 600, y: 0 }, 15, shelf);
-// addRod({ x: 1200, y: 0 }, 15, shelf);
-// addRod({ x: 1800, y: 0 }, 6, shelf);
-// // addRod({ x: 2400, y: 0 }, 15, shelf);
-// addRod({ x: 3000, y: 0 }, 15, shelf);
+const rod1 = addRod({ x: 0, y: 0 }, 4, shelf); // 3P_22: 3 attachment points, 200mm + 200mm gaps
+const rod2 = addRod({ x: 600, y: 0 }, 4, shelf); // 3P_22: matching rod
 
-// console.log(addPlate(200, 1, [rod1, rod2], shelf));
+addPlate(200, 1, [rod1, rod2], shelf); // 670mm plate at middle attachment level
 
 visualizeShelf(shelf);

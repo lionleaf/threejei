@@ -173,6 +173,11 @@ Plates used: 1x 670mm
 3. Different rod patterns allowed but attachment alignment required for plates
 4. Empty attachment points are valid (skipped connections annotated with ─)
 
+#### Rod Extension Constraints
+- Rods can only be extended (adding segments above or below) when both rods in a pair have plates at their top/bottom attachment points respectively
+- When a plate is deleted from the top or bottom of a rod, the rod automatically shortens to remove any empty segments
+- This prevents "dangling" rod segments without structural purpose
+
 
 ## Interactive 3D Editing Design Plan
 
