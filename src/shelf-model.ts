@@ -283,7 +283,36 @@ export function addOrExtendRod(position: Vec2f, shelf: Shelf): number {
     }
   }
 
-  // No existing rod can be extended, create a new minimal rod
+  // No existing rod can be extended directly to targetY
+  // Check if there are valid gaps to rods above/below where we could merge via a new rod
+  const validSpans = [200, 300];
+  const gapToBelow = rodBelow ? targetY - rodBelow.topY : undefined;
+  const gapToAbove = rodAbove ? rodAbove.bottomY - targetY : undefined;
+  const isGapToBelowValid = gapToBelow !== undefined && validSpans.some(s => Math.abs(gapToBelow - s) < 1);
+  const isGapToAboveValid = gapToAbove !== undefined && validSpans.some(s => Math.abs(gapToAbove - s) < 1);
+
+  // If we have rods both above and below with valid gaps, try three-way merge
+  // This handles cases where the incremental extension fails but a direct merge might work
+  if (rodBelow && rodAbove && isGapToBelowValid && isGapToAboveValid) {
+    // Create a temporary 1P rod at targetY and try to merge all three
+    const tempRodId = addRod({ x: targetX, y: targetY }, 1, shelf);
+
+    // Try to merge with rodBelow first
+    const spanToBelow = validSpans.find(s => Math.abs(gapToBelow! - s) < 1)!;
+    const mergedWithBelow = tryMergeRodsVertically(rodBelow.rodId, tempRodId, spanToBelow, shelf);
+
+    if (mergedWithBelow) {
+      // Now try to merge the result with rodAbove
+      const spanToAbove = validSpans.find(s => Math.abs(gapToAbove! - s) < 1)!;
+      tryMergeRodsVertically(rodBelow.rodId, rodAbove.rodId, spanToAbove, shelf);
+      return rodBelow.rodId;
+    } else {
+      // Merge failed, clean up the temp rod and continue to fallback
+      shelf.rods.delete(tempRodId);
+    }
+  }
+
+  // Fallback: create a new minimal rod
   const minimalSkuId = 1; // 1P rod - single attachment point
   return addRod(position, minimalSkuId, shelf);
 }

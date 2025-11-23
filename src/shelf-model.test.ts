@@ -1,4 +1,39 @@
-import { createEmptyShelf, addRod, addPlate, tryExtendPlate, tryFillEdgeGap, Direction, AVAILABLE_PLATES } from './shelf-model.js';
+import { createEmptyShelf, addRod, addPlate, canExtendPlate, extendPlate, canAddPlateSegment, Direction, AVAILABLE_PLATES, mergePlates, resolveRodConnections } from './shelf-model.js';
+
+// Wrapper to match old test API
+function tryExtendPlate(plateId: number, direction: Direction, shelf: any): boolean {
+  const result = canExtendPlate(plateId, direction, shelf);
+  if (!result) return false;
+  const [newSkuId, newConnections] = result;
+  extendPlate(plateId, newSkuId, newConnections, shelf);
+  return true;
+}
+
+// Wrapper to match old test API - simulates clicking an edge gap
+function tryFillEdgeGap(rodId: number, y: number, direction: 'left' | 'right', shelf: any): number {
+  const rod = shelf.rods.get(rodId);
+  if (!rod) return -1;
+
+  const absoluteY = rod.position.y + y;
+  const dir = direction === 'left' ? Direction.Left : Direction.Right;
+
+  const result = canAddPlateSegment(rodId, absoluteY, dir, shelf);
+  if (!result) return -1;
+
+  // Resolve any -1 rod connections (creates new rods)
+  const actualRodIds = resolveRodConnections(result.rodIds, result.requiresNewRod, shelf);
+
+  if (result.action === 'create') {
+    return addPlate(result.y, result.sku_id, actualRodIds, shelf);
+  } else if (result.action === 'extend' && result.existingPlateId !== undefined) {
+    extendPlate(result.existingPlateId, result.sku_id, actualRodIds, shelf);
+    return result.existingPlateId;
+  } else if (result.action === 'merge' && result.existingPlateId !== undefined && result.targetPlateId !== undefined) {
+    return mergePlates(result.existingPlateId, result.targetPlateId, result.sku_id, actualRodIds, shelf);
+  }
+
+  return -1;
+}
 import { test, testGroup, assertEquals, assertTrue, printResults } from './test-framework.js';
 
 testGroup('Plate Addition Validation - Valid Plates', () => {

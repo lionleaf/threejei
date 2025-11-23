@@ -1,4 +1,13 @@
-import { createEmptyShelf, addRod, addPlate, tryExtendPlate, removePlate, Direction } from './shelf-model.js';
+import { createEmptyShelf, addRod, addPlate, canExtendPlate, extendPlate, removePlate, Direction, addOrExtendRod, AVAILABLE_RODS } from './shelf-model.js';
+
+// Wrapper to match old test API
+function tryExtendPlate(plateId: number, direction: Direction, shelf: any): boolean {
+  const result = canExtendPlate(plateId, direction, shelf);
+  if (!result) return false;
+  const [newSkuId, newConnections] = result;
+  extendPlate(plateId, newSkuId, newConnections, shelf);
+  return true;
+}
 
 const failedTests: string[] = [];
 
@@ -183,6 +192,7 @@ testPlateValidation();
 testTryExtendPlate();
 testAttachmentPointBug();
 testRemovePlate();
+testAddOrExtendRod();
 
 // Test removePlate function
 function testRemovePlate() {
@@ -210,6 +220,72 @@ function testRemovePlate() {
   test('Remove non-existent plate returns false', !removeInvalid);
 }
 
+
+// Test addOrExtendRod function - rod merging behavior
+function testAddOrExtendRod() {
+  // Test 1: Adding a rod between two existing rods should merge them
+  const shelf1 = createEmptyShelf();
+  const rod1 = addRod({ x: 0, y: 0 }, 1, shelf1); // 1P at Y=0
+  const rod2 = addRod({ x: 0, y: 400 }, 1, shelf1); // 1P at Y=400
+
+  // Add at Y=200 - should merge rod1 and rod2 into a single rod
+  const resultRodId = addOrExtendRod({ x: 0, y: 200 }, shelf1);
+
+  // Should return rod1 (the merged rod)
+  test('Merge returns existing rod ID', resultRodId === rod1);
+  // Original rod2 should be deleted
+  test('Original upper rod should be deleted after merge', !shelf1.rods.has(rod2));
+  // Only one rod should remain
+  test('Only one rod after merging three', shelf1.rods.size === 1);
+
+  // The merged rod should have 3 attachment points
+  const mergedRod = shelf1.rods.get(resultRodId);
+  test('Merged rod has 3 attachment points', mergedRod?.attachmentPoints.length === 3);
+
+  // The merged rod should be 3P_22 (spans: [200, 200])
+  const mergedSKU = AVAILABLE_RODS.find(r => r.sku_id === mergedRod?.sku_id);
+  test('Merged rod is 3P_22', mergedSKU?.name === '3P_22');
+
+  // Test 2: Extending rod below upward
+  const shelf2 = createEmptyShelf();
+  const rod3 = addRod({ x: 0, y: 0 }, 1, shelf2); // 1P at Y=0
+
+  // Add at Y=200 - should extend rod3 upward
+  const resultRodId2 = addOrExtendRod({ x: 0, y: 200 }, shelf2);
+
+  test('Extension returns existing rod ID', resultRodId2 === rod3);
+  test('Only one rod after extension', shelf2.rods.size === 1);
+
+  const extendedRod = shelf2.rods.get(resultRodId2);
+  test('Extended rod has 2 attachment points', extendedRod?.attachmentPoints.length === 2);
+
+  // Test 3: Extending rod above downward
+  const shelf3 = createEmptyShelf();
+  const rod4 = addRod({ x: 0, y: 300 }, 1, shelf3); // 1P at Y=300
+
+  // Add at Y=0 - should extend rod4 downward
+  const resultRodId3 = addOrExtendRod({ x: 0, y: 0 }, shelf3);
+
+  test('Downward extension returns existing rod ID', resultRodId3 === rod4);
+  test('Only one rod after downward extension', shelf3.rods.size === 1);
+
+  const extendedRodDown = shelf3.rods.get(resultRodId3);
+  test('Downward extended rod has 2 attachment points', extendedRodDown?.attachmentPoints.length === 2);
+  // Rod position should be adjusted downward
+  test('Rod position adjusted after downward extension', extendedRodDown?.position.y === 0);
+
+  // Test 4: No merging when gap is invalid (not 200 or 300mm)
+  const shelf4 = createEmptyShelf();
+  const rod5 = addRod({ x: 0, y: 0 }, 1, shelf4); // 1P at Y=0
+  const rod6 = addRod({ x: 0, y: 500 }, 1, shelf4); // 1P at Y=500
+
+  // Add at Y=250 - gap to rod5 is 250mm, gap to rod6 is 250mm (both invalid)
+  const resultRodId4 = addOrExtendRod({ x: 0, y: 250 }, shelf4);
+
+  // Should create a new rod
+  test('New rod created when gaps invalid', resultRodId4 !== rod5 && resultRodId4 !== rod6);
+  test('Three rods after adding with invalid gaps', shelf4.rods.size === 3);
+}
 
 // Print results
 if (failedTests.length === 0) {
