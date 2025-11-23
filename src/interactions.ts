@@ -1,4 +1,4 @@
-import { type Shelf, removePlate, removeSegmentFromPlate, removeRodSegment, addPlate, addRod, type Plate, type Rod, AVAILABLE_RODS, calculateAttachmentPositions, mergePlates, extendPlate, Direction, type PlateSegmentResult, GhostPlate, resolveRodConnections } from './shelf-model.js';
+import { type Shelf, removePlate, removeSegmentFromPlate, removeRodSegment, addPlate, addRod, type Plate, type Rod, AVAILABLE_RODS, calculateAttachmentPositions, mergePlates, extendPlate, Direction, type PlateSegmentResult, GhostPlate, resolveRodConnections, extendRodUp, extendRodDown } from './shelf-model.js';
 import { DEBUG_SHOW_COLLIDERS } from './shelf_viz.js';
 
 // Declare THREE as global (loaded via CDN)
@@ -136,6 +136,31 @@ export function setupInteractions(
         extendPlate(ghostPlate.existingPlateId, ghostPlate.sku_id, actualRodIds, shelf);
 
         success = true;
+      }
+    } else if (action === 'extend_rod') {
+      console.log('Executing extend_rod action', ghostPlate);
+      if (ghostPlate.rodExtensions && ghostPlate.extensionDirection && ghostPlate.connections && ghostPlate.sku_id !== undefined) {
+        // First, extend all rods
+        let allExtensionsSucceeded = true;
+        for (const ext of ghostPlate.rodExtensions) {
+          const extendResult = ghostPlate.extensionDirection === 'up'
+            ? extendRodUp(ext.rodId, ext.newSkuId, shelf)
+            : extendRodDown(ext.rodId, ext.newSkuId, shelf);
+          if (!extendResult) {
+            console.error(`Failed to extend rod ${ext.rodId}`);
+            allExtensionsSucceeded = false;
+            break;
+          }
+        }
+
+        // Then add the plate at the new level
+        if (allExtensionsSucceeded) {
+          const plateId = addPlate(ghostPlate.midpointPosition.y, ghostPlate.sku_id, ghostPlate.connections, shelf);
+          success = plateId !== -1;
+          if (success) {
+            console.log(`Successfully extended rods and created plate ${plateId}`);
+          }
+        }
       }
     }
 

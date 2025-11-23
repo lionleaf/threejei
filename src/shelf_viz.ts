@@ -125,13 +125,9 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
     const segmentWidth = ghostPlate.width || 600;
     const centerX = ghostPlate.midpointPosition.x;
 
-    let ghostColor = 0x00ff00;
+    let ghostColor = 0x90EE90; // Light green for legal
     if (!ghostPlate.legal) {
-      ghostColor = 0xff0000;
-    } else if (ghostPlate.direction === 'left') {
-      ghostColor = 0x00ffff;
-    } else if (ghostPlate.direction === 'right') {
-      ghostColor = 0xffff00;
+      ghostColor = 0xff0000; // Red for illegal
     }
 
     const ghostMesh = new THREE.Mesh(

@@ -43,17 +43,24 @@ export interface Plate {
 // A GhostPlate is a UX element of a plate that is not part of the shelf yet
 // but provides information about potential shelf modifications,
 // and includes the information to allow the user to add this plate (or information why it's illegal)
+export interface RodExtension {
+  rodId: number;
+  newSkuId: number;
+}
+
 export interface GhostPlate {
   sku_id?: number; // ID to match with a PlateSKU
   connections?: number[]; // rodIds, attachmentIndex implicit by order
   midpointPosition: Vec2f; // Center position of the ghost plate segment
   legal: boolean;
   direction?: 'left' | 'right'; // For debugging: which direction was this ghost generated from
-  action?: 'create' | 'extend' | 'merge'; // What action to take when clicking this ghost
+  action?: 'create' | 'extend' | 'merge' | 'extend_rod'; // What action to take when clicking this ghost
   existingPlateId?: number; // For extend/merge actions, which plate to modify
   targetPlateId?: number; // For merge actions, the second plate to merge with
   width?: number;
   newRodPosition?: Vec2f; // Position where a new rod should be created (for edge ghost plates)
+  rodExtensions?: RodExtension[]; // For extend_rod action: rods that need to be extended
+  extensionDirection?: 'up' | 'down'; // For extend_rod action: which direction to extend
 }
 
 export interface ShelfMetadata {
@@ -1548,6 +1555,92 @@ export function regenerateGhostPlates(shelf: Shelf): void {
       }
     }
 
-    // TODO: Look for extension opportunities up/down
+    // Check for rod extension opportunities (above/below current rod)
+    // Only check for the rod to the right to avoid duplicates
+    const STANDARD_GAP = 600;
+    const defaultPlateSku = AVAILABLE_PLATES.find(p => p.sku_id === DEFAULT_PLATE_SKU_ID);
+    if (!defaultPlateSku) continue;
+
+    // Find adjacent rod to the right at standard gap
+    let rightRodId: number | undefined;
+    let rightRod: Rod | undefined;
+    for (const [candidateId, candidateRod] of shelf.rods) {
+      if (candidateRod.position.x === rod.position.x + STANDARD_GAP) {
+        rightRodId = candidateId;
+        rightRod = candidateRod;
+        break;
+      }
+    }
+
+    if (rightRodId === undefined || rightRod === undefined) continue;
+
+    // Calculate top and bottom Y levels for both rods
+    const leftTopY = rod.position.y + (rod.attachmentPoints.length > 0
+      ? rod.attachmentPoints[rod.attachmentPoints.length - 1].y
+      : 0);
+    const rightTopY = rightRod.position.y + (rightRod.attachmentPoints.length > 0
+      ? rightRod.attachmentPoints[rightRod.attachmentPoints.length - 1].y
+      : 0);
+    const shelfTopY = Math.min(leftTopY, rightTopY);
+
+    const leftBottomY = rod.position.y;
+    const rightBottomY = rightRod.position.y;
+    const shelfBottomY = Math.max(leftBottomY, rightBottomY);
+
+    // Check upward extension
+    const upExtension = findCommonExtension([rodId, rightRodId], 'up', shelf);
+    if (upExtension) {
+      const spanToAdd = upExtension.get(rodId)!.spanToAdd;
+      const newY = shelfTopY + spanToAdd;
+      const centerX = (rod.position.x + rightRod.position.x) / 2;
+
+      const rodExtensions: RodExtension[] = [];
+      for (const [extRodId, ext] of upExtension.entries()) {
+        rodExtensions.push({ rodId: extRodId, newSkuId: ext.newSKU_id });
+      }
+
+      const candidate: GhostPlate = {
+        sku_id: defaultPlateSku.sku_id,
+        connections: [rodId, rightRodId],
+        midpointPosition: { x: centerX, y: newY },
+        legal: true,
+        action: 'extend_rod',
+        width: STANDARD_GAP,
+        rodExtensions,
+        extensionDirection: 'up'
+      };
+
+      if (!ghostPlateExists(shelf.ghostPlates, candidate)) {
+        shelf.ghostPlates.push(candidate);
+      }
+    }
+
+    // Check downward extension
+    const downExtension = findCommonExtension([rodId, rightRodId], 'down', shelf);
+    if (downExtension) {
+      const spanToAdd = downExtension.get(rodId)!.spanToAdd;
+      const newY = shelfBottomY - spanToAdd;
+      const centerX = (rod.position.x + rightRod.position.x) / 2;
+
+      const rodExtensions: RodExtension[] = [];
+      for (const [extRodId, ext] of downExtension.entries()) {
+        rodExtensions.push({ rodId: extRodId, newSkuId: ext.newSKU_id });
+      }
+
+      const candidate: GhostPlate = {
+        sku_id: defaultPlateSku.sku_id,
+        connections: [rodId, rightRodId],
+        midpointPosition: { x: centerX, y: newY },
+        legal: true,
+        action: 'extend_rod',
+        width: STANDARD_GAP,
+        rodExtensions,
+        extensionDirection: 'down'
+      };
+
+      if (!ghostPlateExists(shelf.ghostPlates, candidate)) {
+        shelf.ghostPlates.push(candidate);
+      }
+    }
   }
 }
