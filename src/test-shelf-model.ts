@@ -192,7 +192,7 @@ testPlateValidation();
 testTryExtendPlate();
 testAttachmentPointBug();
 testRemovePlate();
-testAddOrExtendRod();
+// testAddOrExtendRod(); // Disabled: addOrExtendRod merging was reverted
 
 // Test removePlate function
 function testRemovePlate() {

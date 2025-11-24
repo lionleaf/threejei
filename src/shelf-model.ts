@@ -947,6 +947,7 @@ export function removeSegmentFromPlate(plateId: number, segmentIndex: number, sh
   // Case A: Remove left edge segment
   if (segmentIndex === 0) {
     console.log('removeSegmentFromPlate: Removing left edge segment');
+    const removedRodId = plate.connections[0];
     const newRods = plate.connections.slice(1);
 
     // Calculate new spans
@@ -969,16 +970,34 @@ export function removeSegmentFromPlate(plateId: number, segmentIndex: number, sh
       return removePlate(plateId, shelf);
     }
 
-    // Remove old plate and add new one
-    removePlate(plateId, shelf);
-    const newPlateId = addPlate(plate.y, newSKU.sku_id, newRods, shelf);
-    console.log('removeSegmentFromPlate: Left edge removed, new plate:', newPlateId);
-    return newPlateId !== -1;
+    // Update plate in-place (don't delete and recreate - that causes rod shortening issues)
+    // First, clear the attachment point on the removed rod
+    const removedRod = shelf.rods.get(removedRodId);
+    if (removedRod) {
+      const attachmentIndex = findAttachmentPointByY(removedRod, plate.y - removedRod.position.y);
+      if (attachmentIndex !== undefined) {
+        removedRod.attachmentPoints[attachmentIndex].plateId = undefined;
+      }
+      // Shorten the removed rod since it no longer has a plate at this end
+      const isTop = attachmentIndex === removedRod.attachmentPoints.length - 1;
+      const isBottom = attachmentIndex === 0;
+      if (isTop || isBottom) {
+        shortenRodFromEnd(removedRodId, isTop, shelf);
+      }
+    }
+
+    // Update the plate with new SKU and connections
+    plate.sku_id = newSKU.sku_id;
+    plate.connections = newRods;
+
+    console.log('removeSegmentFromPlate: Left edge removed, plate updated:', plateId);
+    return true;
   }
 
   // Case B: Remove right edge segment
   if (segmentIndex === numSegments - 1) {
     console.log('removeSegmentFromPlate: Removing right edge segment');
+    const removedRodId = plate.connections[plate.connections.length - 1];
     const newRods = plate.connections.slice(0, -1);
 
     // Calculate new spans
@@ -1001,11 +1020,28 @@ export function removeSegmentFromPlate(plateId: number, segmentIndex: number, sh
       return removePlate(plateId, shelf);
     }
 
-    // Remove old plate and add new one
-    removePlate(plateId, shelf);
-    const newPlateId = addPlate(plate.y, newSKU.sku_id, newRods, shelf);
-    console.log('removeSegmentFromPlate: Right edge removed, new plate:', newPlateId);
-    return newPlateId !== -1;
+    // Update plate in-place (don't delete and recreate - that causes rod shortening issues)
+    // First, clear the attachment point on the removed rod
+    const removedRod = shelf.rods.get(removedRodId);
+    if (removedRod) {
+      const attachmentIndex = findAttachmentPointByY(removedRod, plate.y - removedRod.position.y);
+      if (attachmentIndex !== undefined) {
+        removedRod.attachmentPoints[attachmentIndex].plateId = undefined;
+      }
+      // Shorten the removed rod since it no longer has a plate at this end
+      const isTop = attachmentIndex === removedRod.attachmentPoints.length - 1;
+      const isBottom = attachmentIndex === 0;
+      if (isTop || isBottom) {
+        shortenRodFromEnd(removedRodId, isTop, shelf);
+      }
+    }
+
+    // Update the plate with new SKU and connections
+    plate.sku_id = newSKU.sku_id;
+    plate.connections = newRods;
+
+    console.log('removeSegmentFromPlate: Right edge removed, plate updated:', plateId);
+    return true;
   }
 
   // Case C: Remove middle segment - split into two plates
@@ -1047,13 +1083,27 @@ export function removeSegmentFromPlate(plateId: number, segmentIndex: number, sh
     return removePlate(plateId, shelf);
   }
 
-  // Remove old plate and add two new ones
-  removePlate(plateId, shelf);
-  const leftPlateId = addPlate(plate.y, leftSKU.sku_id, leftRods, shelf);
+  // Update the original plate to become the left plate (preserves plateId)
+  // First, clear attachment points on rods that will move to the right plate
+  for (const rodId of rightRods) {
+    const rod = shelf.rods.get(rodId);
+    if (rod) {
+      const attachmentIndex = findAttachmentPointByY(rod, plate.y - rod.position.y);
+      if (attachmentIndex !== undefined) {
+        rod.attachmentPoints[attachmentIndex].plateId = undefined;
+      }
+    }
+  }
+
+  // Update the left plate in-place
+  plate.sku_id = leftSKU.sku_id;
+  plate.connections = leftRods;
+
+  // Create a new plate for the right portion
   const rightPlateId = addPlate(plate.y, rightSKU.sku_id, rightRods, shelf);
 
-  console.log('removeSegmentFromPlate: Split complete, new plates:', leftPlateId, rightPlateId);
-  return leftPlateId !== -1 && rightPlateId !== -1;
+  console.log('removeSegmentFromPlate: Split complete, left plate:', plateId, 'right plate:', rightPlateId);
+  return rightPlateId !== -1;
 }
 
 export interface PlateConfig {
