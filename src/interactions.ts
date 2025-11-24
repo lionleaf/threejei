@@ -210,16 +210,38 @@ export function setupInteractions(
       tooltipContainer.style.display = 'none';
     }
 
-    // Find first hit with userData.type (plate or ghost_plate)
+    // Find first hit with userData.type (plate, ghost_plate, or rod)
     for (const hit of intersects) {
       const userData = hit.object.userData;
 
       if (userData?.type === 'plate') {
-        const plate = shelf.plates.get(userData.plateId);
+        const plateId = userData.plateId;
+        const plate = shelf.plates.get(plateId);
         if (plate) {
           (plate as any).isHovered = true;
+
+          // Show tooltip in debug mode
+          if (DEBUG_SHOW_COLLIDERS && tooltipContainer) {
+            tooltipContainer.style.display = 'block';
+            tooltipContainer.style.left = `${event.clientX + 20}px`;
+            tooltipContainer.style.top = `${event.clientY + 20}px`;
+            tooltipContainer.textContent = `Plate ${plateId}\n` + JSON.stringify(plate, null, 2);
+          }
         }
         break; // Plates take priority
+      } else if (userData?.type === 'rod') {
+        const rodId = userData.rodId;
+        const rod = shelf.rods.get(rodId);
+        if (rod) {
+          // Show tooltip in debug mode
+          if (DEBUG_SHOW_COLLIDERS && tooltipContainer) {
+            tooltipContainer.style.display = 'block';
+            tooltipContainer.style.left = `${event.clientX + 20}px`;
+            tooltipContainer.style.top = `${event.clientY + 20}px`;
+            tooltipContainer.textContent = `Rod ${rodId}\n` + JSON.stringify(rod, null, 2);
+          }
+        }
+        break;
       } else if (userData?.type === 'ghost_plate') {
         const ghostPlate = userData.ghostPlate;
         if (ghostPlate.legal) {
