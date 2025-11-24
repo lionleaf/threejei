@@ -40,13 +40,32 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
 
     // Create two rods - one at front, one at back
     zPositions.forEach(zPos => {
+      const rodMaterial = new THREE.MeshStandardMaterial({ color: 0x887668, roughness: 0.7, metalness: 0.0 });
+
+      // Main cylinder body
       const rodMesh = new THREE.Mesh(
-        new THREE.CylinderGeometry(20, 20, height),
-        new THREE.MeshBasicMaterial({ color: 0x666666 })
+        new THREE.CylinderGeometry(14, 14, height, 16, 1, false),
+        rodMaterial
       );
       rodMesh.position.set(rod.position.x, rod.position.y + height / 2, zPos);
       rodMesh.userData = { type: 'rod', rodId: rodId };
       scene.add(rodMesh);
+
+      // Add rounded caps at top and bottom
+      const capRadius = 14;
+      const topCap = new THREE.Mesh(
+        new THREE.SphereGeometry(capRadius, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+        rodMaterial
+      );
+      topCap.position.set(rod.position.x, rod.position.y + height, zPos);
+      scene.add(topCap);
+
+      const bottomCap = new THREE.Mesh(
+        new THREE.SphereGeometry(capRadius, 16, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2),
+        rodMaterial
+      );
+      bottomCap.position.set(rod.position.x, rod.position.y, zPos);
+      scene.add(bottomCap);
 
       // Add attachment point indicators on each rod
       rod.attachmentPoints.forEach(ap => {
@@ -84,7 +103,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
 
     const plateMesh = new THREE.Mesh(
       new THREE.BoxGeometry(plateWidth, 30, plateSKU.depth),
-      new THREE.MeshBasicMaterial({ color: 0x8B4513 })
+      new THREE.MeshStandardMaterial({ color: 0x988373, roughness: 0.7, metalness: 0.0 })
     );
     plateMesh.position.set(centerX, plate.y, plateSKU.depth / 2);
 
@@ -206,10 +225,22 @@ function updateSKUList(shelf: Shelf, container: HTMLDivElement): void {
 function visualizeShelf(shelf: Shelf): void {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
-  const renderer = new THREE.WebGLRenderer();
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setClearColor(0x444444);
+  renderer.setClearColor(0xf5f5f5);
   document.body.appendChild(renderer.domElement);
+
+  // Add lighting for StandardMaterial
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+  scene.add(ambientLight);
+
+  const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+  directionalLight.position.set(500, 1000, 500);
+  scene.add(directionalLight);
+
+  const backLight = new THREE.DirectionalLight(0xffffff, 0.3);
+  backLight.position.set(-500, 500, -500);
+  scene.add(backLight);
 
   // Create SKU list container
   const skuListContainer = document.createElement('div');
