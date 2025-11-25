@@ -6,8 +6,9 @@ import {
   AVAILABLE_RODS,
   AVAILABLE_PLATES,
   calculateAttachmentPositions,
-  findCommonExtension,
-  type Shelf
+  regenerateGhostPlates,
+  type Shelf,
+  type Rod
 } from './shelf-model.js';
 
 import { setupInteractions } from './interactions.js';
@@ -15,51 +16,113 @@ import { setupInteractions } from './interactions.js';
 // Declare THREE as global (loaded via CDN)
 declare const THREE: any;
 
-// Debug flag to make colliders visible
-export const DEBUG_SHOW_COLLIDERS = false;
+// Debug state to make colliders visible
+export let DEBUG_SHOW_COLLIDERS = false;
+
+// Distance (in mm) between the two rods holding a plate
+const rodDistance = 153
+
+const rodRadius = 14
+const plateThickness = 20
+const connectionRodRadius = 6
+const innerRodHeightPadding = 65
+const outerRodHeightPadding = 35
+const connectionRodGrooveDepth = 4
 
 // Rebuild all shelf geometry (rods, plates, gap colliders)
-function rebuildShelfGeometry(shelf: Shelf, scene: any): void {
+function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLDivElement): void {
   // Remove all children from scene
   scene.clear();
+
+  // Re-add lighting (cleared by scene.clear())
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+  scene.add(ambientLight);
+
+  const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+  directionalLight.position.set(500, 1000, 500);
+  scene.add(directionalLight);
+
+  const backLight = new THREE.DirectionalLight(0xffffff, 0.3);
+  backLight.position.set(-500, 500, -500);
+  scene.add(backLight);
+
+  // Create gradient map for toon/cell shading with more steps for smoother transitions
+  const gradientMap = new THREE.DataTexture(
+    new Uint8Array([
+      0, 0, 0,        // Dark shadow
+      64, 64, 64,     // Shadow
+      96, 96, 96,     // Mid-shadow
+      128, 128, 128,  // Mid-tone
+      160, 160, 160,  // Mid-light
+      192, 192, 192,  // Light
+      255, 255, 255   // Highlight
+    ]),
+    7, 1, THREE.RGBFormat
+  );
+  gradientMap.minFilter = THREE.NearestFilter;
+  gradientMap.magFilter = THREE.NearestFilter;
+  gradientMap.needsUpdate = true;
+
+  // Update SKU list if container is provided
+  if (skuListContainer) {
+    updateSKUList(shelf, skuListContainer);
+  }
 
   // Generate rod geometry (each logical rod is two physical rods)
   shelf.rods.forEach((rod, rodId) => {
     const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
-    const height = rodSKU?.spans.reduce((sum, span) => sum + span, 0) || 40;
+    const height = rodSKU?.spans.reduce((sum, span) => sum + span, 0) || 0;
 
-    // Plate depth is 200mm, rods are at the front (Z=0) and back (Z=200) edges
-    const plateDepth = 200;
-    const zPositions = [0, plateDepth];
+
+    // [bool innerRod, radius]. The inner rod is the one attached to the wall
+    const zPositions = [[true, rodRadius], [false, rodDistance + rodRadius]];
 
     // Create two rods - one at front, one at back
-    zPositions.forEach(zPos => {
-      const rodMesh = new THREE.Mesh(
-        new THREE.CylinderGeometry(20, 20, height),
-        new THREE.MeshBasicMaterial({ color: 0x666666 })
-      );
-      rodMesh.position.set(rod.position.x, rod.position.y + height / 2, zPos);
-      rodMesh.userData = { type: 'rod', rodId: rodId };
-      scene.add(rodMesh);
-
-      // Add attachment point indicators on each rod
-      rod.attachmentPoints.forEach(ap => {
-        const attachmentY = rod.position.y + ap.y;
-        const hasPlate = ap.plateId !== undefined;
-
-        // Create small cylinder at attachment point
-        const pointGeometry = new THREE.CylinderGeometry(25, 25, 10); // radius 25, height 10
-        const pointMaterial = new THREE.MeshBasicMaterial({
-          color: hasPlate ? 0x8B4513 : 0xCCCCCC, // Brown if has plate, light gray if empty
-          transparent: true,
-          opacity: hasPlate ? 0.8 : 0.5
-        });
-
-        const pointMesh = new THREE.Mesh(pointGeometry, pointMaterial);
-        pointMesh.position.set(rod.position.x, attachmentY, zPos);
-        pointMesh.userData = { type: 'attachment_point' };
-        scene.add(pointMesh);
+    zPositions.forEach(([innerRod, zPos]) => {
+      const rodMaterial = new THREE.MeshStandardMaterial({
+        color: 0x76685e,
+        roughness: 0.7,
+        metalness: 0.0
       });
+
+      const rodPadding = innerRod ? innerRodHeightPadding : outerRodHeightPadding
+      const rodHeight = height + rodPadding * 2 + plateThickness
+      // Main cylinder body
+      const rodRadialSegments = 32;
+      const rodGeometry = new THREE.CylinderGeometry(rodRadius, rodRadius, rodHeight, rodRadialSegments, 1, false);
+      rodGeometry.computeVertexNormals();
+      const rodMesh = new THREE.Mesh(rodGeometry, rodMaterial);
+      rodMesh.position.set(rod.position.x, rod.position.y + rodHeight / 2 - rodPadding - plateThickness / 2, zPos);
+      rodMesh.userData = { type: 'rod', rodId: rodId };
+      console.log("adding rod ", innerRod, " at z=", zPos)
+      scene.add(rodMesh);
+    });
+
+    // Add horizontal connecting rods between front and back vertical rods at attachment points
+    rod.attachmentPoints.forEach(ap => {
+      const attachmentY = rod.position.y + ap.y - plateThickness / 2 - connectionRodRadius + connectionRodGrooveDepth;
+
+      // Connection rod diameter ~8-10mm, runs full depth (200mm)
+      const connectionRodMaterial = new THREE.MeshStandardMaterial({
+        color: 0x76685e,
+        roughness: 0.7,
+        metalness: 0.0
+      });
+
+      let connectionRodLength = 202;
+
+      // Horizontal cylinder connecting front (Z=0) to back (Z=200)
+      const connectionRodGeometry = new THREE.CylinderGeometry(connectionRodRadius, connectionRodRadius, connectionRodLength, 16);
+      connectionRodGeometry.computeVertexNormals();
+      const connectionRod = new THREE.Mesh(connectionRodGeometry, connectionRodMaterial);
+
+      // Rotate to align with Z-axis (default cylinder is along Y-axis)
+      connectionRod.rotation.x = Math.PI / 2;
+
+      // Position at the attachment point, centered in Z
+      connectionRod.position.set(rod.position.x, attachmentY, connectionRodLength / 2);
+      connectionRod.userData = { type: 'connection_rod' };
+      scene.add(connectionRod);
     });
   });
 
@@ -77,8 +140,12 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any): void {
     const centerX = connectedRods.reduce((sum, rod) => sum + rod.position.x, 0) / connectedRods.length;
 
     const plateMesh = new THREE.Mesh(
-      new THREE.BoxGeometry(plateWidth, 30, plateSKU.depth),
-      new THREE.MeshBasicMaterial({ color: 0x8B4513 })
+      new THREE.BoxGeometry(plateWidth, plateThickness, plateSKU.depth),
+      new THREE.MeshStandardMaterial({
+        color: 0x76685e,
+        roughness: 0.7,
+        metalness: 0.0
+      })
     );
     plateMesh.position.set(centerX, plate.y, plateSKU.depth / 2);
 
@@ -90,284 +157,147 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any): void {
     };
 
     scene.add(plateMesh);
-
-    // Add connection point indicators on plates (at both rod positions)
-    const rodZPositions = [0, plateSKU.depth];
-
-    connectedRods.forEach(rod => {
-      rodZPositions.forEach(zPos => {
-        // Small cylinder at each connection point on the plate
-        const connectionGeometry = new THREE.CylinderGeometry(6, 6, 35);
-        const connectionMaterial = new THREE.MeshBasicMaterial({
-          color: 0x444444, // Dark gray for subtle appearance
-          transparent: true,
-          opacity: 0.6
-        });
-
-        const connectionMesh = new THREE.Mesh(connectionGeometry, connectionMaterial);
-        connectionMesh.position.set(rod.position.x, plate.y, zPos);
-        connectionMesh.userData = { type: 'connection_point' };
-        scene.add(connectionMesh);
-      });
-    });
   });
 
-  // Generate plate gap colliders
-  const rods = Array.from(shelf.rods.entries()).sort((a, b) => a[1].position.x - b[1].position.x);
+  // Generate ghost plate visualizations
+  regenerateGhostPlates(shelf);
 
-  // Check each adjacent rod pair for gaps
-  for (let i = 0; i < rods.length - 1; i++) {
-    const [leftRodId, leftRod] = rods[i];
+  shelf.ghostPlates.forEach((ghostPlate, index) => {
+    const segmentWidth = ghostPlate.width || 600;
+    const centerX = ghostPlate.midpointPosition.x;
 
-    // Find attachment points at matching Y heights on both rods
-    for (const leftAP of leftRod.attachmentPoints) {
-      const leftY = leftRod.position.y + leftAP.y;
-
-      let foundAP = false;
-      // Look through all rods of greater or equal X position (they are sorted)
-      // To find the closest attachment point at Y level
-      for (let k = i + 1; k < rods.length && !foundAP; k++) {
-        const [rightRodId, rightRod] = rods[k];
-        // Calculate distance between rods
-        const gapDistance = rightRod.position.x - leftRod.position.x;
-        if (gapDistance == 0) {
-          continue;
-        }
-        // TODO: Optimization, break if length is larger than longest plate gap
-
-        for (const rightAP of rightRod.attachmentPoints) {
-          const rightY = rightRod.position.y + rightAP.y;
-
-          // Check if attachment points align and there isn't already a plate spanning the gap
-          if (leftY === rightY) {
-            foundAP = true;
-            const plateSpanningGap = (leftAP.plateId === rightAP.plateId) && leftAP.plateId != undefined;
-            if (!plateSpanningGap) {
-              // Create invisible collider
-              const centerX = (leftRod.position.x + rightRod.position.x) / 2;
-
-              const colliderGeometry = new THREE.BoxGeometry(gapDistance, 30, 200);
-              const colliderMaterial = new THREE.MeshBasicMaterial({
-                color: 0x00ff00,
-                transparent: true,
-                opacity: DEBUG_SHOW_COLLIDERS ? 0.2 : 0.0
-              });
-
-              const collider = new THREE.Mesh(colliderGeometry, colliderMaterial);
-              collider.position.set(centerX, leftY, 200 / 2);
-
-              // Store metadata for interaction handling
-              collider.userData = {
-                type: 'gap',
-                rodIds: [leftRodId, rightRodId],
-                y: leftY,
-              };
-
-              scene.add(collider);
-            }
-            break;
-          }
-        }
-      }
+    let ghostColor = 0x90EE90; // Light green for legal
+    if (!ghostPlate.legal) {
+      ghostColor = 0xff0000; // Red for illegal
     }
-  }
 
-  // Generate edge gap colliders for sideways extension (per Y-level)
-  // Collect all unique Y-levels and find leftmost/rightmost rods at each level
-  const yLevels = new Map<number, { leftmostRodId: number, rightmostRodId: number }>();
+    const ghostMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(segmentWidth, 30, 200),
+      new THREE.MeshBasicMaterial({
+        color: ghostColor,
+        transparent: true,
+        opacity: DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0,
+        wireframe: !ghostPlate.legal
+      })
+    );
 
-  shelf.rods.forEach((rod, rodId) => {
-    rod.attachmentPoints.forEach(ap => {
-      const worldY = rod.position.y + ap.y;
-      const existing = yLevels.get(worldY);
+    ghostMesh.position.set(centerX, ghostPlate.midpointPosition.y, 200 / 2);
+    ghostMesh.userData = {
+      type: 'ghost_plate',
+      ghostPlateIndex: index,
+      ghostPlate: ghostPlate
+    };
 
-      if (!existing) {
-        yLevels.set(worldY, { leftmostRodId: rodId, rightmostRodId: rodId });
-      } else {
-        const leftmostRod = shelf.rods.get(existing.leftmostRodId)!;
-        const rightmostRod = shelf.rods.get(existing.rightmostRodId)!;
-
-        if (rod.position.x < leftmostRod.position.x) {
-          existing.leftmostRodId = rodId;
-        }
-        if (rod.position.x > rightmostRod.position.x) {
-          existing.rightmostRodId = rodId;
-        }
-      }
-    });
+    scene.add(ghostMesh);
   });
-
-  // Create edge gap colliders for each Y-level
-  const STANDARD_GAP = 600; // Standard 600mm gap between rods
-
-  yLevels.forEach((edgeInfo, y) => {
-    const leftmostRod = shelf.rods.get(edgeInfo.leftmostRodId)!;
-    const rightmostRod = shelf.rods.get(edgeInfo.rightmostRodId)!;
-
-    // Find attachment points at this Y level
-    const leftAP = leftmostRod.attachmentPoints.find(ap => leftmostRod.position.y + ap.y === y);
-    const rightAP = rightmostRod.attachmentPoints.find(ap => rightmostRod.position.y + ap.y === y);
-
-    // Left edge gap collider
-    if (leftAP) {
-      const leftEdgeX = leftmostRod.position.x - STANDARD_GAP;
-      const leftCenterX = (leftEdgeX + leftmostRod.position.x) / 2;
-
-      const leftCollider = new THREE.Mesh(
-        new THREE.BoxGeometry(STANDARD_GAP, 30, 200),
-        new THREE.MeshBasicMaterial({
-          color: 0x0088ff, // Blue for edge gaps
-          transparent: true,
-          opacity: DEBUG_SHOW_COLLIDERS ? 0.2 : 0.0
-        })
-      );
-      leftCollider.position.set(leftCenterX, y, 200 / 2);
-      leftCollider.userData = {
-        type: 'edge_gap',
-        direction: 'left',
-        edgeRodId: edgeInfo.leftmostRodId,
-        y: y,
-        newRodX: leftEdgeX
-      };
-      scene.add(leftCollider);
-    }
-
-    if (rightAP) {
-      const rightEdgeX = rightmostRod.position.x + STANDARD_GAP;
-      const rightCenterX = (rightmostRod.position.x + rightEdgeX) / 2;
-
-      const rightCollider = new THREE.Mesh(
-        new THREE.BoxGeometry(STANDARD_GAP, 30, 200),
-        new THREE.MeshBasicMaterial({
-          color: 0x0088ff, // Blue for edge gaps
-          transparent: true,
-          opacity: DEBUG_SHOW_COLLIDERS ? 0.2 : 0.0
-        })
-      );
-      rightCollider.position.set(rightCenterX, y, 200 / 2);
-      rightCollider.userData = {
-        type: 'edge_gap',
-        direction: 'right',
-        edgeRodId: edgeInfo.rightmostRodId,
-        y: y,
-        newRodX: rightEdgeX
-      };
-      scene.add(rightCollider);
-    }
-  });
-
-  // Generate extension ghost plates for up/down extension
-  generateExtensionGhostPlates(shelf, scene);
 }
 
-function generateExtensionGhostPlates(shelf: Shelf, scene: any): void {
-  // Get all rod pairs sorted by X position
-  const rods = Array.from(shelf.rods.entries()).sort((a, b) => a[1].position.x - b[1].position.x);
 
-  // Check each adjacent rod pair
-  for (let i = 0; i < rods.length - 1; i++) {
-    const [leftRodId, leftRod] = rods[i];
-    const [rightRodId, rightRod] = rods[i + 1];
+// Update SKU list UI
+function updateSKUList(shelf: Shelf, container: HTMLDivElement): void {
+  const rodCounts = new Map<string, number>();
+  const plateCounts = new Map<string, number>();
 
-    const leftRodSKU = AVAILABLE_RODS.find(r => r.sku_id === leftRod.sku_id);
-    const rightRodSKU = AVAILABLE_RODS.find(r => r.sku_id === rightRod.sku_id);
-
-    if (!leftRodSKU || !rightRodSKU) continue;
-
-    // Calculate rod tops and bottoms in world space
-    const leftAttachments = calculateAttachmentPositions(leftRodSKU);
-    const rightAttachments = calculateAttachmentPositions(rightRodSKU);
-
-    const leftTop = leftRod.position.y + leftAttachments[leftAttachments.length - 1];
-    const rightTop = rightRod.position.y + rightAttachments[rightAttachments.length - 1];
-    const leftBottom = leftRod.position.y + leftAttachments[0];
-    const rightBottom = rightRod.position.y + rightAttachments[0];
-
-    // Check upward extension
-    // Both rods must have same top height to extend together
-    if (Math.abs(leftTop - rightTop) < 1) {
-      const commonExtension = findCommonExtension([leftRodId, rightRodId], 'up', shelf);
-
-      if (commonExtension) {
-        const extension = commonExtension.values().next().value;
-        if (!extension) continue;
-        const newY = leftTop + extension.spanToAdd;
-
-        // Create ghost plate collider
-        const gapDistance = rightRod.position.x - leftRod.position.x;
-        const centerX = (leftRod.position.x + rightRod.position.x) / 2;
-
-        const ghostCollider = new THREE.Mesh(
-          new THREE.BoxGeometry(gapDistance, 30, 200),
-          new THREE.MeshBasicMaterial({
-            color: 0xff00ff, // Purple for extension gaps
-            transparent: true,
-            opacity: DEBUG_SHOW_COLLIDERS ? 0.2 : 0.0
-          })
-        );
-
-        ghostCollider.position.set(centerX, newY, 200 / 2);
-        ghostCollider.userData = {
-          type: 'extension_gap',
-          direction: 'up',
-          rodIds: [leftRodId, rightRodId],
-          y: newY,
-          requiredExtensions: commonExtension
-        };
-
-        scene.add(ghostCollider);
-      }
+  shelf.rods.forEach((rod) => {
+    const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+    if (rodSKU) {
+      rodCounts.set(rodSKU.name, (rodCounts.get(rodSKU.name) || 0) + 1);
     }
+  });
 
-    // Check downward extension
-    // Both rods must have same bottom height to extend together
-    if (Math.abs(leftBottom - rightBottom) < 1) {
-      const commonExtension = findCommonExtension([leftRodId, rightRodId], 'down', shelf);
-
-      if (commonExtension) {
-        const extension = commonExtension.values().next().value;
-        if (!extension) continue;
-        const newY = leftBottom - extension.spanToAdd;
-
-        // Create ghost plate collider
-        const gapDistance = rightRod.position.x - leftRod.position.x;
-        const centerX = (leftRod.position.x + rightRod.position.x) / 2;
-
-        const ghostCollider = new THREE.Mesh(
-          new THREE.BoxGeometry(gapDistance, 30, 200),
-          new THREE.MeshBasicMaterial({
-            color: 0xff00ff, // Purple for extension gaps
-            transparent: true,
-            opacity: DEBUG_SHOW_COLLIDERS ? 0.2 : 0.0
-          })
-        );
-
-        ghostCollider.position.set(centerX, newY, 200 / 2);
-        ghostCollider.userData = {
-          type: 'extension_gap',
-          direction: 'down',
-          rodIds: [leftRodId, rightRodId],
-          y: newY,
-          requiredExtensions: commonExtension
-        };
-
-        scene.add(ghostCollider);
-      }
+  shelf.plates.forEach((plate) => {
+    const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === plate.sku_id);
+    if (plateSKU) {
+      plateCounts.set(plateSKU.name, (plateCounts.get(plateSKU.name) || 0) + 1);
     }
+  });
+
+  let html = '<div style="font-weight: bold; margin-bottom: 8px; font-size: 14px;">SKU List</div>';
+
+  // Add debug checkbox
+  html += '<div style="margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #ccc;">';
+  html += '<label style="display: flex; align-items: center; cursor: pointer; font-size: 11px;">';
+  html += `<input type="checkbox" id="debugCheckbox" ${DEBUG_SHOW_COLLIDERS ? 'checked' : ''} style="margin-right: 6px;">`;
+  html += 'Debug Mode';
+  html += '</label>';
+  html += '</div>';
+
+  if (rodCounts.size > 0) {
+    html += '<div style="margin-bottom: 6px; font-weight: bold; font-size: 12px;">Rods:</div>';
+    rodCounts.forEach((count, name) => {
+      html += `<div style="margin-left: 8px; font-size: 11px;">${count}x ${name}</div>`;
+    });
   }
+
+  if (plateCounts.size > 0) {
+    html += '<div style="margin-bottom: 6px; margin-top: 8px; font-weight: bold; font-size: 12px;">Plates:</div>';
+    plateCounts.forEach((count, name) => {
+      html += `<div style="margin-left: 8px; font-size: 11px;">${count}x ${name}</div>`;
+    });
+  }
+
+  if (rodCounts.size === 0 && plateCounts.size === 0) {
+    html += '<div style="font-size: 11px; color: #888;">Empty shelf</div>';
+  }
+
+  container.innerHTML = html;
 }
 
 // General shelf visualizer
 function visualizeShelf(shelf: Shelf): void {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
-  const renderer = new THREE.WebGLRenderer();
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setClearColor(0x444444);
+  renderer.setClearColor(0xf5f5f5);
   document.body.appendChild(renderer.domElement);
 
-  // Initial geometry rendering
-  rebuildShelfGeometry(shelf, scene);
+  // Create SKU list container
+  const skuListContainer = document.createElement('div');
+  skuListContainer.style.position = 'absolute';
+  skuListContainer.style.top = '10px';
+  skuListContainer.style.left = '10px';
+  skuListContainer.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
+  skuListContainer.style.padding = '12px';
+  skuListContainer.style.borderRadius = '6px';
+  skuListContainer.style.fontFamily = 'monospace';
+  skuListContainer.style.fontSize = '12px';
+  skuListContainer.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.2)';
+  skuListContainer.style.minWidth = '150px';
+  skuListContainer.style.zIndex = '1000';
+  document.body.appendChild(skuListContainer);
+
+  // Create tooltip container
+  const tooltipContainer = document.createElement('div');
+  tooltipContainer.style.position = 'absolute';
+  tooltipContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.9)';
+  tooltipContainer.style.color = '#fff';
+  tooltipContainer.style.padding = '8px';
+  tooltipContainer.style.borderRadius = '4px';
+  tooltipContainer.style.fontFamily = 'monospace';
+  tooltipContainer.style.fontSize = '10px';
+  tooltipContainer.style.pointerEvents = 'none';
+  tooltipContainer.style.display = 'none';
+  tooltipContainer.style.zIndex = '2000';
+  tooltipContainer.style.maxWidth = '400px';
+  tooltipContainer.style.whiteSpace = 'pre-wrap';
+  document.body.appendChild(tooltipContainer);
+
+  // Setup debug checkbox event listener
+  const setupDebugCheckbox = () => {
+    const checkbox = document.getElementById('debugCheckbox') as HTMLInputElement;
+    if (checkbox) {
+      checkbox.addEventListener('change', (e) => {
+        DEBUG_SHOW_COLLIDERS = (e.target as HTMLInputElement).checked;
+        rebuildShelfGeometry(shelf, scene, skuListContainer);
+        setupDebugCheckbox(); // Re-attach after rebuild recreates checkbox
+      });
+    }
+  };
+
+  // Initial geometry rendering (this calls updateSKUList which creates the checkbox)
+  rebuildShelfGeometry(shelf, scene, skuListContainer);
+  setupDebugCheckbox();
 
   // Calculate shelf center for camera target
   const rods = Array.from(shelf.rods.values());
@@ -389,13 +319,14 @@ function visualizeShelf(shelf: Shelf): void {
   controls.enableRotate = true;
 
   // Set camera target to shelf center
-  controls.target.set(centerX, centerY, 0);
+  controls.target.set(centerX, centerY, 100);
 
   // Position camera for wall-mounted shelf view (looking at XY plane from positive Z)
+  // Camera is higher and further back, looking down at the shelf
   const shelfWidth = maxX - minX;
   const shelfHeight = maxY - minY + 300; // Add rod height
-  const cameraDistance = Math.max(shelfWidth, shelfHeight) * 0.8 + 400;
-  camera.position.set(centerX, centerY, cameraDistance);
+  const cameraDistance = Math.max(shelfWidth, shelfHeight) * 0.8 + 800;
+  camera.position.set(centerX, centerY + 400, cameraDistance);
   controls.update();
 
   // Setup interactions with regeneration callback
@@ -405,8 +336,12 @@ function visualizeShelf(shelf: Shelf): void {
     camera,
     renderer,
     {
-      rebuildGeometry: () => { rebuildShelfGeometry(shelf, scene); }
-    }
+      rebuildGeometry: () => {
+        rebuildShelfGeometry(shelf, scene, skuListContainer);
+        setupDebugCheckbox();
+      }
+    },
+    tooltipContainer
   );
 
   // Handle window resize
@@ -426,16 +361,12 @@ function visualizeShelf(shelf: Shelf): void {
   animate();
 }
 
-// Create and display a sample shelf
+// Create and display a simple default shelf
 const shelf = createEmptyShelf();
 
-const rod1 = addRod({ x: 0, y: 0 }, 6, shelf);
-const rod2 = addRod({ x: 600, y: 0 }, 6, shelf);
-addRod({ x: 1200, y: 0 }, 15, shelf);
-addRod({ x: 1800, y: 0 }, 15, shelf);
-addRod({ x: 2400, y: 0 }, 15, shelf);
-addRod({ x: 3000, y: 0 }, 15, shelf);
+const rod1 = addRod({ x: 0, y: 0 }, 4, shelf); // 3P_22: 3 attachment points, 200mm + 200mm gaps
+const rod2 = addRod({ x: 600, y: 0 }, 4, shelf); // 3P_22: matching rod
 
-console.log(addPlate(200, 1, [rod1, rod2], shelf));
+addPlate(200, 1, [rod1, rod2], shelf); // 670mm plate at middle attachment level
 
 visualizeShelf(shelf);

@@ -25,6 +25,7 @@ export interface Vec3f {
 export interface AttachmentPoint {
   y: number;
   plateId?: number;
+  ghostPlateIds?: Array<number>
 }
 
 export interface Rod {
@@ -39,6 +40,29 @@ export interface Plate {
   y: number; // Y coordinate of the plate (constant across all attachment points)
 }
 
+// A GhostPlate is a UX element of a plate that is not part of the shelf yet
+// but provides information about potential shelf modifications,
+// and includes the information to allow the user to add this plate (or information why it's illegal)
+export interface RodExtension {
+  rodId: number;
+  newSkuId: number;
+}
+
+export interface GhostPlate {
+  sku_id?: number; // ID to match with a PlateSKU
+  connections?: number[]; // rodIds, attachmentIndex implicit by order
+  midpointPosition: Vec2f; // Center position of the ghost plate segment
+  legal: boolean;
+  direction?: 'left' | 'right'; // For debugging: which direction was this ghost generated from
+  action?: 'create' | 'extend' | 'merge' | 'extend_rod'; // What action to take when clicking this ghost
+  existingPlateId?: number; // For extend/merge actions, which plate to modify
+  targetPlateId?: number; // For merge actions, the second plate to merge with
+  width?: number;
+  newRodPosition?: Vec2f; // Position where a new rod should be created (for edge ghost plates)
+  rodExtensions?: RodExtension[]; // For extend_rod action: rods that need to be extended
+  extensionDirection?: 'up' | 'down'; // For extend_rod action: which direction to extend
+}
+
 export interface ShelfMetadata {
   nextId: number;
 }
@@ -51,6 +75,7 @@ export enum Direction {
 export interface Shelf {
   rods: Map<number, Rod>; // id -> Rod
   plates: Map<number, Plate>; // id -> Plate
+  ghostPlates: Array<GhostPlate>
   metadata: ShelfMetadata;
 }
 
@@ -82,11 +107,14 @@ export const AVAILABLE_PLATES: PlateSKU[] = [
   { sku_id: 4, name: "1870mm", spans: [PLATE_PADDING_MM, 600, 600, 600, PLATE_PADDING_MM], depth: 200 }
 ];
 
+export const DEFAULT_PLATE_SKU_ID: number = 1
+
 // Core functions
 export function createEmptyShelf(): Shelf {
   return {
     rods: new Map(),
     plates: new Map(),
+    ghostPlates: new Array(),
     metadata: { nextId: 1 }
   };
 }
@@ -112,9 +140,9 @@ export function intersectRay(ray: { origin: Vec3f, dir: Vec3f }, shelf: Shelf): 
   // Basic raycasting implementation - find closest rod or plate intersection
   const intersections: { type: 'rod' | 'plate', id: number, distance: number }[] = [];
 
-  // For now, return null as this requires more complex 3D geometry calculations
+  // For now, return undefined as this requires more complex 3D geometry calculations
   // that would need specific bounding box/mesh intersection logic
-  return null;
+  return undefined;
 }
 
 export function calculateAttachmentPositions(pattern: RodSKU): number[] {
@@ -130,11 +158,31 @@ export function calculateAttachmentPositions(pattern: RodSKU): number[] {
   return positions;
 }
 
-function findClosestRod(shelf: Shelf, referenceRod: Rod, direction: Direction): number | undefined {
+function findClosestRod(shelf: Shelf, fromRodId: number, direction: Direction, yLevel: number): number | undefined {
+  const fromRod = shelf.rods.get(fromRodId);
+  if (!fromRod) return undefined;
+
   const rodEntries = Array.from(shelf.rods.entries())
-    .filter(([_, rod]) => direction === Direction.Right ?
-      rod.position.x > referenceRod.position.x :
-      rod.position.x < referenceRod.position.x)
+    .filter(([rodId, rod]) => {
+      if (rodId === fromRodId) return false;
+
+      // Filter by direction
+      const isInCorrectDirection = direction === Direction.Right ?
+        rod.position.x > fromRod.position.x :
+        rod.position.x < fromRod.position.x;
+      if (!isInCorrectDirection) return false;
+
+      // Filter by Y level - rod must have an attachment point at this level
+      const topAttachmentY = rod.attachmentPoints.length > 0
+        ? rod.position.y + rod.attachmentPoints[rod.attachmentPoints.length - 1].y
+        : rod.position.y;
+      if (rod.position.y > yLevel || topAttachmentY < yLevel) {
+        return false; // Rod doesn't cross y level
+      }
+
+      // Check if attachment exists at this Y level
+      return checkAttachmentExists(rodId, yLevel, shelf);
+    })
     .sort(([_a, a], [_b, b]) => direction === Direction.Right ?
       a.position.x - b.position.x :
       b.position.x - a.position.x);
@@ -157,6 +205,30 @@ export function addRod(position: Vec2f, sku_id: number, shelf: Shelf): number {
 
   shelf.rods.set(id, { sku_id, position, attachmentPoints });
   return id;
+}
+
+// Add a rod at the given position, or extend an existing rod if one is nearby
+// TODO: Check for existing rods at the same X position and extend them instead of creating new ones
+export function addOrExtendRod(position: Vec2f, shelf: Shelf): number {
+  // For now, just create a new rod with minimal SKU (1 attachment point)
+  const minimalSkuId = 1; // 1P rod - single attachment point
+  return addRod(position, minimalSkuId, shelf);
+}
+
+// Resolve rod connections by replacing -1 placeholders with actual rod IDs
+// Creates new rods as needed using addOrExtendRod
+export function resolveRodConnections(
+  connections: number[],
+  newRodPosition: Vec2f | undefined,
+  shelf: Shelf
+): number[] {
+  return connections.map((rodId: number) => {
+    if (rodId === -1 && newRodPosition) {
+      const newRodId = addOrExtendRod(newRodPosition, shelf);
+      return newRodId;
+    }
+    return rodId;
+  });
 }
 
 // rodIds MUST be in order of increasing x position
@@ -211,18 +283,149 @@ function findAttachmentPointByY(rod: Rod, targetY: number): number | undefined {
   return undefined;
 }
 
-export function tryExtendPlate(plateId: number, extendDirection: Direction, shelf: Shelf): boolean {
-  // Get the plate and validate it exists
+export function removePlate(plateId: number, shelf: Shelf): boolean {
   const plate = shelf.plates.get(plateId);
   if (!plate) return false;
 
+  // Track which rods need to be shortened after plate removal
+  const rodsToShorten: { rodId: number; isTop: boolean }[] = [];
+
+  // Remove plate connections from all connected rods
+  for (const rodId of plate.connections) {
+    const rod = shelf.rods.get(rodId);
+    if (rod) {
+      const attachmentIndex = findAttachmentPointByY(rod, plate.y - rod.position.y);
+      if (attachmentIndex !== undefined) {
+        const attachmentPoint = rod.attachmentPoints[attachmentIndex];
+        if (attachmentPoint.plateId === plateId) {
+          attachmentPoint.plateId = undefined;
+
+          // Check if this was at the top or bottom of the rod
+          const isTop = attachmentIndex === rod.attachmentPoints.length - 1;
+          const isBottom = attachmentIndex === 0;
+
+          if (isTop || isBottom) {
+            rodsToShorten.push({ rodId, isTop });
+          }
+        } else {
+          console.warn("Rod missing expected plate connection");
+        }
+      }
+    }
+  }
+
+  // Remove the plate from the shelf
+  shelf.plates.delete(plateId);
+
+  // Now shorten rods that had plates at their ends
+  for (const { rodId, isTop } of rodsToShorten) {
+    shortenRodFromEnd(rodId, isTop, shelf);
+  }
+
+  return true;
+}
+
+// Shorten a rod by removing empty segments from the top or bottom
+function shortenRodFromEnd(rodId: number, fromTop: boolean, shelf: Shelf): void {
+  const rod = shelf.rods.get(rodId);
+  if (!rod) return;
+
+  const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+  if (!rodSKU) return;
+
+  // Find the first/last attachment point with a plate
+  let firstPlateIndex = -1;
+  let lastPlateIndex = -1;
+
+  for (let i = 0; i < rod.attachmentPoints.length; i++) {
+    if (rod.attachmentPoints[i].plateId !== undefined) {
+      if (firstPlateIndex === -1) firstPlateIndex = i;
+      lastPlateIndex = i;
+    }
+  }
+
+  // If no plates remain, don't shorten (rod will be removed if needed elsewhere)
+  if (firstPlateIndex === -1) return;
+
+  if (fromTop) {
+    // Calculate segments to remove from top
+    const segmentsToRemove = (rod.attachmentPoints.length - 1) - lastPlateIndex;
+    if (segmentsToRemove <= 0) return;
+
+    const newSpans = rodSKU.spans.slice(0, rodSKU.spans.length - segmentsToRemove);
+    const newRodSKU = AVAILABLE_RODS.find(sku => {
+      if (sku.spans.length !== newSpans.length) return false;
+      return sku.spans.every((span, i) => span === newSpans[i]);
+    });
+
+    if (!newRodSKU) return;
+
+    rod.sku_id = newRodSKU.sku_id;
+    rod.attachmentPoints = [];
+    const positions = calculateAttachmentPositions(newRodSKU);
+    for (const y of positions) {
+      rod.attachmentPoints.push({ y });
+    }
+
+    // Re-attach remaining plates
+    shelf.plates.forEach((plate, pId) => {
+      if (plate.connections.includes(rodId)) {
+        const attachmentY = plate.y - rod.position.y;
+        const attachmentIndex = rod.attachmentPoints.findIndex(ap => ap.y === attachmentY);
+        if (attachmentIndex !== -1) {
+          rod.attachmentPoints[attachmentIndex].plateId = pId;
+        }
+      }
+    });
+  } else {
+    // Calculate segments to remove from bottom
+    const segmentsToRemove = firstPlateIndex;
+    if (segmentsToRemove <= 0) return;
+
+    const newSpans = rodSKU.spans.slice(segmentsToRemove);
+    const newRodSKU = AVAILABLE_RODS.find(sku => {
+      if (sku.spans.length !== newSpans.length) return false;
+      return sku.spans.every((span, i) => span === newSpans[i]);
+    });
+
+    if (!newRodSKU) return;
+
+    // Calculate Y adjustment
+    const totalAdjustment = rodSKU.spans.slice(0, segmentsToRemove).reduce((sum, span) => sum + span, 0);
+    rod.position.y += totalAdjustment;
+    rod.sku_id = newRodSKU.sku_id;
+
+    rod.attachmentPoints = [];
+    const positions = calculateAttachmentPositions(newRodSKU);
+    for (const y of positions) {
+      rod.attachmentPoints.push({ y });
+    }
+
+    // Re-attach remaining plates
+    shelf.plates.forEach((plate, pId) => {
+      if (plate.connections.includes(rodId)) {
+        const attachmentY = plate.y - rod.position.y;
+        const attachmentIndex = rod.attachmentPoints.findIndex(ap => ap.y === attachmentY);
+        if (attachmentIndex !== -1) {
+          rod.attachmentPoints[attachmentIndex].plateId = pId;
+        }
+      }
+    });
+  }
+}
+
+export function canExtendPlate(plateId: number, extendDirection: Direction, shelf: Shelf): [number, number[]] | undefined {
+  // Get the plate and validate it exists
+  const plate = shelf.plates.get(plateId);
+  if (!plate) return undefined;
+
   // Get current plateSKU to understand current span structure
   const currentSKU = AVAILABLE_PLATES.find(p => p.sku_id === plate.sku_id);
-  if (!currentSKU) return false;
+  if (!currentSKU) return undefined;
 
   // Find all connected rods and their positions
   const connectedRods = plate.connections.map(rodId => shelf.rods.get(rodId)).filter(rod => rod !== undefined);
-  if (connectedRods.length === 0) return false;
+  if (connectedRods.length === 0) return undefined;
 
   // Find the closest rod in the extension direction and calculate new spans
   let targetRod: Rod | undefined;
@@ -231,8 +434,9 @@ export function tryExtendPlate(plateId: number, extendDirection: Direction, shel
 
   if (extendDirection === Direction.Right) {
     // Find closest rod to the right of rightmost connected rod
+    const rightmostRodId = plate.connections[plate.connections.length - 1];
     const rightmostRod = connectedRods[connectedRods.length - 1];
-    const targetRodId = findClosestRod(shelf, rightmostRod, Direction.Right);
+    const targetRodId = findClosestRod(shelf, rightmostRodId, Direction.Right, plate.y);
     newConnections = [...plate.connections];
 
     if (targetRodId !== undefined) {
@@ -246,8 +450,9 @@ export function tryExtendPlate(plateId: number, extendDirection: Direction, shel
     }
   } else {
     // Find closest rod to the left of leftmost connected rod
+    const leftmostRodId = plate.connections[0];
     const leftmostRod = connectedRods[0];
-    const targetRodId = findClosestRod(shelf, leftmostRod, Direction.Left);
+    const targetRodId = findClosestRod(shelf, leftmostRodId, Direction.Left, plate.y);
     newConnections = [...plate.connections];
 
     if (targetRodId !== undefined) {
@@ -261,23 +466,23 @@ export function tryExtendPlate(plateId: number, extendDirection: Direction, shel
     }
   }
 
-  if (targetRod === undefined) return false;
+  if (targetRod === undefined) return undefined;
 
   // Check if target rod has available attachment points at same Y level
-  const targetAttachmentIndex = findAttachmentPointByY(targetRod, plate.y);
+  const targetAttachmentY = plate.y - targetRod.position.y; // Convert to relative Y
+  const targetAttachmentIndex = findAttachmentPointByY(targetRod, targetAttachmentY);
   if (targetAttachmentIndex === undefined) {
     // TODO: Call to function to see if we can swap the rod with a different SKU without moving any other plates
     // And if we can, we should make sure to only change the rod SKU once we know the plate extension succeeds
 
     // For now we don't handle this case:
-    return false;
+    return undefined;
   }
 
   const targetAttachmentPoint = targetRod.attachmentPoints[targetAttachmentIndex];
   if (targetAttachmentPoint.plateId !== undefined) {
     // TODO: Call to function that tries to merge the two plates
-    // return tryMergePlates()
-    return false; // Return false for now
+    return undefined; // Return undefined for now
   }
 
   // Find plate SKU that exactly matches the new span pattern
@@ -285,42 +490,114 @@ export function tryExtendPlate(plateId: number, extendDirection: Direction, shel
     if (sku.spans.length !== newSpans.length) return false;
     return sku.spans.every((span, index) => span === newSpans[index]);
   });
-  if (!targetSKU) return false; // No plate available for this span pattern
+  if (!targetSKU) return undefined; // No plate available for this span pattern
 
-  // Perform the extension
-  plate.sku_id = targetSKU.sku_id;
-  plate.connections = newConnections;
-  if (targetRod.attachmentPoints[targetAttachmentIndex]) {
-    targetRod.attachmentPoints[targetAttachmentIndex].plateId = plateId;
-  }
 
-  return true;
+  return [targetSKU.sku_id, newConnections];
 }
 
-export function removePlate(plateId: number, shelf: Shelf): boolean {
+export function extendPlate(plateId: number, newSkuId: number, newConnections: number[], shelf: Shelf) {
   const plate = shelf.plates.get(plateId);
-  if (!plate) return false;
+  if (!plate) return undefined;
 
+  plate.sku_id = newSkuId;
+  plate.connections = newConnections;
 
-  // Remove plate connections from all connected rods
-  for (const rodId of plate.connections) {
+  for (const rodId of newConnections) {
+    const rod = shelf.rods.get(rodId)
+    if (rod === undefined) {
+      console.error("Unexpected invalid rod Id: ", rodId)
+      return
+    }
+
+    const attachmentIndex = findAttachmentPointByY(rod, plate.y - rod.position.y)
+    if (attachmentIndex === undefined) {
+      console.error("Unexpected missing attachment for rod Id: ", rodId)
+      return;
+    }
+
+    if (rod.attachmentPoints[attachmentIndex]) {
+      rod.attachmentPoints[attachmentIndex].plateId = plateId;
+    }
+
+  }
+}
+
+// Apply a merge operation directly - assumes all parameters are valid
+export function mergePlates(
+  leftPlateId: number,
+  rightPlateId: number,
+  newSkuId: number,
+  newConnections: number[],
+  shelf: Shelf
+): number {
+  const leftPlate = shelf.plates.get(leftPlateId);
+  if (!leftPlate) return -1;
+
+  removePlate(rightPlateId, shelf);
+  leftPlate.sku_id = newSkuId;
+  leftPlate.connections = newConnections;
+
+  for (const rodId of newConnections) {
     const rod = shelf.rods.get(rodId);
-    if (rod) {
-      const attachmentIndex = findAttachmentPointByY(rod, plate.y);
-      if (attachmentIndex !== undefined) {
-        const attachmentPoint = rod.attachmentPoints[attachmentIndex];
-        if (attachmentPoint.plateId === plateId) {
-          attachmentPoint.plateId = undefined;
-        } else {
-          console.warn("Rod missing expected plate connection");
-        }
-      }
+    if (!rod) continue;
+    const attachmentY = leftPlate.y - rod.position.y;
+    const attachment = rod.attachmentPoints.find(ap => ap.y === attachmentY);
+    if (attachment) {
+      attachment.plateId = leftPlateId;
     }
   }
 
-  // Remove the plate from the shelf
-  shelf.plates.delete(plateId);
-  return true;
+  return leftPlateId;
+}
+
+// Check if two plates can be merged and return the merge parameters
+export function canMergePlates(leftPlateId: number, rightPlateId: number, shelf: Shelf): { sku_id: number, connections: number[] } | undefined {
+  const leftPlate = shelf.plates.get(leftPlateId);
+  const rightPlate = shelf.plates.get(rightPlateId);
+
+  if (!leftPlate || !rightPlate) return undefined;
+  if (leftPlate.y !== rightPlate.y) return undefined;
+
+  const leftSKU = AVAILABLE_PLATES.find(p => p.sku_id === leftPlate.sku_id);
+  const rightSKU = AVAILABLE_PLATES.find(p => p.sku_id === rightPlate.sku_id);
+  if (!leftSKU || !rightSKU) return undefined;
+
+  const leftRightmostRodId = leftPlate.connections[leftPlate.connections.length - 1];
+  const rightLeftmostRodId = rightPlate.connections[0];
+
+  const leftRightmostRod = shelf.rods.get(leftRightmostRodId);
+  const rightLeftmostRod = shelf.rods.get(rightLeftmostRodId);
+
+  if (!leftRightmostRod || !rightLeftmostRod) return undefined;
+
+  let combinedRods: number[];
+  let mergedSpans: number[];
+
+  if (leftRightmostRodId === rightLeftmostRodId) {
+    combinedRods = [...leftPlate.connections, ...rightPlate.connections.slice(1)];
+    mergedSpans = [
+      ...leftSKU.spans.slice(0, -1),
+      ...rightSKU.spans.slice(1)
+    ];
+  } else {
+    combinedRods = [...leftPlate.connections, ...rightPlate.connections];
+    const gapDistance = rightLeftmostRod.position.x - leftRightmostRod.position.x;
+    mergedSpans = [
+      ...leftSKU.spans.slice(0, -1),
+      gapDistance,
+      ...rightSKU.spans.slice(1)
+    ];
+  }
+
+  const mergedSKU = AVAILABLE_PLATES.find(sku => {
+    if (sku.spans.length !== mergedSpans.length) return false;
+    return sku.spans.every((span, index) => span === mergedSpans[index]);
+  });
+
+  if (!mergedSKU) return undefined;
+
+  return { sku_id: mergedSKU.sku_id, connections: combinedRods };
 }
 
 export function removeRod(rodId: number, shelf: Shelf): boolean {
@@ -670,6 +947,7 @@ export function removeSegmentFromPlate(plateId: number, segmentIndex: number, sh
   // Case A: Remove left edge segment
   if (segmentIndex === 0) {
     console.log('removeSegmentFromPlate: Removing left edge segment');
+    const removedRodId = plate.connections[0];
     const newRods = plate.connections.slice(1);
 
     // Calculate new spans
@@ -692,16 +970,34 @@ export function removeSegmentFromPlate(plateId: number, segmentIndex: number, sh
       return removePlate(plateId, shelf);
     }
 
-    // Remove old plate and add new one
-    removePlate(plateId, shelf);
-    const newPlateId = addPlate(plate.y, newSKU.sku_id, newRods, shelf);
-    console.log('removeSegmentFromPlate: Left edge removed, new plate:', newPlateId);
-    return newPlateId !== -1;
+    // Update plate in-place (don't delete and recreate - that causes rod shortening issues)
+    // First, clear the attachment point on the removed rod
+    const removedRod = shelf.rods.get(removedRodId);
+    if (removedRod) {
+      const attachmentIndex = findAttachmentPointByY(removedRod, plate.y - removedRod.position.y);
+      if (attachmentIndex !== undefined) {
+        removedRod.attachmentPoints[attachmentIndex].plateId = undefined;
+      }
+      // Shorten the removed rod since it no longer has a plate at this end
+      const isTop = attachmentIndex === removedRod.attachmentPoints.length - 1;
+      const isBottom = attachmentIndex === 0;
+      if (isTop || isBottom) {
+        shortenRodFromEnd(removedRodId, isTop, shelf);
+      }
+    }
+
+    // Update the plate with new SKU and connections
+    plate.sku_id = newSKU.sku_id;
+    plate.connections = newRods;
+
+    console.log('removeSegmentFromPlate: Left edge removed, plate updated:', plateId);
+    return true;
   }
 
   // Case B: Remove right edge segment
   if (segmentIndex === numSegments - 1) {
     console.log('removeSegmentFromPlate: Removing right edge segment');
+    const removedRodId = plate.connections[plate.connections.length - 1];
     const newRods = plate.connections.slice(0, -1);
 
     // Calculate new spans
@@ -724,11 +1020,28 @@ export function removeSegmentFromPlate(plateId: number, segmentIndex: number, sh
       return removePlate(plateId, shelf);
     }
 
-    // Remove old plate and add new one
-    removePlate(plateId, shelf);
-    const newPlateId = addPlate(plate.y, newSKU.sku_id, newRods, shelf);
-    console.log('removeSegmentFromPlate: Right edge removed, new plate:', newPlateId);
-    return newPlateId !== -1;
+    // Update plate in-place (don't delete and recreate - that causes rod shortening issues)
+    // First, clear the attachment point on the removed rod
+    const removedRod = shelf.rods.get(removedRodId);
+    if (removedRod) {
+      const attachmentIndex = findAttachmentPointByY(removedRod, plate.y - removedRod.position.y);
+      if (attachmentIndex !== undefined) {
+        removedRod.attachmentPoints[attachmentIndex].plateId = undefined;
+      }
+      // Shorten the removed rod since it no longer has a plate at this end
+      const isTop = attachmentIndex === removedRod.attachmentPoints.length - 1;
+      const isBottom = attachmentIndex === 0;
+      if (isTop || isBottom) {
+        shortenRodFromEnd(removedRodId, isTop, shelf);
+      }
+    }
+
+    // Update the plate with new SKU and connections
+    plate.sku_id = newSKU.sku_id;
+    plate.connections = newRods;
+
+    console.log('removeSegmentFromPlate: Right edge removed, plate updated:', plateId);
+    return true;
   }
 
   // Case C: Remove middle segment - split into two plates
@@ -770,264 +1083,264 @@ export function removeSegmentFromPlate(plateId: number, segmentIndex: number, sh
     return removePlate(plateId, shelf);
   }
 
-  // Remove old plate and add two new ones
-  removePlate(plateId, shelf);
-  const leftPlateId = addPlate(plate.y, leftSKU.sku_id, leftRods, shelf);
-  const rightPlateId = addPlate(plate.y, rightSKU.sku_id, rightRods, shelf);
-
-  console.log('removeSegmentFromPlate: Split complete, new plates:', leftPlateId, rightPlateId);
-  return leftPlateId !== -1 && rightPlateId !== -1;
-}
-
-function tryMergePlates(leftPlateId: number, rightPlateId: number, shelf: Shelf): number {
-  const leftPlate = shelf.plates.get(leftPlateId);
-  const rightPlate = shelf.plates.get(rightPlateId);
-
-  if (!leftPlate || !rightPlate) {
-    console.log('tryMergePlates: One or both plates not found');
-    return -1;
-  }
-
-  // Plates must be at same height
-  if (leftPlate.y !== rightPlate.y) {
-    console.log('tryMergePlates: Plates at different heights', leftPlate.y, rightPlate.y);
-    return -1;
-  }
-
-  // Get the SKUs
-  const leftSKU = AVAILABLE_PLATES.find(p => p.sku_id === leftPlate.sku_id);
-  const rightSKU = AVAILABLE_PLATES.find(p => p.sku_id === rightPlate.sku_id);
-
-  if (!leftSKU || !rightSKU) {
-    console.log('tryMergePlates: SKU not found');
-    return -1;
-  }
-
-  // Verify plates have a gap between them (rightmost rod of left plate and leftmost rod of right plate are adjacent)
-  const leftRightmostRodId = leftPlate.connections[leftPlate.connections.length - 1];
-  const rightLeftmostRodId = rightPlate.connections[0];
-
-  console.log('tryMergePlates: Checking adjacency', {
-    leftRightmostRodId,
-    rightLeftmostRodId,
-    leftConnections: leftPlate.connections,
-    rightConnections: rightPlate.connections
-  });
-
-  // Get all rods sorted by X position to verify they are adjacent
-  const allRodsSorted = Array.from(shelf.rods.entries())
-    .sort((a, b) => a[1].position.x - b[1].position.x);
-
-  const leftRightmostIndex = allRodsSorted.findIndex(([id]) => id === leftRightmostRodId);
-  const rightLeftmostIndex = allRodsSorted.findIndex(([id]) => id === rightLeftmostRodId);
-
-  // Check if the rods are adjacent (right plate's leftmost rod is immediately after left plate's rightmost rod)
-  if (rightLeftmostIndex !== leftRightmostIndex + 1) {
-    console.log('tryMergePlates: Plates not adjacent - gap too large or overlapping');
-    return -1;
-  }
-
-  // Combine rod connections (include all rods from both plates)
-  const combinedRods = [...leftPlate.connections, ...rightPlate.connections];
-
-  // Get all rod objects to calculate distances
-  const rods = combinedRods.map(id => shelf.rods.get(id)).filter(r => r !== undefined);
-  if (rods.length !== combinedRods.length) {
-    console.log('tryMergePlates: Some rods not found');
-    return -1;
-  }
-
-  // Build span array: [padding, gap1, gap2, ..., padding]
-  const mergedSpans: number[] = [PLATE_PADDING_MM];
-  for (let i = 0; i < rods.length - 1; i++) {
-    const distance = rods[i + 1].position.x - rods[i].position.x;
-    mergedSpans.push(distance);
-  }
-  mergedSpans.push(PLATE_PADDING_MM);
-
-  console.log('tryMergePlates: Merged spans:', mergedSpans);
-
-  // Find matching plate SKU
-  const mergedSKU = AVAILABLE_PLATES.find(sku => {
-    if (sku.spans.length !== mergedSpans.length) return false;
-    return sku.spans.every((span, index) => span === mergedSpans[index]);
-  });
-
-  if (!mergedSKU) {
-    console.log('tryMergePlates: No matching SKU found for spans', mergedSpans);
-    return -1;
-  }
-
-  console.log('tryMergePlates: Found matching SKU:', mergedSKU.name);
-
-  // Perform the merge
-  // Remove old plates
-  removePlate(leftPlateId, shelf);
-  removePlate(rightPlateId, shelf);
-
-  // Add new merged plate
-  const mergedPlateId = addPlate(leftPlate.y, mergedSKU.sku_id, combinedRods, shelf);
-
-  console.log('tryMergePlates: Merge complete, new plate ID:', mergedPlateId);
-
-  return mergedPlateId;
-}
-
-export function tryFillGapWithPlate(leftRodId: number, rightRodId: number, height: number, shelf: Shelf): number {
-  const leftRod = shelf.rods.get(leftRodId);
-  const rightRod = shelf.rods.get(rightRodId);
-
-  if (!leftRod || !rightRod) {
-    console.log('tryFillGapWithPlate: Rod not found', { leftRodId, rightRodId });
-    return -1;
-  }
-
-  // Check if both rods have attachment points at the specified height
-  const leftAttachmentY = height - leftRod.position.y;
-  const rightAttachmentY = height - rightRod.position.y;
-
-  console.log('tryFillGapWithPlate: Looking for attachments', {
-    height,
-    leftRodId,
-    leftRodPosY: leftRod.position.y,
-    leftAttachmentY,
-    leftAttachments: leftRod.attachmentPoints.map(ap => ap.y),
-    rightRodId,
-    rightRodPosY: rightRod.position.y,
-    rightAttachmentY,
-    rightAttachments: rightRod.attachmentPoints.map(ap => ap.y)
-  });
-
-  const leftAttachment = leftRod.attachmentPoints.find(ap => ap.y === leftAttachmentY);
-  const rightAttachment = rightRod.attachmentPoints.find(ap => ap.y === rightAttachmentY);
-
-  if (!leftAttachment || !rightAttachment) {
-    console.log('tryFillGapWithPlate: Missing attachment point', {
-      leftAttachment: !!leftAttachment,
-      rightAttachment: !!rightAttachment
-    });
-    return -1;
-  }
-
-  const leftPlateId = leftAttachment.plateId;
-  const rightPlateId = rightAttachment.plateId;
-
-  // Case 1: Both attachment points are empty - add a new plate
-  if (leftPlateId === undefined && rightPlateId === undefined) {
-    // Calculate the gap distance
-    const gapDistance = rightRod.position.x - leftRod.position.x;
-
-    // Find a plate SKU that fits this gap (2-rod plate with matching span)
-    const plateSKU = AVAILABLE_PLATES.find(p => {
-      return p.spans.length === 3 && p.spans[1] === gapDistance;
-    });
-
-    if (!plateSKU) return -1;
-
-    // Add the plate
-    return addPlate(height, plateSKU.sku_id, [leftRodId, rightRodId], shelf);
-  }
-
-  // Case 2: Plate on left side only - extend it to the right
-  if (leftPlateId !== undefined && rightPlateId === undefined) {
-    const success = tryExtendPlate(leftPlateId, Direction.Right, shelf);
-    return success ? leftPlateId : -1;
-  }
-
-  // Case 3: Plate on right side only - extend it to the left
-  if (leftPlateId === undefined && rightPlateId !== undefined) {
-    const success = tryExtendPlate(rightPlateId, Direction.Left, shelf);
-    return success ? rightPlateId : -1;
-  }
-
-  // Case 4: Both sides have plates
-  if (leftPlateId !== undefined && rightPlateId !== undefined) {
-    // If they're the same plate, the gap is already filled
-    if (leftPlateId === rightPlateId) {
-      return leftPlateId;
-    }
-
-    // Different plates - try to merge them
-    return tryMergePlates(leftPlateId, rightPlateId, shelf);
-  }
-
-  return -1;
-}
-
-export function tryFillEdgeGap(edgeRodId: number, y: number, direction: 'left' | 'right', shelf: Shelf): number {
-  const edgeRod = shelf.rods.get(edgeRodId);
-  if (!edgeRod) {
-    console.log('tryFillEdgeGap: Edge rod not found');
-    return -1;
-  }
-
-  // Calculate new rod X position (600mm away from edge rod)
-  const STANDARD_GAP = 600;
-  const newRodX = direction === 'left' ? edgeRod.position.x - STANDARD_GAP : edgeRod.position.x + STANDARD_GAP;
-
-  console.log(`tryFillEdgeGap: Adding rod at X=${newRodX}, Y-level=${y}, direction=${direction}`);
-
-  // Check if rod already exists at newRodX (within 1mm tolerance)
-  let targetRodId: number | undefined = undefined;
-  shelf.rods.forEach((rod, rodId) => {
-    if (Math.abs(rod.position.x - newRodX) < 1) {
-      targetRodId = rodId;
-    }
-  });
-
-  if (targetRodId !== undefined) {
-    // Rod exists at target position - check if it has attachment at Y
-    const targetRod = shelf.rods.get(targetRodId)!;
-    const attachmentY = y - targetRod.position.y;
-    const hasAttachment = targetRod.attachmentPoints.some(ap => ap.y === attachmentY);
-
-    if (hasAttachment) {
-      // Rod has attachment - just fill the gap normally
-      console.log('tryFillEdgeGap: Rod exists with attachment, filling gap normally');
-      const leftRodId = direction === 'left' ? targetRodId : edgeRodId;
-      const rightRodId = direction === 'left' ? edgeRodId : targetRodId;
-      return tryFillGapWithPlate(leftRodId, rightRodId, y, shelf);
-    } else {
-      // Rod exists but needs attachment at this Y - extend it
-      console.log('tryFillEdgeGap: Rod exists but missing attachment at Y, extending rod');
-      const success = extendRodToHeight(targetRodId, y, shelf);
-      if (success) {
-        // Now fill the gap
-        const leftRodId = direction === 'left' ? targetRodId : edgeRodId;
-        const rightRodId = direction === 'left' ? edgeRodId : targetRodId;
-        return tryFillGapWithPlate(leftRodId, rightRodId, y, shelf);
+  // Update the original plate to become the left plate (preserves plateId)
+  // First, clear attachment points on rods that will move to the right plate
+  for (const rodId of rightRods) {
+    const rod = shelf.rods.get(rodId);
+    if (rod) {
+      const attachmentIndex = findAttachmentPointByY(rod, plate.y - rod.position.y);
+      if (attachmentIndex !== undefined) {
+        rod.attachmentPoints[attachmentIndex].plateId = undefined;
       }
     }
   }
 
-  // No rod that can be extended - create new one with minimal SKU
-  console.log('tryFillEdgeGap: Creating new rod at target position');
+  // Update the left plate in-place
+  plate.sku_id = leftSKU.sku_id;
+  plate.connections = leftRods;
 
-  // Find minimal rod SKU (single attachment point: "1P")
-  const minimalRodSKU = AVAILABLE_RODS.find(r => r.name === "1P");
-  if (!minimalRodSKU) {
-    console.log('tryFillEdgeGap: No minimal rod SKU found');
-    return -1;
+  // Create a new plate for the right portion
+  const rightPlateId = addPlate(plate.y, rightSKU.sku_id, rightRods, shelf);
+
+  console.log('removeSegmentFromPlate: Split complete, left plate:', plateId, 'right plate:', rightPlateId);
+  return rightPlateId !== -1;
+}
+
+export interface PlateConfig {
+  sku_id: number;
+  rodIds: number[];
+  y: number;
+}
+
+export interface ExtensionInfo {
+  newSKU_id: number;
+  spanToAdd: number;
+}
+
+export type PlateAction = 'create' | 'extend' | 'merge';
+
+export interface PlateSegmentResult {
+  sku_id: number;
+  rodIds: number[];
+  y: number;
+  action: PlateAction;
+  existingPlateId?: number;
+  targetPlateId?: number; // For merge actions, the second plate to merge with
+  requiresNewRod?: { x: number; y: number };
+  requiresExtension?: Map<number, ExtensionInfo>;
+  segmentWidth: number; // Width of the segment being added (distance between rods)
+}
+
+function findPlateForGap(gapDistance: number): PlateSKU | undefined {
+  return AVAILABLE_PLATES.find(p => p.spans.length === 3 && p.spans[1] === gapDistance);
+}
+
+function checkAttachmentExists(rodId: number, y: number, shelf: Shelf): boolean {
+  const rod = shelf.rods.get(rodId);
+  if (!rod) return false;
+  const attachmentY = y - rod.position.y;
+  return rod.attachmentPoints.some(ap => ap.y === attachmentY);
+}
+
+function getAttachmentPlateId(rodId: number, y: number, shelf: Shelf): number | undefined {
+  const rod = shelf.rods.get(rodId);
+  if (!rod) return undefined;
+  const attachmentY = y - rod.position.y;
+  const attachment = rod.attachmentPoints.find(ap => ap.y === attachmentY);
+  return attachment?.plateId;
+}
+
+function calculateGapPlate(leftRodId: number, rightRodId: number, height: number, shelf: Shelf): PlateConfig | undefined {
+  const leftRod = shelf.rods.get(leftRodId);
+  const rightRod = shelf.rods.get(rightRodId);
+  if (!leftRod || !rightRod) return undefined;
+
+  const leftAttachmentY = height - leftRod.position.y;
+  const rightAttachmentY = height - rightRod.position.y;
+  const leftAttachment = leftRod.attachmentPoints.find(ap => ap.y === leftAttachmentY);
+  const rightAttachment = rightRod.attachmentPoints.find(ap => ap.y === rightAttachmentY);
+
+  if (!leftAttachment || !rightAttachment) return undefined;
+  if (leftAttachment.plateId !== undefined || rightAttachment.plateId !== undefined) return undefined;
+
+  const gapDistance = rightRod.position.x - leftRod.position.x;
+  const plateSKU = findPlateForGap(gapDistance);
+  if (!plateSKU) return undefined;
+
+  return {
+    sku_id: plateSKU.sku_id,
+    rodIds: [leftRodId, rightRodId],
+    y: height
+  };
+}
+
+export function canAddPlateSegment(rodId: number, y: number, direction: Direction, shelf: Shelf): PlateSegmentResult | undefined {
+  const STANDARD_GAP = 600;
+  const rod = shelf.rods.get(rodId);
+  if (!rod) return undefined;
+
+  if (!checkAttachmentExists(rodId, y, shelf)) return undefined;
+
+  const sourcePlateId = getAttachmentPlateId(rodId, y, shelf);
+  const targetRodId = findClosestRod(shelf, rodId, direction, y);
+
+  // Check if there's a rod at the other end
+  if (targetRodId !== undefined) {
+
+    // TODO: If the target rod can't be reached by a plate,
+    // also consider if a fresh plate with a new rod can fit in between
+    // e.g. if it's 10 meters to the next rod, we should just treat it a new plate
+
+    // Is there a plate attached to the other rod?
+    const targetPlateId = getAttachmentPlateId(targetRodId, y, shelf);
+
+
+    // Check if there's a matching height attachment point
+    if (!checkAttachmentExists(targetRodId, y, shelf)) return undefined;
+
+
+    if (sourcePlateId !== undefined && sourcePlateId === targetPlateId) {
+      // Segment is already covered
+      return undefined;
+    }
+
+    const leftRodId = direction === 'left' ? targetRodId : rodId;
+    const rightRodId = direction === 'left' ? rodId : targetRodId;
+    const leftRod = shelf.rods.get(leftRodId)!;
+    const rightRod = shelf.rods.get(rightRodId)!;
+    const gapDistance = rightRod.position.x - leftRod.position.x;
+    const plateSKU = findPlateForGap(gapDistance);
+    if (!plateSKU) return undefined;
+
+
+    if (sourcePlateId !== undefined && targetPlateId !== undefined) {
+      // Plate on both ends - check if merge is possible
+      const leftPlateId = direction === 'left' ? targetPlateId : sourcePlateId;
+      const rightPlateId = direction === 'left' ? sourcePlateId : targetPlateId;
+      const mergeParams = canMergePlates(leftPlateId, rightPlateId, shelf);
+      if (!mergeParams) return undefined;
+
+      return {
+        sku_id: mergeParams.sku_id,
+        rodIds: mergeParams.connections,
+        y: y,
+        action: 'merge',
+        existingPlateId: leftPlateId,
+        targetPlateId: rightPlateId,
+        segmentWidth: gapDistance
+      };
+    }
+
+    if (sourcePlateId !== undefined && targetPlateId === undefined) {
+      const extendInfo = canExtendPlate(sourcePlateId, direction, shelf);
+      if (!extendInfo) return undefined;
+      const [sku_id, newConnections] = extendInfo;
+      // Extend the plate that exist on current rod
+      return {
+        existingPlateId: sourcePlateId,
+        sku_id: sku_id,
+        rodIds: newConnections,
+        y: y,
+        action: 'extend',
+        segmentWidth: gapDistance
+      };
+    }
+
+    if (sourcePlateId === undefined && targetPlateId !== undefined) {
+      // Extend plate that exists on target rod (opposite direction)
+      const oppositeDirection = direction === 'left' ? Direction.Right : Direction.Left;
+      const extendInfo = canExtendPlate(targetPlateId, oppositeDirection, shelf);
+      if (!extendInfo) return undefined;
+      const [sku_id, newConnections] = extendInfo;
+      return {
+        sku_id: sku_id,
+        rodIds: newConnections,
+        y: y,
+        action: 'extend',
+        existingPlateId: targetPlateId,
+        segmentWidth: gapDistance
+      };
+    }
+
+    if (sourcePlateId === undefined && targetPlateId === undefined) {
+      // Create a new plate as both rods don't have a plate
+      return {
+        sku_id: plateSKU.sku_id,
+        rodIds: [leftRodId, rightRodId],
+        y: y,
+        action: 'create',
+        segmentWidth: gapDistance
+      };
+    }
   }
 
-  // Create new rod at Y position (so attachment at relative y=0 is at world Y)
-  const newRodId = addRod({ x: newRodX, y: y }, minimalRodSKU.sku_id, shelf);
 
-  // Fill the gap
-  const leftRodId = direction === 'left' ? newRodId : edgeRodId;
-  const rightRodId = direction === 'left' ? edgeRodId : newRodId;
-  const plateId = tryFillGapWithPlate(leftRodId, rightRodId, y, shelf);
+  // No rod on the other end (TODO: Or rod too far away)
 
-  if (plateId === -1) {
-    console.log('tryFillEdgeGap: Failed to add plate, removing new rod');
-    removeRod(newRodId, shelf);
-    return -1;
+  const defaultPlateSku = AVAILABLE_PLATES.find(p => p.sku_id === DEFAULT_PLATE_SKU_ID);;
+
+  const defaultPlateGapWidth = defaultPlateSku?.spans[1]
+  if (defaultPlateGapWidth === undefined || !defaultPlateSku) {
+    console.error("Default plate ill defined!!! No gap")
+    return undefined;
   }
 
-  // Try to merge colocated rods at this X position
-  mergeColocatedRods(newRodX, shelf);
+  const targetX = direction === 'left'
+    ? rod.position.x - defaultPlateGapWidth
+    : rod.position.x + defaultPlateGapWidth
 
-  return plateId;
+  if (sourcePlateId !== undefined) {
+    // Get the existing plate's connections and add the new rod
+    const existingPlate = shelf.plates.get(sourcePlateId);
+    if (!existingPlate) return undefined;
+
+    const existingSKU = AVAILABLE_PLATES.find(p => p.sku_id === existingPlate.sku_id);
+    if (!existingSKU) return undefined;
+
+    // Calculate new spans for the extended plate
+    const newSpans: number[] = [];
+    if (direction === 'left') {
+      // Add new segment at the beginning
+      newSpans.push(PLATE_PADDING_MM); // Start padding
+      newSpans.push(defaultPlateGapWidth); // New gap
+      newSpans.push(...existingSKU.spans.slice(1)); // Skip old start padding
+    } else {
+      // Add new segment at the end
+      newSpans.push(...existingSKU.spans.slice(0, -1)); // Skip old end padding
+      newSpans.push(defaultPlateGapWidth); // New gap
+      newSpans.push(PLATE_PADDING_MM); // End padding
+    }
+
+    // Find plate SKU that matches the new span pattern
+    const targetSKU = AVAILABLE_PLATES.find(sku => {
+      if (sku.spans.length !== newSpans.length) return false;
+      return sku.spans.every((span, index) => span === newSpans[index]);
+    });
+    if (!targetSKU) return undefined; // No plate available for this span pattern
+
+    const newConnections = direction === 'left'
+      ? [-1, ...existingPlate.connections]
+      : [...existingPlate.connections, -1];
+
+    return {
+      sku_id: targetSKU.sku_id,
+      rodIds: newConnections,
+      y: y,
+      action: 'extend',
+      existingPlateId: sourcePlateId,
+      requiresNewRod: { x: targetX, y: y },
+      segmentWidth: defaultPlateGapWidth
+    };
+  }
+
+  return {
+    sku_id: defaultPlateSku.sku_id,
+    rodIds: direction === 'left' ? [-1, rodId] : [rodId, -1],
+    y: y,
+    action: 'create',
+    requiresNewRod: { x: targetX, y: y },
+    segmentWidth: defaultPlateGapWidth
+  };
 }
 
 export function extendRodToHeight(rodId: number, targetY: number, shelf: Shelf): boolean {
@@ -1128,86 +1441,6 @@ export function extendRodToHeight(rodId: number, targetY: number, shelf: Shelf):
 
   console.log('extendRodToHeight: No matching SKU found for extension');
   return false;
-}
-
-export function mergeColocatedRods(x: number, shelf: Shelf): void {
-  // Find all rods at X position (within 1mm tolerance)
-  const colocatedRods: Array<[number, Rod]> = [];
-  shelf.rods.forEach((rod, rodId) => {
-    if (Math.abs(rod.position.x - x) < 1) {
-      colocatedRods.push([rodId, rod]);
-    }
-  });
-
-  if (colocatedRods.length <= 1) {
-    console.log('mergeColocatedRods: Only one rod at this position, no merge needed');
-    return;
-  }
-
-  console.log(`mergeColocatedRods: Found ${colocatedRods.length} rods at X=${x}`);
-
-  // Collect all attachment Y positions (world space) from all rods
-  const allAttachmentYs = new Set<number>();
-  colocatedRods.forEach(([rodId, rod]) => {
-    rod.attachmentPoints.forEach(ap => {
-      allAttachmentYs.add(rod.position.y + ap.y);
-    });
-  });
-
-  const sortedYs = Array.from(allAttachmentYs).sort((a, b) => a - b);
-  console.log('mergeColocatedRods: All attachment heights:', sortedYs);
-
-  // Calculate spans between attachment points
-  const spans: number[] = [];
-  for (let i = 0; i < sortedYs.length - 1; i++) {
-    spans.push(sortedYs[i + 1] - sortedYs[i]);
-  }
-
-  // Find SKU that matches this span pattern
-  const matchingSKU = AVAILABLE_RODS.find(sku => {
-    if (sku.spans.length !== spans.length) return false;
-    return sku.spans.every((span, i) => span === spans[i]);
-  });
-
-  if (!matchingSKU) {
-    console.log('mergeColocatedRods: No SKU found matching combined pattern, leaving rods separate');
-    return;
-  }
-
-  console.log(`mergeColocatedRods: Found matching SKU: ${matchingSKU.name}`);
-
-  // Create merged rod at the lowest Y position
-  const mergedRodY = sortedYs[0];
-  const mergedRodId = addRod({ x, y: mergedRodY }, matchingSKU.sku_id, shelf);
-
-  // Update all plate connections from old rods to merged rod
-  shelf.plates.forEach((plate, plateId) => {
-    for (let i = 0; i < plate.connections.length; i++) {
-      const connectedRodId = plate.connections[i];
-      const isOldRod = colocatedRods.some(([id]) => id === connectedRodId);
-
-      if (isOldRod) {
-        console.log(`mergeColocatedRods: Updating plate ${plateId} connection from rod ${connectedRodId} to ${mergedRodId}`);
-        plate.connections[i] = mergedRodId;
-
-        // Update merged rod's attachment point
-        const mergedRod = shelf.rods.get(mergedRodId)!;
-        const attachmentY = plate.y - mergedRod.position.y;
-        const attachmentIndex = mergedRod.attachmentPoints.findIndex(ap => ap.y === attachmentY);
-        if (attachmentIndex !== -1) {
-          mergedRod.attachmentPoints[attachmentIndex].plateId = plateId;
-        }
-      }
-    }
-  });
-
-  // Delete old rods
-  colocatedRods.forEach(([rodId]) => {
-    console.log(`mergeColocatedRods: Deleting old rod ${rodId}`);
-    shelf.rods.delete(rodId);
-  });
-
-  console.log('mergeColocatedRods: Merge complete');
 }
 
 export function findNextExtensionUp(rodId: number, spanToAdd: number, shelf: Shelf): number | undefined {
@@ -1352,62 +1585,217 @@ export function extendRodDown(rodId: number, newSKU_id: number, shelf: Shelf): b
   return true;
 }
 
-export function tryFillExtensionGap(rodIds: number[], y: number, direction: 'up' | 'down', requiredExtensions: Map<number, { newSKU_id: number, spanToAdd: number }>, shelf: Shelf): number {
-  console.log(`tryFillExtensionGap: Extending ${rodIds.length} rods ${direction} to create plate at Y=${y}`);
+function ghostPlateExists(ghostPlates: GhostPlate[], candidate: GhostPlate): boolean {
+  // For legal ghost plates: check by connections + Y position
+  // Note: Don't sort connections - order matters (left rod vs right rod)
+  if (candidate.legal && candidate.connections) {
+    return ghostPlates.some(existing => {
+      if (!existing.legal || !existing.connections) return false;
+      if (existing.midpointPosition.y !== candidate.midpointPosition.y) return false;
 
-  // Extend all rods first
-  for (const rodId of rodIds) {
-    const extension = requiredExtensions.get(rodId);
-    if (!extension) {
-      console.log(`tryFillExtensionGap: No extension info for rod ${rodId}`);
-      return -1;
-    }
-
-    const success = direction === 'up'
-      ? extendRodUp(rodId, extension.newSKU_id, shelf)
-      : extendRodDown(rodId, extension.newSKU_id, shelf);
-
-    if (!success) {
-      console.log(`tryFillExtensionGap: Failed to extend rod ${rodId}`);
-      // TODO: Implement rollback mechanism
-      return -1;
-    }
+      // Check if rod arrays are equal (order matters)
+      if (existing.connections.length !== candidate.connections!.length) return false;
+      return existing.connections.every((id, i) => id === candidate.connections![i]);
+    });
   }
 
-  // Add plate between extended rods at Y-level
-  // For multiple rods, we need to create the plate spanning all of them
-  if (rodIds.length < 2) {
-    console.log('tryFillExtensionGap: Need at least 2 rods for a plate');
-    return -1;
-  }
-
-  // Sort rods by X position
-  const sortedRodIds = rodIds.sort((a, b) => {
-    const rodA = shelf.rods.get(a)!;
-    const rodB = shelf.rods.get(b)!;
-    return rodA.position.x - rodB.position.x;
+  // For illegal ghost plates: check by position (approximate X + Y)
+  // Two illegal ghosts are the same if they're at roughly the same position
+  return ghostPlates.some(existing => {
+    if (existing.legal) return false;
+    if (Math.abs(existing.midpointPosition.y - candidate.midpointPosition.y) > 1) return false;
+    if (Math.abs(existing.midpointPosition.x - candidate.midpointPosition.x) > 1) return false;
+    return true;
   });
-
-  // For now, only handle 2-rod case (single plate)
-  if (sortedRodIds.length === 2) {
-    const plateId = tryFillGapWithPlate(sortedRodIds[0], sortedRodIds[1], y, shelf);
-    if (plateId !== -1) {
-      console.log(`tryFillExtensionGap: Successfully created plate ${plateId}`);
-    }
-    return plateId;
-  }
-
-  console.log('tryFillExtensionGap: Multi-rod extension not yet implemented');
-  return -1;
 }
 
-// TODO: Add remaining exports as they are implemented
-export {
-  // calculateRodBounds,
-  // calculatePlateBounds,
-  // isPointInBounds,
-  // updateSpatialIndex,
-  // updateRodPattern,
-  // serializeShelfToString,
-  // parseShelfFromString
-};
+export function regenerateGhostPlates(shelf: Shelf): void {
+
+  shelf.ghostPlates.length = 0
+
+  // Iterate through each rod
+  for (let [rodId, rod] of shelf.rods) {
+
+    const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+    if (!rodSKU) continue;
+
+    // Iterate through each attachment point, looking for extensions left or right
+    for (const ap of rod.attachmentPoints) {
+      const y = rod.position.y + ap.y;
+      const plate = ap.plateId ? shelf.plates.get(ap.plateId) : undefined;
+
+      let hasLeftPlate = false;
+      let hasRightPlate = false;
+
+      for (const plateRodId of plate?.connections ?? []) {
+        const plateRod = shelf.rods.get(plateRodId)
+        if (!plateRod) { continue; }
+        if (plateRod.position.x < rod.position.x) {
+          hasLeftPlate = true;
+        } else if (plateRod.position.x > rod.position.x) {
+          hasRightPlate = true;
+        }
+      }
+
+      if (!hasLeftPlate) {
+        const result = canAddPlateSegment(rodId, y, Direction.Left, shelf);
+        let candidate: GhostPlate;
+
+        if (result) {
+          const segmentWidth = result.segmentWidth;
+          candidate = {
+            sku_id: result.sku_id,
+            connections: result.rodIds,
+            midpointPosition: {
+              x: rod.position.x - segmentWidth / 2,
+              y: result.y
+            },
+            legal: true,
+            direction: 'left',
+            action: result.action,
+            existingPlateId: result.existingPlateId,
+            targetPlateId: result.targetPlateId,
+            width: segmentWidth,
+            newRodPosition: result.requiresNewRod
+          };
+        } else {
+          const defaultWidth = 600;
+          candidate = {
+            midpointPosition: { x: rod.position.x - defaultWidth / 2, y: y },
+            legal: false,
+            direction: 'left',
+            width: defaultWidth
+          };
+        }
+
+        if (!ghostPlateExists(shelf.ghostPlates, candidate)) {
+          shelf.ghostPlates.push(candidate);
+        }
+      }
+
+      if (!hasRightPlate) {
+        const result = canAddPlateSegment(rodId, y, Direction.Right, shelf);
+        let candidate: GhostPlate;
+
+        if (result) {
+          const segmentWidth = result.segmentWidth;
+          candidate = {
+            sku_id: result.sku_id,
+            connections: result.rodIds,
+            midpointPosition: {
+              x: rod.position.x + segmentWidth / 2,
+              y: result.y
+            },
+            legal: true,
+            direction: 'right',
+            action: result.action,
+            existingPlateId: result.existingPlateId,
+            targetPlateId: result.targetPlateId,
+            width: segmentWidth,
+            newRodPosition: result.requiresNewRod
+          };
+        } else {
+          const defaultWidth = 600;
+          candidate = {
+            midpointPosition: { x: rod.position.x + defaultWidth / 2, y: y },
+            legal: false,
+            direction: 'right',
+            width: defaultWidth
+          };
+        }
+
+        if (!ghostPlateExists(shelf.ghostPlates, candidate)) {
+          shelf.ghostPlates.push(candidate);
+        }
+      }
+    }
+
+    // Check for rod extension opportunities (above/below current rod)
+    // Only check for the rod to the right to avoid duplicates
+    const STANDARD_GAP = 600;
+    const defaultPlateSku = AVAILABLE_PLATES.find(p => p.sku_id === DEFAULT_PLATE_SKU_ID);
+    if (!defaultPlateSku) continue;
+
+    // Find adjacent rod to the right at standard gap
+    let rightRodId: number | undefined;
+    let rightRod: Rod | undefined;
+    for (const [candidateId, candidateRod] of shelf.rods) {
+      if (candidateRod.position.x === rod.position.x + STANDARD_GAP) {
+        rightRodId = candidateId;
+        rightRod = candidateRod;
+        break;
+      }
+    }
+
+    if (rightRodId === undefined || rightRod === undefined) continue;
+
+    // Calculate top and bottom Y levels for both rods
+    const leftTopY = rod.position.y + (rod.attachmentPoints.length > 0
+      ? rod.attachmentPoints[rod.attachmentPoints.length - 1].y
+      : 0);
+    const rightTopY = rightRod.position.y + (rightRod.attachmentPoints.length > 0
+      ? rightRod.attachmentPoints[rightRod.attachmentPoints.length - 1].y
+      : 0);
+    const shelfTopY = Math.min(leftTopY, rightTopY);
+
+    const leftBottomY = rod.position.y;
+    const rightBottomY = rightRod.position.y;
+    const shelfBottomY = Math.max(leftBottomY, rightBottomY);
+
+    const upExtension = findCommonExtension([rodId, rightRodId], 'up', shelf);
+    if (upExtension) {
+      const spanToAdd = upExtension.get(rodId)!.spanToAdd;
+      const newY = shelfTopY + spanToAdd;
+      const centerX = (rod.position.x + rightRod.position.x) / 2;
+
+      const rodExtensions: RodExtension[] = [];
+      for (const [extRodId, ext] of upExtension.entries()) {
+        rodExtensions.push({ rodId: extRodId, newSkuId: ext.newSKU_id });
+      }
+
+      const candidate: GhostPlate = {
+        sku_id: defaultPlateSku.sku_id,
+        connections: [rodId, rightRodId],
+        midpointPosition: { x: centerX, y: newY },
+        legal: true,
+        action: 'extend_rod',
+        width: STANDARD_GAP,
+        rodExtensions,
+        extensionDirection: 'up'
+      };
+
+      if (!ghostPlateExists(shelf.ghostPlates, candidate)) {
+        shelf.ghostPlates.push(candidate);
+      }
+    }
+
+    // Check downward extension 
+    const downExtension = findCommonExtension([rodId, rightRodId], 'down', shelf);
+    if (downExtension) {
+      const spanToAdd = downExtension.get(rodId)!.spanToAdd;
+      const newY = shelfBottomY - spanToAdd;
+      const centerX = (rod.position.x + rightRod.position.x) / 2;
+
+      const rodExtensions: RodExtension[] = [];
+      for (const [extRodId, ext] of downExtension.entries()) {
+        rodExtensions.push({ rodId: extRodId, newSkuId: ext.newSKU_id });
+      }
+
+      const candidate: GhostPlate = {
+        sku_id: defaultPlateSku.sku_id,
+        connections: [rodId, rightRodId],
+        midpointPosition: { x: centerX, y: newY },
+        legal: true,
+        action: 'extend_rod',
+        width: STANDARD_GAP,
+        rodExtensions,
+        extensionDirection: 'down'
+      };
+
+      if (!ghostPlateExists(shelf.ghostPlates, candidate)) {
+        shelf.ghostPlates.push(candidate);
+      }
+    }
+
+  }
+}

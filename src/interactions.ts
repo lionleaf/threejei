@@ -1,4 +1,4 @@
-import { type Shelf, removePlate, removeSegmentFromPlate, removeRodSegment, tryFillGapWithPlate, tryFillEdgeGap, tryFillExtensionGap, type Plate, type Rod, AVAILABLE_RODS, calculateAttachmentPositions } from './shelf-model.js';
+import { type Shelf, removePlate, removeSegmentFromPlate, removeRodSegment, addPlate, addRod, type Plate, type Rod, AVAILABLE_RODS, calculateAttachmentPositions, mergePlates, extendPlate, Direction, type PlateSegmentResult, GhostPlate, resolveRodConnections, extendRodUp, extendRodDown } from './shelf-model.js';
 import { DEBUG_SHOW_COLLIDERS } from './shelf_viz.js';
 
 // Declare THREE as global (loaded via CDN)
@@ -17,7 +17,8 @@ export function setupInteractions(
   scene: any,
   camera: any,
   renderer: any,
-  callbacks: RegenerationCallbacks
+  callbacks: RegenerationCallbacks,
+  tooltipContainer?: HTMLDivElement
 ): InteractionSystem {
   // Raycasting setup
   const raycaster = new THREE.Raycaster();
@@ -83,9 +84,7 @@ export function setupInteractions(
       return;
     }
 
-    // Calculate which segment was clicked
     const segmentIndex = hitPoint ? calculatePlateSegmentIndex(plate, hitPoint.x) : 0;
-
     const success = removeSegmentFromPlate(plateId, segmentIndex, shelf);
 
     if (success) {
@@ -94,6 +93,93 @@ export function setupInteractions(
     } else {
       console.log(`Failed to remove plate segment`);
     }
+  }
+
+  function onGhostPlateClick(ghostPlate: GhostPlate) {
+    if (!ghostPlate.legal) {
+      console.log('Cannot add plate here - illegal placement');
+      return;
+    }
+
+    if (!ghostPlate.sku_id || !ghostPlate.connections) {
+      console.log('Ghost plate missing required data');
+      return;
+    }
+
+    const action = ghostPlate.action || 'error';
+    console.log(`Ghost plate action: ${action}, sku_id=${ghostPlate.sku_id}, connections=${ghostPlate.connections}`);
+
+    let success = false;
+
+    if (action === 'merge') {
+      console.log('Executing merge action');
+      if (ghostPlate.existingPlateId !== undefined &&
+          ghostPlate.targetPlateId !== undefined &&
+          ghostPlate.sku_id !== undefined &&
+          ghostPlate.connections) {
+        const mergedPlateId = mergePlates(
+          ghostPlate.existingPlateId,
+          ghostPlate.targetPlateId,
+          ghostPlate.sku_id,
+          ghostPlate.connections,
+          shelf
+        );
+        success = mergedPlateId !== -1;
+        if (success) {
+          console.log(`Successfully merged into plate ${mergedPlateId}`);
+        }
+      }
+    } else if (action === 'extend') {
+      console.log('Executing extend action', ghostPlate);
+      if (ghostPlate.existingPlateId !== undefined && ghostPlate.connections) {
+        const actualRodIds = resolveRodConnections(ghostPlate.connections, ghostPlate.newRodPosition, shelf);
+        extendPlate(ghostPlate.existingPlateId, ghostPlate.sku_id, actualRodIds, shelf);
+
+        success = true;
+      }
+    } else if (action === 'extend_rod') {
+      console.log('Executing extend_rod action', ghostPlate);
+      if (ghostPlate.rodExtensions && ghostPlate.extensionDirection && ghostPlate.connections && ghostPlate.sku_id !== undefined) {
+        // First, extend all rods
+        let allExtensionsSucceeded = true;
+        for (const ext of ghostPlate.rodExtensions) {
+          const extendResult = ghostPlate.extensionDirection === 'up'
+            ? extendRodUp(ext.rodId, ext.newSkuId, shelf)
+            : extendRodDown(ext.rodId, ext.newSkuId, shelf);
+          if (!extendResult) {
+            console.error(`Failed to extend rod ${ext.rodId}`);
+            allExtensionsSucceeded = false;
+            break;
+          }
+        }
+
+        // Then add the plate at the new level
+        if (allExtensionsSucceeded) {
+          const plateId = addPlate(ghostPlate.midpointPosition.y, ghostPlate.sku_id, ghostPlate.connections, shelf);
+          success = plateId !== -1;
+          if (success) {
+            console.log(`Successfully extended rods and created plate ${plateId}`);
+          }
+        }
+      }
+    }
+
+    if (!success && action === 'create') {
+      console.log('Executing create action');
+
+      const actualRodIds = resolveRodConnections(ghostPlate.connections, ghostPlate.newRodPosition, shelf);
+
+      const plateId = addPlate(ghostPlate.midpointPosition.y, ghostPlate.sku_id, actualRodIds, shelf);
+
+      if (plateId !== -1) {
+        console.log(`Ghost plate created successfully as plate ${plateId}`);
+        success = true;
+      } else {
+        console.log('Failed to create plate');
+      }
+    }
+
+    callbacks.rebuildGeometry();
   }
 
   // Pointer event handling for raycasting
@@ -114,23 +200,63 @@ export function setupInteractions(
       (plate as any).isHovered = false;
     });
     scene.children.forEach((child: any) => {
-      if ((child.userData?.type === 'gap' || child.userData?.type === 'edge_gap' || child.userData?.type === 'extension_gap') && child.material) {
-        child.material.opacity = DEBUG_SHOW_COLLIDERS ? 0.2 : 0.0;
+      if (child.userData?.type === 'ghost_plate' && child.material) {
+        child.material.opacity = DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0;
       }
     });
 
-    // Find first hit with userData.type (plate, gap, edge_gap, or extension_gap)
+    // Hide tooltip by default
+    if (tooltipContainer) {
+      tooltipContainer.style.display = 'none';
+    }
+
+    // Find first hit with userData.type (plate, ghost_plate, or rod)
     for (const hit of intersects) {
       const userData = hit.object.userData;
 
       if (userData?.type === 'plate') {
-        const plate = shelf.plates.get(userData.plateId);
+        const plateId = userData.plateId;
+        const plate = shelf.plates.get(plateId);
         if (plate) {
           (plate as any).isHovered = true;
+
+          // Show tooltip in debug mode
+          if (DEBUG_SHOW_COLLIDERS && tooltipContainer) {
+            tooltipContainer.style.display = 'block';
+            tooltipContainer.style.left = `${event.clientX + 20}px`;
+            tooltipContainer.style.top = `${event.clientY + 20}px`;
+            tooltipContainer.textContent = `Plate ${plateId}\n` + JSON.stringify(plate, null, 2);
+          }
         }
         break; // Plates take priority
-      } else if (userData?.type === 'gap' || userData?.type === 'edge_gap' || userData?.type === 'extension_gap') {
-        (hit.object.material as any).opacity = 0.4;
+      } else if (userData?.type === 'rod') {
+        const rodId = userData.rodId;
+        const rod = shelf.rods.get(rodId);
+        if (rod) {
+          // Show tooltip in debug mode
+          if (DEBUG_SHOW_COLLIDERS && tooltipContainer) {
+            tooltipContainer.style.display = 'block';
+            tooltipContainer.style.left = `${event.clientX + 20}px`;
+            tooltipContainer.style.top = `${event.clientY + 20}px`;
+            tooltipContainer.textContent = `Rod ${rodId}\n` + JSON.stringify(rod, null, 2);
+          }
+        }
+        break;
+      } else if (userData?.type === 'ghost_plate') {
+        const ghostPlate = userData.ghostPlate;
+        if (ghostPlate.legal) {
+          (hit.object.material as any).opacity = 0.5;
+        } else {
+          (hit.object.material as any).opacity = 0.3;
+        }
+
+        // Show tooltip in debug mode
+        if (DEBUG_SHOW_COLLIDERS && tooltipContainer) {
+          tooltipContainer.style.display = 'block';
+          tooltipContainer.style.left = `${event.clientX + 20}px`;
+          tooltipContainer.style.top = `${event.clientY + 20}px`;
+          tooltipContainer.textContent = JSON.stringify(ghostPlate, null, 2);
+        }
         break;
       }
     }
@@ -145,45 +271,15 @@ export function setupInteractions(
     raycaster.setFromCamera(pointer, camera);
     const intersects = raycaster.intersectObjects(scene.children, true);
 
-    // Find first hit with userData.type (plate, gap, edge_gap, or rod)
+    // Find first hit with userData.type (plate, ghost_plate, or rod)
     for (const hit of intersects) {
       const userData = hit.object.userData;
 
       if (userData?.type === 'plate') {
         onPlateClick(userData.plateId, hit.point);
         break; // Plates take priority
-      } else if (userData?.type === 'gap') {
-        console.log(`Filling gap between rods ${userData.rodIds} at height ${userData.y}`);
-        const plateId = tryFillGapWithPlate(userData.rodIds[0], userData.rodIds[1], userData.y, shelf);
-
-        if (plateId !== -1) {
-          console.log(`Gap filled successfully with plate ${plateId}`);
-          callbacks.rebuildGeometry();
-        } else {
-          console.log(`Failed to fill gap`);
-        }
-        break;
-      } else if (userData?.type === 'edge_gap') {
-        console.log(`Filling edge gap at ${userData.direction} of rod ${userData.edgeRodId} at height ${userData.y}`);
-        const plateId = tryFillEdgeGap(userData.edgeRodId, userData.y, userData.direction, shelf);
-
-        if (plateId !== -1) {
-          console.log(`Edge gap filled successfully with plate ${plateId}`);
-          callbacks.rebuildGeometry();
-        } else {
-          console.log(`Failed to fill edge gap`);
-        }
-        break;
-      } else if (userData?.type === 'extension_gap') {
-        console.log(`Filling extension gap (${userData.direction}) between rods ${userData.rodIds} at height ${userData.y}`);
-        const plateId = tryFillExtensionGap(userData.rodIds, userData.y, userData.direction, userData.requiredExtensions, shelf);
-
-        if (plateId !== -1) {
-          console.log(`Extension gap filled successfully with plate ${plateId}`);
-          callbacks.rebuildGeometry();
-        } else {
-          console.log(`Failed to fill extension gap`);
-        }
+      } else if (userData?.type === 'ghost_plate') {
+        onGhostPlateClick(userData.ghostPlate);
         break;
       } else if (userData?.type === 'rod') {
         onRodClick(userData.rodId, hit.point);
