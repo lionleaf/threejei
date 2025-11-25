@@ -98,6 +98,36 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
         scene.add(pointMesh);
       });
     });
+
+    // Add horizontal connecting rods between front and back vertical rods at attachment points
+    rod.attachmentPoints.forEach(ap => {
+      const attachmentY = rod.position.y + ap.y;
+      const hasPlate = ap.plateId !== undefined;
+
+      if (hasPlate) {
+        // Connection rod diameter ~8-10mm, runs full depth (200mm)
+        const connectionRodRadius = 5;
+        const connectionRodMaterial = new THREE.MeshStandardMaterial({
+          color: 0x887668,
+          roughness: 0.7,
+          metalness: 0.0
+        });
+
+        // Horizontal cylinder connecting front (Z=0) to back (Z=200)
+        const connectionRod = new THREE.Mesh(
+          new THREE.CylinderGeometry(connectionRodRadius, connectionRodRadius, plateDepth, 16),
+          connectionRodMaterial
+        );
+
+        // Rotate to align with Z-axis (default cylinder is along Y-axis)
+        connectionRod.rotation.x = Math.PI / 2;
+
+        // Position at the attachment point, centered in Z
+        connectionRod.position.set(rod.position.x, attachmentY, plateDepth / 2);
+        connectionRod.userData = { type: 'connection_rod' };
+        scene.add(connectionRod);
+      }
+    });
   });
 
   // Generate plate geometry
@@ -127,26 +157,6 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
     };
 
     scene.add(plateMesh);
-
-    // Add connection point indicators on plates (at both rod positions)
-    const rodZPositions = [0, plateSKU.depth];
-
-    connectedRods.forEach(rod => {
-      rodZPositions.forEach(zPos => {
-        // Small cylinder at each connection point on the plate
-        const connectionGeometry = new THREE.CylinderGeometry(6, 6, 35);
-        const connectionMaterial = new THREE.MeshBasicMaterial({
-          color: 0x444444, // Dark gray for subtle appearance
-          transparent: true,
-          opacity: 0.6
-        });
-
-        const connectionMesh = new THREE.Mesh(connectionGeometry, connectionMaterial);
-        connectionMesh.position.set(rod.position.x, plate.y, zPos);
-        connectionMesh.userData = { type: 'connection_point' };
-        scene.add(connectionMesh);
-      });
-    });
   });
 
   // Generate ghost plate visualizations
