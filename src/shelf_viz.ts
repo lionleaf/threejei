@@ -72,9 +72,10 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
 
     // Create two rods - one at front, one at back
     zPositions.forEach(zPos => {
-      const rodMaterial = new THREE.MeshToonMaterial({
+      const rodMaterial = new THREE.MeshStandardMaterial({
         color: 0x76685e,
-        gradientMap: gradientMap
+        roughness: 0.7,
+        metalness: 0.0
       });
 
       // Main cylinder body
@@ -95,9 +96,10 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
       if (hasPlate) {
         // Connection rod diameter ~8-10mm, runs full depth (200mm)
         const connectionRodRadius = 5;
-        const connectionRodMaterial = new THREE.MeshToonMaterial({
+        const connectionRodMaterial = new THREE.MeshStandardMaterial({
           color: 0x76685e,
-          gradientMap: gradientMap
+          roughness: 0.7,
+          metalness: 0.0
         });
 
         let connectionRodLength = 200;
@@ -133,9 +135,10 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
 
     const plateMesh = new THREE.Mesh(
       new THREE.BoxGeometry(plateWidth, 15, plateSKU.depth),
-      new THREE.MeshToonMaterial({
+      new THREE.MeshStandardMaterial({
         color: 0x76685e,
-        gradientMap: gradientMap
+        roughness: 0.7,
+        metalness: 0.0
       })
     );
     plateMesh.position.set(centerX, plate.y, plateSKU.depth / 2);
