@@ -25,8 +25,9 @@ const rodDistance = 153
 const rodRadius = 14
 const plateThickness = 20
 const connectionRodRadius = 6
-const innerRodHeightPadding = 35
-const outerRodHeightPadding = 65
+const innerRodHeightPadding = 65
+const outerRodHeightPadding = 35
+const connectionRodGrooveDepth = 4
 
 // Rebuild all shelf geometry (rods, plates, gap colliders)
 function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLDivElement): void {
@@ -99,7 +100,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
 
     // Add horizontal connecting rods between front and back vertical rods at attachment points
     rod.attachmentPoints.forEach(ap => {
-      const attachmentY = rod.position.y + ap.y - plateThickness / 2 + connectionRodRadius / 2;
+      const attachmentY = rod.position.y + ap.y - plateThickness / 2 - connectionRodRadius + connectionRodGrooveDepth;
 
       // Connection rod diameter ~8-10mm, runs full depth (200mm)
       const connectionRodMaterial = new THREE.MeshStandardMaterial({
@@ -139,7 +140,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
     const centerX = connectedRods.reduce((sum, rod) => sum + rod.position.x, 0) / connectedRods.length;
 
     const plateMesh = new THREE.Mesh(
-      new THREE.BoxGeometry(plateWidth, 15, plateSKU.depth),
+      new THREE.BoxGeometry(plateWidth, plateThickness, plateSKU.depth),
       new THREE.MeshStandardMaterial({
         color: 0x76685e,
         roughness: 0.7,
