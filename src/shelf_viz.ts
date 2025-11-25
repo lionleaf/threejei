@@ -367,6 +367,8 @@ const shelf = createEmptyShelf();
 const rod1 = addRod({ x: 0, y: 0 }, 4, shelf); // 3P_22: 3 attachment points, 200mm + 200mm gaps
 const rod2 = addRod({ x: 600, y: 0 }, 4, shelf); // 3P_22: matching rod
 
-addPlate(200, 1, [rod1, rod2], shelf); // 670mm plate at middle attachment level
+addPlate(0, 1, [rod1, rod2], shelf);
+addPlate(200, 1, [rod1, rod2], shelf);
+addPlate(400, 1, [rod1, rod2], shelf);
 
 visualizeShelf(shelf);
