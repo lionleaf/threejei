@@ -24,6 +24,18 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
   // Remove all children from scene
   scene.clear();
 
+  // Re-add lighting (cleared by scene.clear())
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+  scene.add(ambientLight);
+
+  const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+  directionalLight.position.set(500, 1000, 500);
+  scene.add(directionalLight);
+
+  const backLight = new THREE.DirectionalLight(0xffffff, 0.3);
+  backLight.position.set(-500, 500, -500);
+  scene.add(backLight);
+
   // Update SKU list if container is provided
   if (skuListContainer) {
     updateSKUList(shelf, skuListContainer);
@@ -229,18 +241,6 @@ function visualizeShelf(shelf: Shelf): void {
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setClearColor(0xf5f5f5);
   document.body.appendChild(renderer.domElement);
-
-  // Add lighting for StandardMaterial
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-  scene.add(ambientLight);
-
-  const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-  directionalLight.position.set(500, 1000, 500);
-  scene.add(directionalLight);
-
-  const backLight = new THREE.DirectionalLight(0xffffff, 0.3);
-  backLight.position.set(-500, 500, -500);
-  scene.add(backLight);
 
   // Create SKU list container
   const skuListContainer = document.createElement('div');
