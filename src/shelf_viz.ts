@@ -65,7 +65,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
     // Create two rods - one at front, one at back
     zPositions.forEach(zPos => {
       const rodMaterial = new THREE.MeshToonMaterial({
-        color: 0x887668,
+        color: 0x988373,
         gradientMap: gradientMap
       });
 
@@ -89,7 +89,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
         // Connection rod diameter ~8-10mm, runs full depth (200mm)
         const connectionRodRadius = 5;
         const connectionRodMaterial = new THREE.MeshToonMaterial({
-          color: 0x76685e,
+          color: 0x988373,
           gradientMap: gradientMap
         });
 
@@ -128,7 +128,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
     const plateMesh = new THREE.Mesh(
       new THREE.BoxGeometry(plateWidth, 30, plateSKU.depth),
       new THREE.MeshToonMaterial({
-        color: 0xa8907c,
+        color: 0x988373,
         gradientMap: gradientMap
       })
     );
