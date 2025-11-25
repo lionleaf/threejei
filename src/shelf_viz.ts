@@ -78,25 +78,6 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
       );
       bottomCap.position.set(rod.position.x, rod.position.y, zPos);
       scene.add(bottomCap);
-
-      // Add attachment point indicators on each rod
-      rod.attachmentPoints.forEach(ap => {
-        const attachmentY = rod.position.y + ap.y;
-        const hasPlate = ap.plateId !== undefined;
-
-        // Create small cylinder at attachment point
-        const pointGeometry = new THREE.CylinderGeometry(25, 25, 10); // radius 25, height 10
-        const pointMaterial = new THREE.MeshBasicMaterial({
-          color: hasPlate ? 0x8B4513 : 0xCCCCCC, // Brown if has plate, light gray if empty
-          transparent: true,
-          opacity: hasPlate ? 0.8 : 0.5
-        });
-
-        const pointMesh = new THREE.Mesh(pointGeometry, pointMaterial);
-        pointMesh.position.set(rod.position.x, attachmentY, zPos);
-        pointMesh.userData = { type: 'attachment_point' };
-        scene.add(pointMesh);
-      });
     });
 
     // Add horizontal connecting rods between front and back vertical rods at attachment points
