@@ -40,10 +40,18 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
   backLight.position.set(-500, 500, -500);
   scene.add(backLight);
 
-  // Create gradient map for toon/cell shading
+  // Create gradient map for toon/cell shading with more steps for smoother transitions
   const gradientMap = new THREE.DataTexture(
-    new Uint8Array([0, 0, 0, 128, 128, 128, 255, 255, 255]),
-    3, 1, THREE.RGBFormat
+    new Uint8Array([
+      0, 0, 0,        // Dark shadow
+      64, 64, 64,     // Shadow
+      96, 96, 96,     // Mid-shadow
+      128, 128, 128,  // Mid-tone
+      160, 160, 160,  // Mid-light
+      192, 192, 192,  // Light
+      255, 255, 255   // Highlight
+    ]),
+    7, 1, THREE.RGBFormat
   );
   gradientMap.minFilter = THREE.NearestFilter;
   gradientMap.magFilter = THREE.NearestFilter;
