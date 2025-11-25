@@ -19,6 +19,10 @@ declare const THREE: any;
 // Debug state to make colliders visible
 export let DEBUG_SHOW_COLLIDERS = false;
 
+// Distance (in mm) between the two rods holding a plate
+const rodDistance = 153;
+const rodRadius = 14;
+
 // Rebuild all shelf geometry (rods, plates, gap colliders)
 function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLDivElement): void {
   // Remove all children from scene
@@ -36,6 +40,15 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
   backLight.position.set(-500, 500, -500);
   scene.add(backLight);
 
+  // Create gradient map for toon/cell shading
+  const gradientMap = new THREE.DataTexture(
+    new Uint8Array([0, 0, 0, 128, 128, 128, 255, 255, 255]),
+    3, 1, THREE.RGBFormat
+  );
+  gradientMap.minFilter = THREE.NearestFilter;
+  gradientMap.magFilter = THREE.NearestFilter;
+  gradientMap.needsUpdate = true;
+
   // Update SKU list if container is provided
   if (skuListContainer) {
     updateSKUList(shelf, skuListContainer);
@@ -46,38 +59,25 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
     const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
     const height = rodSKU?.spans.reduce((sum, span) => sum + span, 0) || 40;
 
-    // Plate depth is 200mm, rods are at the front (Z=0) and back (Z=200) edges
-    const plateDepth = 200;
-    const zPositions = [0, plateDepth];
+
+    const zPositions = [rodRadius, rodDistance + rodRadius];
 
     // Create two rods - one at front, one at back
     zPositions.forEach(zPos => {
-      const rodMaterial = new THREE.MeshStandardMaterial({ color: 0x887668, roughness: 0.7, metalness: 0.0 });
+      const rodMaterial = new THREE.MeshToonMaterial({
+        color: 0x887668,
+        gradientMap: gradientMap
+      });
 
       // Main cylinder body
+      const rodRadialSegments = 32
       const rodMesh = new THREE.Mesh(
-        new THREE.CylinderGeometry(14, 14, height, 16, 1, false),
+        new THREE.CylinderGeometry(rodRadius, rodRadius, height, rodRadialSegments, 1, false),
         rodMaterial
       );
       rodMesh.position.set(rod.position.x, rod.position.y + height / 2, zPos);
       rodMesh.userData = { type: 'rod', rodId: rodId };
       scene.add(rodMesh);
-
-      // Add rounded caps at top and bottom
-      const capRadius = 14;
-      const topCap = new THREE.Mesh(
-        new THREE.SphereGeometry(capRadius, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2),
-        rodMaterial
-      );
-      topCap.position.set(rod.position.x, rod.position.y + height, zPos);
-      scene.add(topCap);
-
-      const bottomCap = new THREE.Mesh(
-        new THREE.SphereGeometry(capRadius, 16, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2),
-        rodMaterial
-      );
-      bottomCap.position.set(rod.position.x, rod.position.y, zPos);
-      scene.add(bottomCap);
     });
 
     // Add horizontal connecting rods between front and back vertical rods at attachment points
@@ -88,15 +88,16 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
       if (hasPlate) {
         // Connection rod diameter ~8-10mm, runs full depth (200mm)
         const connectionRodRadius = 5;
-        const connectionRodMaterial = new THREE.MeshStandardMaterial({
-          color: 0x887668,
-          roughness: 0.7,
-          metalness: 0.0
+        const connectionRodMaterial = new THREE.MeshToonMaterial({
+          color: 0x76685e,
+          gradientMap: gradientMap
         });
+
+        let connectionRodLength = 200
 
         // Horizontal cylinder connecting front (Z=0) to back (Z=200)
         const connectionRod = new THREE.Mesh(
-          new THREE.CylinderGeometry(connectionRodRadius, connectionRodRadius, plateDepth, 16),
+          new THREE.CylinderGeometry(connectionRodRadius, connectionRodRadius, connectionRodLength, 16),
           connectionRodMaterial
         );
 
@@ -104,7 +105,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
         connectionRod.rotation.x = Math.PI / 2;
 
         // Position at the attachment point, centered in Z
-        connectionRod.position.set(rod.position.x, attachmentY, plateDepth / 2);
+        connectionRod.position.set(rod.position.x, attachmentY, connectionRodLength / 2);
         connectionRod.userData = { type: 'connection_rod' };
         scene.add(connectionRod);
       }
@@ -126,7 +127,10 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
 
     const plateMesh = new THREE.Mesh(
       new THREE.BoxGeometry(plateWidth, 30, plateSKU.depth),
-      new THREE.MeshStandardMaterial({ color: 0x988373, roughness: 0.7, metalness: 0.0 })
+      new THREE.MeshToonMaterial({
+        color: 0xa8907c,
+        gradientMap: gradientMap
+      })
     );
     plateMesh.position.set(centerX, plate.y, plateSKU.depth / 2);
 
