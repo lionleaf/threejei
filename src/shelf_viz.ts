@@ -70,11 +70,10 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
       });
 
       // Main cylinder body
-      const rodRadialSegments = 32
-      const rodMesh = new THREE.Mesh(
-        new THREE.CylinderGeometry(rodRadius, rodRadius, height, rodRadialSegments, 1, false),
-        rodMaterial
-      );
+      const rodRadialSegments = 32;
+      const rodGeometry = new THREE.CylinderGeometry(rodRadius, rodRadius, height, rodRadialSegments, 1, false);
+      rodGeometry.computeVertexNormals();
+      const rodMesh = new THREE.Mesh(rodGeometry, rodMaterial);
       rodMesh.position.set(rod.position.x, rod.position.y + height / 2, zPos);
       rodMesh.userData = { type: 'rod', rodId: rodId };
       scene.add(rodMesh);
@@ -93,13 +92,12 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
           gradientMap: gradientMap
         });
 
-        let connectionRodLength = 200
+        let connectionRodLength = 200;
 
         // Horizontal cylinder connecting front (Z=0) to back (Z=200)
-        const connectionRod = new THREE.Mesh(
-          new THREE.CylinderGeometry(connectionRodRadius, connectionRodRadius, connectionRodLength, 16),
-          connectionRodMaterial
-        );
+        const connectionRodGeometry = new THREE.CylinderGeometry(connectionRodRadius, connectionRodRadius, connectionRodLength, 16);
+        connectionRodGeometry.computeVertexNormals();
+        const connectionRod = new THREE.Mesh(connectionRodGeometry, connectionRodMaterial);
 
         // Rotate to align with Z-axis (default cylinder is along Y-axis)
         connectionRod.rotation.x = Math.PI / 2;
