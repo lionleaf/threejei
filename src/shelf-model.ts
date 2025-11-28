@@ -208,11 +208,116 @@ export function addRod(position: Vec2f, sku_id: number, shelf: Shelf): number {
 }
 
 // Add a rod at the given position, or extend an existing rod if one is nearby
-// TODO: Check for existing rods at the same X position and extend them instead of creating new ones
 export function addOrExtendRod(position: Vec2f, shelf: Shelf): number {
-  // For now, just create a new rod with minimal SKU (1 attachment point)
+  const TOLERANCE = 1; // 1mm tolerance for floating point comparisons
+
+  // Find all rods at the target X position
+  const rodsAtX: Array<[number, Rod]> = [];
+  for (const [rodId, rod] of shelf.rods) {
+    if (Math.abs(rod.position.x - position.x) < TOLERANCE) {
+      rodsAtX.push([rodId, rod]);
+    }
+  }
+
+  // If no rods at this X, create a new minimal rod
+  if (rodsAtX.length === 0) {
+    const minimalSkuId = 1; // 1P rod - single attachment point
+    return addRod(position, minimalSkuId, shelf);
+  }
+
+  // Try to extend existing rods
+  // Prefer upward extensions first, then downward
+  const upwardCandidates: Array<[number, Rod]> = [];
+  const downwardCandidates: Array<[number, Rod]> = [];
+
+  for (const [rodId, rod] of rodsAtX) {
+    const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+    if (!rodSKU) continue;
+
+    // Check if attachment already exists at this position
+    const relativeY = position.y - rod.position.y;
+    const alreadyExists = rod.attachmentPoints.some(ap => Math.abs(ap.y - relativeY) < TOLERANCE);
+    if (alreadyExists) {
+      return rodId; // Already has attachment at this position
+    }
+
+    // Get current rod bounds
+    const attachmentPositions = calculateAttachmentPositions(rodSKU);
+    const absoluteTop = rod.position.y + attachmentPositions[attachmentPositions.length - 1];
+    const absoluteBottom = rod.position.y + attachmentPositions[0];
+
+    // Check if position overlaps with existing rod (illegal)
+    if (position.y > absoluteBottom + TOLERANCE && position.y < absoluteTop - TOLERANCE) {
+      continue; // Skip this rod - overlap is illegal
+    }
+
+    // Categorize as upward or downward extension candidate
+    if (position.y > absoluteTop + TOLERANCE) {
+      upwardCandidates.push([rodId, rod]);
+    } else if (position.y < absoluteBottom - TOLERANCE) {
+      downwardCandidates.push([rodId, rod]);
+    }
+  }
+
+  // Try upward extensions first
+  for (const [rodId, rod] of upwardCandidates) {
+    const extendedRodId = tryExtendRod(rodId, rod, position.y, 'up', shelf);
+    if (extendedRodId !== undefined) {
+      return extendedRodId;
+    }
+  }
+
+  // Try downward extensions
+  for (const [rodId, rod] of downwardCandidates) {
+    const extendedRodId = tryExtendRod(rodId, rod, position.y, 'down', shelf);
+    if (extendedRodId !== undefined) {
+      return extendedRodId;
+    }
+  }
+
+  // No valid extension found - create a new minimal rod
   const minimalSkuId = 1; // 1P rod - single attachment point
   return addRod(position, minimalSkuId, shelf);
+}
+
+// Helper function to try extending a rod in a specific direction
+function tryExtendRod(
+  rodId: number,
+  rod: Rod,
+  newY: number,
+  direction: 'up' | 'down',
+  shelf: Shelf
+): number | undefined {
+  const TOLERANCE = 1;
+  const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+  if (!rodSKU) return undefined;
+
+  // Get all existing attachment positions (absolute coordinates)
+  const existingAbsoluteYs = rod.attachmentPoints.map(ap => rod.position.y + ap.y);
+
+  // Add the new position
+  const allPositions = [...existingAbsoluteYs, newY].sort((a, b) => a - b);
+
+  // Calculate gaps between consecutive positions
+  const gaps: number[] = [];
+  for (let i = 0; i < allPositions.length - 1; i++) {
+    gaps.push(allPositions[i + 1] - allPositions[i]);
+  }
+
+  // Search for a matching SKU
+  const matchingSKU = AVAILABLE_RODS.find(sku => {
+    if (sku.spans.length !== gaps.length) return false;
+    return sku.spans.every((span, i) => Math.abs(span - gaps[i]) < TOLERANCE);
+  });
+
+  if (!matchingSKU) return undefined;
+
+  // Try to extend the rod
+  const success = direction === 'up'
+    ? extendRodUp(rodId, matchingSKU.sku_id, shelf)
+    : extendRodDown(rodId, matchingSKU.sku_id, shelf);
+
+  return success ? rodId : undefined;
 }
 
 // Resolve rod connections by replacing -1 placeholders with actual rod IDs
