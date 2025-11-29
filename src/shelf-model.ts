@@ -259,7 +259,17 @@ export function addOrExtendRod(position: Vec2f, shelf: Shelf): number {
     }
   }
 
-  // Try upward extensions first
+  // Try merging first
+  for (const [bottomRodId, bottomRod] of upwardCandidates) {
+    for (const [topRodId, topRod] of downwardCandidates) {
+      const extendedRodId = tryMergeRod(bottomRodId, topRodId, position.y, shelf);
+      if (extendedRodId !== undefined) {
+        return extendedRodId;
+      }
+    }
+  }
+
+  // Then upward extensions
   for (const [rodId, rod] of upwardCandidates) {
     const extendedRodId = tryExtendRod(rodId, rod, position.y, 'up', shelf);
     if (extendedRodId !== undefined) {
@@ -278,6 +288,94 @@ export function addOrExtendRod(position: Vec2f, shelf: Shelf): number {
   // No valid extension found - create a new minimal rod
   const minimalSkuId = 1; // 1P rod - single attachment point
   return addRod(position, minimalSkuId, shelf);
+}
+
+// Merges two rods into a single rod with a new attachment point
+// The bottom rod is kept and updated, the top rod is removed
+// All plates from both rods are transferred to the merged rod
+function mergeRods(
+  bottomRodId: number,
+  topRodId: number,
+  newSkuId: number,
+  shelf: Shelf
+): number {
+  const bottomRod = shelf.rods.get(bottomRodId);
+  const topRod = shelf.rods.get(topRodId);
+  if (!bottomRod || !topRod) return -1;
+
+  const newSKU = AVAILABLE_RODS.find(r => r.sku_id === newSkuId);
+  if (!newSKU) return -1;
+
+  // Update the bottom rod with the new SKU
+  bottomRod.sku_id = newSkuId;
+
+  // Rebuild attachment points for the merged rod
+  bottomRod.attachmentPoints = [];
+  const positions = calculateAttachmentPositions(newSKU);
+  for (const y of positions) {
+    bottomRod.attachmentPoints.push({ y });
+  }
+
+  // Re-attach all plates that were connected to either rod
+  shelf.plates.forEach((plate, plateId) => {
+    if (plate.connections.includes(bottomRodId) || plate.connections.includes(topRodId)) {
+      // Update plate connections - replace topRodId with bottomRodId
+      plate.connections = plate.connections.map(rodId =>
+        rodId === topRodId ? bottomRodId : rodId
+      );
+
+      // Re-attach plate to the merged rod at the correct attachment point
+      const attachmentY = plate.y - bottomRod.position.y;
+      const attachmentIndex = bottomRod.attachmentPoints.findIndex(ap => ap.y === attachmentY);
+      if (attachmentIndex !== -1) {
+        bottomRod.attachmentPoints[attachmentIndex].plateId = plateId;
+      }
+    }
+  });
+
+  // Remove the top rod from the shelf
+  shelf.rods.delete(topRodId);
+
+  return bottomRodId;
+}
+
+// Helper function to try extending a rod in a specific direction
+function tryMergeRod(
+  bottomRodId: number,
+  topRodId: number,
+  newAttachmentY: number,
+  shelf: Shelf
+): number | undefined {
+  const bottomRod = shelf.rods.get(bottomRodId)
+  const topRod = shelf.rods.get(topRodId)
+  if (bottomRod === undefined || topRod === undefined) {
+    return undefined;
+  }
+
+  const TOLERANCE = 1;
+  const bottomRodSKU = AVAILABLE_RODS.find(r => r.sku_id === bottomRod.sku_id);
+  const topRodSKU = AVAILABLE_RODS.find(r => r.sku_id === topRod.sku_id);
+  if (!bottomRodSKU || !topRodSKU) return undefined;
+
+  // Get all existing attachment positions (absolute coordinates)
+  const combinedAbsoluteYs = [...bottomRod.attachmentPoints.map(ap => bottomRod.position.y + ap.y), newAttachmentY, ...topRod.attachmentPoints.map(ap => topRod.position.y + ap.y)];
+
+  // Calculate gaps between consecutive positions
+  const gaps: number[] = [];
+  for (let i = 0; i < combinedAbsoluteYs.length - 1; i++) {
+    gaps.push(combinedAbsoluteYs[i + 1] - combinedAbsoluteYs[i]);
+  }
+
+  // Search for a matching SKU
+  const matchingSKU = AVAILABLE_RODS.find(sku => {
+    if (sku.spans.length !== gaps.length) return false;
+    return sku.spans.every((span, i) => Math.abs(span - gaps[i]) < TOLERANCE);
+  });
+
+  if (!matchingSKU) return undefined;
+
+  // Try to extend the rod
+  return mergeRods(bottomRodId, topRodId, matchingSKU.sku_id, shelf)
 }
 
 // Helper function to try extending a rod in a specific direction
