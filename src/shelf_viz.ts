@@ -29,6 +29,87 @@ const innerRodHeightPadding = 65
 const outerRodHeightPadding = 35
 const connectionRodGrooveDepth = 4
 
+/**
+ * Creates all meshes for a single logical rod (inner rod, outer rod, and connection rods).
+ * @param rod - The rod data from shelf model
+ * @param isGhost - Whether to render as ghost (transparent green) or normal
+ * @returns Array of THREE.Mesh objects to add to scene
+ */
+function createRodMeshes(rod: Rod, isGhost: boolean): any[] {
+  const meshes: any[] = [];
+
+  const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+  const height = rodSKU?.spans.reduce((sum, span) => sum + span, 0) || 0;
+
+  // Determine material based on ghost/normal mode
+  const rodMaterial = isGhost
+    ? new THREE.MeshBasicMaterial({
+        color: 0x90EE90, // Light green
+        transparent: true,
+        opacity: 0.0 // Will be set to 0.5 on hover
+      })
+    : new THREE.MeshStandardMaterial({
+        color: 0x76685e,
+        roughness: 0.7,
+        metalness: 0.0
+      });
+
+  // [bool innerRod, radius]. The inner rod is the one attached to the wall
+  const zPositions = [[true, rodRadius], [false, rodDistance + rodRadius]];
+
+  // Create two rods - one at front, one at back
+  zPositions.forEach(([innerRod, zPos]) => {
+    const rodPadding = innerRod ? innerRodHeightPadding : outerRodHeightPadding;
+    const rodHeight = height + rodPadding * 2 + plateThickness;
+
+    // Main cylinder body
+    const rodRadialSegments = 32;
+    const rodGeometry = new THREE.CylinderGeometry(rodRadius, rodRadius, rodHeight, rodRadialSegments, 1, false);
+    rodGeometry.computeVertexNormals();
+    const rodMesh = new THREE.Mesh(rodGeometry, rodMaterial.clone());
+    rodMesh.position.set(rod.position.x, rod.position.y + rodHeight / 2 - rodPadding - plateThickness / 2, zPos);
+    rodMesh.userData = { type: isGhost ? 'ghost_rod' : 'rod' };
+
+    meshes.push(rodMesh);
+  });
+
+  // Add horizontal connecting rods between front and back vertical rods at attachment points
+  rod.attachmentPoints.forEach(ap => {
+    const attachmentY = rod.position.y + ap.y - plateThickness / 2 - connectionRodRadius + connectionRodGrooveDepth;
+
+    // Connection rod material
+    const connectionRodMaterial = isGhost
+      ? new THREE.MeshBasicMaterial({
+          color: 0x90EE90, // Light green
+          transparent: true,
+          opacity: 0.0 // Will be set to 0.5 on hover
+        })
+      : new THREE.MeshStandardMaterial({
+          color: 0x76685e,
+          roughness: 0.7,
+          metalness: 0.0
+        });
+
+    let connectionRodLength = 202;
+
+    // Horizontal cylinder connecting front (Z=0) to back (Z=200)
+    const connectionRodGeometry = new THREE.CylinderGeometry(connectionRodRadius, connectionRodRadius, connectionRodLength, 16);
+    connectionRodGeometry.computeVertexNormals();
+    const connectionRod = new THREE.Mesh(connectionRodGeometry, connectionRodMaterial);
+
+    // Rotate to align with Z-axis (default cylinder is along Y-axis)
+    connectionRod.rotation.x = Math.PI / 2;
+
+    // Position at the attachment point, centered in Z
+    connectionRod.position.set(rod.position.x, attachmentY, connectionRodLength / 2);
+    connectionRod.userData = { type: isGhost ? 'ghost_connection_rod' : 'connection_rod' };
+
+    meshes.push(connectionRod);
+  });
+
+  return meshes;
+}
+
 // Rebuild all shelf geometry (rods, plates, gap colliders)
 function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLDivElement): void {
   // Remove all children from scene
@@ -70,59 +151,10 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
 
   // Generate rod geometry (each logical rod is two physical rods)
   shelf.rods.forEach((rod, rodId) => {
-    const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
-    const height = rodSKU?.spans.reduce((sum, span) => sum + span, 0) || 0;
-
-
-    // [bool innerRod, radius]. The inner rod is the one attached to the wall
-    const zPositions = [[true, rodRadius], [false, rodDistance + rodRadius]];
-
-    // Create two rods - one at front, one at back
-    zPositions.forEach(([innerRod, zPos]) => {
-      const rodMaterial = new THREE.MeshStandardMaterial({
-        color: 0x76685e,
-        roughness: 0.7,
-        metalness: 0.0
-      });
-
-      const rodPadding = innerRod ? innerRodHeightPadding : outerRodHeightPadding
-      const rodHeight = height + rodPadding * 2 + plateThickness
-      // Main cylinder body
-      const rodRadialSegments = 32;
-      const rodGeometry = new THREE.CylinderGeometry(rodRadius, rodRadius, rodHeight, rodRadialSegments, 1, false);
-      rodGeometry.computeVertexNormals();
-      const rodMesh = new THREE.Mesh(rodGeometry, rodMaterial);
-      rodMesh.position.set(rod.position.x, rod.position.y + rodHeight / 2 - rodPadding - plateThickness / 2, zPos);
-      rodMesh.userData = { type: 'rod', rodId: rodId };
-      console.log("adding rod ", innerRod, " at z=", zPos)
-      scene.add(rodMesh);
-    });
-
-    // Add horizontal connecting rods between front and back vertical rods at attachment points
-    rod.attachmentPoints.forEach(ap => {
-      const attachmentY = rod.position.y + ap.y - plateThickness / 2 - connectionRodRadius + connectionRodGrooveDepth;
-
-      // Connection rod diameter ~8-10mm, runs full depth (200mm)
-      const connectionRodMaterial = new THREE.MeshStandardMaterial({
-        color: 0x76685e,
-        roughness: 0.7,
-        metalness: 0.0
-      });
-
-      let connectionRodLength = 202;
-
-      // Horizontal cylinder connecting front (Z=0) to back (Z=200)
-      const connectionRodGeometry = new THREE.CylinderGeometry(connectionRodRadius, connectionRodRadius, connectionRodLength, 16);
-      connectionRodGeometry.computeVertexNormals();
-      const connectionRod = new THREE.Mesh(connectionRodGeometry, connectionRodMaterial);
-
-      // Rotate to align with Z-axis (default cylinder is along Y-axis)
-      connectionRod.rotation.x = Math.PI / 2;
-
-      // Position at the attachment point, centered in Z
-      connectionRod.position.set(rod.position.x, attachmentY, connectionRodLength / 2);
-      connectionRod.userData = { type: 'connection_rod' };
-      scene.add(connectionRod);
+    const meshes = createRodMeshes(rod, false);
+    meshes.forEach(mesh => {
+      mesh.userData.rodId = rodId; // Ensure rodId is set for interactions
+      scene.add(mesh);
     });
   });
 
