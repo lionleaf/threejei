@@ -1,4 +1,4 @@
-import { type Shelf, removePlate, removeSegmentFromPlate, removeRodSegment, addPlate, addRod, type Plate, type Rod, AVAILABLE_RODS, calculateAttachmentPositions, mergePlates, extendPlate, Direction, type PlateSegmentResult, GhostPlate, resolveRodConnections, extendRodUp, extendRodDown } from './shelf-model.js';
+import { type Shelf, removePlate, removeSegmentFromPlate, removeRodSegment, addPlate, addRod, type Plate, type Rod, AVAILABLE_RODS, calculateAttachmentPositions, mergePlates, extendPlate, Direction, type PlateSegmentResult, GhostPlate, resolveRodConnections, extendRodUp, extendRodDown, mergeRods } from './shelf-model.js';
 import { DEBUG_SHOW_COLLIDERS } from './shelf_viz.js';
 
 // Declare THREE as global (loaded via CDN)
@@ -109,6 +109,43 @@ export function setupInteractions(
     const action = ghostPlate.action || 'error';
     console.log(`Ghost plate action: ${action}, sku_id=${ghostPlate.sku_id}, connections=${ghostPlate.connections}`);
 
+    // Apply rod modifications first (if any)
+    if (ghostPlate.rodModifications) {
+      for (const rodMod of ghostPlate.rodModifications) {
+        if (rodMod.type === 'create') {
+          // Create new rod
+          addRod(rodMod.position, rodMod.newSkuId!, shelf);
+        } else if (rodMod.type === 'extend') {
+          // Extend existing rod
+          const rodId = rodMod.affectedRodIds![0];
+          const rod = shelf.rods.get(rodId);
+          if (!rod) {
+            console.error(`Rod ${rodId} not found for extension`);
+            continue;
+          }
+
+          // Determine direction by checking if new SKU has more spans at beginning or end
+          const oldSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+          const newSKU = AVAILABLE_RODS.find(r => r.sku_id === rodMod.newSkuId);
+          if (!oldSKU || !newSKU) continue;
+
+          const spansMatchUp = oldSKU.spans.every((span, i) => newSKU.spans[i] === span);
+          const direction = spansMatchUp ? 'up' : 'down';
+
+          if (direction === 'up') {
+            extendRodUp(rodId, rodMod.newSkuId!, shelf);
+          } else {
+            extendRodDown(rodId, rodMod.newSkuId!, shelf);
+          }
+        } else if (rodMod.type === 'merge') {
+          // Merge rods
+          const [bottomRodId, topRodId] = rodMod.affectedRodIds!;
+          mergeRods(bottomRodId, topRodId, rodMod.newSkuId!, shelf);
+        }
+      }
+    }
+
+    // Now handle the plate action
     let success = false;
 
     if (action === 'merge') {
@@ -132,44 +169,23 @@ export function setupInteractions(
     } else if (action === 'extend') {
       console.log('Executing extend action', ghostPlate);
       if (ghostPlate.existingPlateId !== undefined && ghostPlate.connections) {
-        const actualRodIds = resolveRodConnections(ghostPlate.connections, ghostPlate.newRodPosition, shelf);
-        extendPlate(ghostPlate.existingPlateId, ghostPlate.sku_id, actualRodIds, shelf);
-
+        // Connections are already resolved (no -1 placeholders)
+        extendPlate(ghostPlate.existingPlateId, ghostPlate.sku_id, ghostPlate.connections, shelf);
         success = true;
       }
     } else if (action === 'extend_rod') {
       console.log('Executing extend_rod action', ghostPlate);
-      if (ghostPlate.rodExtensions && ghostPlate.extensionDirection && ghostPlate.connections && ghostPlate.sku_id !== undefined) {
-        // First, extend all rods
-        let allExtensionsSucceeded = true;
-        for (const ext of ghostPlate.rodExtensions) {
-          const extendResult = ghostPlate.extensionDirection === 'up'
-            ? extendRodUp(ext.rodId, ext.newSkuId, shelf)
-            : extendRodDown(ext.rodId, ext.newSkuId, shelf);
-          if (!extendResult) {
-            console.error(`Failed to extend rod ${ext.rodId}`);
-            allExtensionsSucceeded = false;
-            break;
-          }
-        }
-
-        // Then add the plate at the new level
-        if (allExtensionsSucceeded) {
-          const plateId = addPlate(ghostPlate.midpointPosition.y, ghostPlate.sku_id, ghostPlate.connections, shelf);
-          success = plateId !== -1;
-          if (success) {
-            console.log(`Successfully extended rods and created plate ${plateId}`);
-          }
-        }
+      // Rod extensions already applied above via rodModifications
+      // Just add the plate
+      const plateId = addPlate(ghostPlate.midpointPosition.y, ghostPlate.sku_id, ghostPlate.connections, shelf);
+      success = plateId !== -1;
+      if (success) {
+        console.log(`Successfully extended rods and created plate ${plateId}`);
       }
-    }
-
-    if (!success && action === 'create') {
+    } else if (action === 'create') {
       console.log('Executing create action');
-
-      const actualRodIds = resolveRodConnections(ghostPlate.connections, ghostPlate.newRodPosition, shelf);
-
-      const plateId = addPlate(ghostPlate.midpointPosition.y, ghostPlate.sku_id, actualRodIds, shelf);
+      // Connections are already resolved (no -1 placeholders)
+      const plateId = addPlate(ghostPlate.midpointPosition.y, ghostPlate.sku_id, ghostPlate.connections, shelf);
 
       if (plateId !== -1) {
         console.log(`Ghost plate created successfully as plate ${plateId}`);

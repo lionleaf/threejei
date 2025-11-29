@@ -478,7 +478,7 @@ export function addOrExtendRod(position: Vec2f, shelf: Shelf): number {
 // Merges two rods into a single rod with a new attachment point
 // The bottom rod is kept and updated, the top rod is removed
 // All plates from both rods are transferred to the merged rod
-function mergeRods(
+export function mergeRods(
   bottomRodId: number,
   topRodId: number,
   newSkuId: number,
