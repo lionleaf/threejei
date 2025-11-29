@@ -48,6 +48,22 @@ export interface RodExtension {
   newSkuId: number;
 }
 
+// Rod creation plan - result of validation
+export interface RodCreationPlan {
+  action: 'create' | 'extend' | 'merge';
+  position: Vec2f;
+  // For 'create': sku for the new rod
+  newSkuId?: number;
+  // For 'extend': which rod to extend and what direction
+  targetRodId?: number;
+  direction?: 'up' | 'down';
+  extendedSkuId?: number;
+  // For 'merge': which rods to merge
+  bottomRodId?: number;
+  topRodId?: number;
+  mergedSkuId?: number;
+}
+
 export interface GhostPlate {
   sku_id?: number; // ID to match with a PlateSKU
   connections?: number[]; // rodIds, attachmentIndex implicit by order
@@ -207,8 +223,12 @@ export function addRod(position: Vec2f, sku_id: number, shelf: Shelf): number {
   return id;
 }
 
-// Add a rod at the given position, or extend an existing rod if one is nearby
-export function addOrExtendRod(position: Vec2f, shelf: Shelf): number {
+/**
+ * Validates whether a rod can be created/extended at the given position.
+ * Returns a plan describing what action should be taken, or null if invalid.
+ * This function performs NO mutations - it only validates and plans.
+ */
+export function validateRodCreation(position: Vec2f, shelf: Shelf): RodCreationPlan | null {
   const TOLERANCE = 1; // 1mm tolerance for floating point comparisons
 
   // Find all rods at the target X position
@@ -221,8 +241,11 @@ export function addOrExtendRod(position: Vec2f, shelf: Shelf): number {
 
   // If no rods at this X, create a new minimal rod
   if (rodsAtX.length === 0) {
-    const minimalSkuId = 1; // 1P rod - single attachment point
-    return addRod(position, minimalSkuId, shelf);
+    return {
+      action: 'create',
+      position,
+      newSkuId: 1 // 1P rod - single attachment point
+    };
   }
 
   // Try to extend existing rods
@@ -238,7 +261,14 @@ export function addOrExtendRod(position: Vec2f, shelf: Shelf): number {
     const relativeY = position.y - rod.position.y;
     const alreadyExists = rod.attachmentPoints.some(ap => Math.abs(ap.y - relativeY) < TOLERANCE);
     if (alreadyExists) {
-      return rodId; // Already has attachment at this position
+      // Already has attachment - return a plan that won't do anything
+      return {
+        action: 'extend',
+        position,
+        targetRodId: rodId,
+        direction: 'up',
+        extendedSkuId: rod.sku_id // Same SKU, no actual change
+      };
     }
 
     // Get current rod bounds
@@ -262,32 +292,168 @@ export function addOrExtendRod(position: Vec2f, shelf: Shelf): number {
   // Try merging first
   for (const [bottomRodId, bottomRod] of upwardCandidates) {
     for (const [topRodId, topRod] of downwardCandidates) {
-      const extendedRodId = tryMergeRod(bottomRodId, topRodId, position.y, shelf);
-      if (extendedRodId !== undefined) {
-        return extendedRodId;
+      const plan = validateMerge(bottomRodId, topRodId, position.y, shelf);
+      if (plan !== null) {
+        return plan;
       }
     }
   }
 
   // Then upward extensions
   for (const [rodId, rod] of upwardCandidates) {
-    const extendedRodId = tryExtendRod(rodId, rod, position.y, 'up', shelf);
-    if (extendedRodId !== undefined) {
-      return extendedRodId;
+    const plan = validateExtension(rodId, rod, position.y, 'up', shelf);
+    if (plan !== null) {
+      return plan;
     }
   }
 
   // Try downward extensions
   for (const [rodId, rod] of downwardCandidates) {
-    const extendedRodId = tryExtendRod(rodId, rod, position.y, 'down', shelf);
-    if (extendedRodId !== undefined) {
-      return extendedRodId;
+    const plan = validateExtension(rodId, rod, position.y, 'down', shelf);
+    if (plan !== null) {
+      return plan;
     }
   }
 
   // No valid extension found - create a new minimal rod
-  const minimalSkuId = 1; // 1P rod - single attachment point
-  return addRod(position, minimalSkuId, shelf);
+  return {
+    action: 'create',
+    position,
+    newSkuId: 1 // 1P rod - single attachment point
+  };
+}
+
+/**
+ * Validates whether two rods can be merged with a new attachment point.
+ * Returns a merge plan or null if not possible.
+ */
+function validateMerge(
+  bottomRodId: number,
+  topRodId: number,
+  newAttachmentY: number,
+  shelf: Shelf
+): RodCreationPlan | null {
+  const bottomRod = shelf.rods.get(bottomRodId);
+  const topRod = shelf.rods.get(topRodId);
+  if (bottomRod === undefined || topRod === undefined) {
+    return null;
+  }
+
+  const TOLERANCE = 1;
+  const bottomRodSKU = AVAILABLE_RODS.find(r => r.sku_id === bottomRod.sku_id);
+  const topRodSKU = AVAILABLE_RODS.find(r => r.sku_id === topRod.sku_id);
+  if (!bottomRodSKU || !topRodSKU) return null;
+
+  // Get all existing attachment positions (absolute coordinates)
+  const combinedAbsoluteYs = [
+    ...bottomRod.attachmentPoints.map(ap => bottomRod.position.y + ap.y),
+    newAttachmentY,
+    ...topRod.attachmentPoints.map(ap => topRod.position.y + ap.y)
+  ];
+
+  // Calculate gaps between consecutive positions
+  const gaps: number[] = [];
+  for (let i = 0; i < combinedAbsoluteYs.length - 1; i++) {
+    gaps.push(combinedAbsoluteYs[i + 1] - combinedAbsoluteYs[i]);
+  }
+
+  // Search for a matching SKU
+  const matchingSKU = AVAILABLE_RODS.find(sku => {
+    if (sku.spans.length !== gaps.length) return false;
+    return sku.spans.every((span, i) => Math.abs(span - gaps[i]) < TOLERANCE);
+  });
+
+  if (!matchingSKU) return null;
+
+  return {
+    action: 'merge',
+    position: { x: bottomRod.position.x, y: newAttachmentY },
+    bottomRodId,
+    topRodId,
+    mergedSkuId: matchingSKU.sku_id
+  };
+}
+
+/**
+ * Validates whether a rod can be extended in the given direction.
+ * Returns an extension plan or null if not possible.
+ */
+function validateExtension(
+  rodId: number,
+  rod: Rod,
+  newY: number,
+  direction: 'up' | 'down',
+  shelf: Shelf
+): RodCreationPlan | null {
+  const TOLERANCE = 1;
+  const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+  if (!rodSKU) return null;
+
+  // Get all existing attachment positions (absolute coordinates)
+  const existingAbsoluteYs = rod.attachmentPoints.map(ap => rod.position.y + ap.y);
+
+  // Add the new position
+  const allPositions = [...existingAbsoluteYs, newY].sort((a, b) => a - b);
+
+  // Calculate gaps between consecutive positions
+  const gaps: number[] = [];
+  for (let i = 0; i < allPositions.length - 1; i++) {
+    gaps.push(allPositions[i + 1] - allPositions[i]);
+  }
+
+  // Search for a matching SKU
+  const matchingSKU = AVAILABLE_RODS.find(sku => {
+    if (sku.spans.length !== gaps.length) return false;
+    return sku.spans.every((span, i) => Math.abs(span - gaps[i]) < TOLERANCE);
+  });
+
+  if (!matchingSKU) return null;
+
+  return {
+    action: 'extend',
+    position: rod.position,
+    targetRodId: rodId,
+    direction,
+    extendedSkuId: matchingSKU.sku_id
+  };
+}
+
+/**
+ * Applies a pre-validated rod creation plan to the shelf.
+ * This function performs mutations but NO validation.
+ * Returns the ID of the created/modified rod.
+ */
+export function applyRodCreation(plan: RodCreationPlan, shelf: Shelf): number {
+  switch (plan.action) {
+    case 'create':
+      return addRod(plan.position, plan.newSkuId!, shelf);
+
+    case 'extend':
+      const success = plan.direction === 'up'
+        ? extendRodUp(plan.targetRodId!, plan.extendedSkuId!, shelf)
+        : extendRodDown(plan.targetRodId!, plan.extendedSkuId!, shelf);
+      return success ? plan.targetRodId! : -1;
+
+    case 'merge':
+      return mergeRods(plan.bottomRodId!, plan.topRodId!, plan.mergedSkuId!, shelf);
+
+    default:
+      return -1;
+  }
+}
+
+/**
+ * Add a rod at the given position, or extend an existing rod if one is nearby.
+ * This is a convenience function that combines validation and application.
+ * For ghost plate generation, use validateRodCreation() instead.
+ */
+export function addOrExtendRod(position: Vec2f, shelf: Shelf): number {
+  const plan = validateRodCreation(position, shelf);
+  if (plan === null) {
+    // Validation failed - create minimal rod as fallback
+    return addRod(position, 1, shelf);
+  }
+  return applyRodCreation(plan, shelf);
 }
 
 // Merges two rods into a single rod with a new attachment point
@@ -337,85 +503,6 @@ function mergeRods(
   shelf.rods.delete(topRodId);
 
   return bottomRodId;
-}
-
-// Helper function to try extending a rod in a specific direction
-function tryMergeRod(
-  bottomRodId: number,
-  topRodId: number,
-  newAttachmentY: number,
-  shelf: Shelf
-): number | undefined {
-  const bottomRod = shelf.rods.get(bottomRodId)
-  const topRod = shelf.rods.get(topRodId)
-  if (bottomRod === undefined || topRod === undefined) {
-    return undefined;
-  }
-
-  const TOLERANCE = 1;
-  const bottomRodSKU = AVAILABLE_RODS.find(r => r.sku_id === bottomRod.sku_id);
-  const topRodSKU = AVAILABLE_RODS.find(r => r.sku_id === topRod.sku_id);
-  if (!bottomRodSKU || !topRodSKU) return undefined;
-
-  // Get all existing attachment positions (absolute coordinates)
-  const combinedAbsoluteYs = [...bottomRod.attachmentPoints.map(ap => bottomRod.position.y + ap.y), newAttachmentY, ...topRod.attachmentPoints.map(ap => topRod.position.y + ap.y)];
-
-  // Calculate gaps between consecutive positions
-  const gaps: number[] = [];
-  for (let i = 0; i < combinedAbsoluteYs.length - 1; i++) {
-    gaps.push(combinedAbsoluteYs[i + 1] - combinedAbsoluteYs[i]);
-  }
-
-  // Search for a matching SKU
-  const matchingSKU = AVAILABLE_RODS.find(sku => {
-    if (sku.spans.length !== gaps.length) return false;
-    return sku.spans.every((span, i) => Math.abs(span - gaps[i]) < TOLERANCE);
-  });
-
-  if (!matchingSKU) return undefined;
-
-  // Try to extend the rod
-  return mergeRods(bottomRodId, topRodId, matchingSKU.sku_id, shelf)
-}
-
-// Helper function to try extending a rod in a specific direction
-function tryExtendRod(
-  rodId: number,
-  rod: Rod,
-  newY: number,
-  direction: 'up' | 'down',
-  shelf: Shelf
-): number | undefined {
-  const TOLERANCE = 1;
-  const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
-  if (!rodSKU) return undefined;
-
-  // Get all existing attachment positions (absolute coordinates)
-  const existingAbsoluteYs = rod.attachmentPoints.map(ap => rod.position.y + ap.y);
-
-  // Add the new position
-  const allPositions = [...existingAbsoluteYs, newY].sort((a, b) => a - b);
-
-  // Calculate gaps between consecutive positions
-  const gaps: number[] = [];
-  for (let i = 0; i < allPositions.length - 1; i++) {
-    gaps.push(allPositions[i + 1] - allPositions[i]);
-  }
-
-  // Search for a matching SKU
-  const matchingSKU = AVAILABLE_RODS.find(sku => {
-    if (sku.spans.length !== gaps.length) return false;
-    return sku.spans.every((span, i) => Math.abs(span - gaps[i]) < TOLERANCE);
-  });
-
-  if (!matchingSKU) return undefined;
-
-  // Try to extend the rod
-  const success = direction === 'up'
-    ? extendRodUp(rodId, matchingSKU.sku_id, shelf)
-    : extendRodDown(rodId, matchingSKU.sku_id, shelf);
-
-  return success ? rodId : undefined;
 }
 
 // Resolve rod connections by replacing -1 placeholders with actual rod IDs
