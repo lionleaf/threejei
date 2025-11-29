@@ -64,6 +64,14 @@ export interface RodCreationPlan {
   mergedSkuId?: number;
 }
 
+// Rod extension plan - result of validation
+export interface RodExtensionPlan {
+  rodId: number;
+  direction: 'up' | 'down';
+  newSkuId: number;
+  addedSpan: number; // The span being added (200 or 300)
+}
+
 export interface GhostPlate {
   sku_id?: number; // ID to match with a PlateSKU
   connections?: number[]; // rodIds, attachmentIndex implicit by order
@@ -1801,6 +1809,59 @@ export function findCommonExtension(rodIds: number[], direction: 'up' | 'down', 
 
   console.log(`findCommonExtension: No common extension found for ${direction}`);
   return undefined;
+}
+
+/**
+ * Validates whether a rod can be extended in the given direction.
+ * Returns an extension plan or null if not possible.
+ * This function performs NO mutations - it only validates and plans.
+ */
+export function validateRodExtension(
+  rodId: number,
+  direction: 'up' | 'down',
+  shelf: Shelf
+): RodExtensionPlan | null {
+  const rod = shelf.rods.get(rodId);
+  if (!rod) return null;
+
+  const oldSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+  if (!oldSKU) return null;
+
+  // Try 200mm span first, then 300mm
+  for (const span of [200, 300]) {
+    // Build expected spans for new SKU
+    const expectedSpans = direction === 'up'
+      ? [...oldSKU.spans, span]
+      : [span, ...oldSKU.spans];
+
+    // Find matching SKU
+    const newSKU = AVAILABLE_RODS.find(sku => {
+      if (sku.spans.length !== expectedSpans.length) return false;
+      return sku.spans.every((s, i) => s === expectedSpans[i]);
+    });
+
+    if (newSKU) {
+      return {
+        rodId,
+        direction,
+        newSkuId: newSKU.sku_id,
+        addedSpan: span
+      };
+    }
+  }
+
+  return null; // No valid extension found
+}
+
+/**
+ * Applies a pre-validated rod extension plan to the shelf.
+ * This function performs mutations but NO validation.
+ * Returns true if successful, false otherwise.
+ */
+export function applyRodExtension(plan: RodExtensionPlan, shelf: Shelf): boolean {
+  return plan.direction === 'up'
+    ? extendRodUp(plan.rodId, plan.newSkuId, shelf)
+    : extendRodDown(plan.rodId, plan.newSkuId, shelf);
 }
 
 export function extendRodUp(rodId: number, newSKU_id: number, shelf: Shelf): boolean {
