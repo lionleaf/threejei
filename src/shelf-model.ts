@@ -1503,6 +1503,17 @@ function calculateGapPlate(leftRodId: number, rightRodId: number, height: number
   };
 }
 
+/**
+ * Helper to resolve the rod ID from a rod creation plan
+ */
+function resolveNewRodId(rodPlan: RodCreationPlan, shelf: Shelf): number {
+  switch (rodPlan.action) {
+    case 'create': return shelf.metadata.nextId;
+    case 'merge': return rodPlan.bottomRodId!;
+    case 'extend': return rodPlan.targetRodId!;
+  }
+}
+
 export function canAddPlateSegment(rodId: number, y: number, direction: Direction, shelf: Shelf): PlateSegmentResult | undefined {
   const rod = shelf.rods.get(rodId);
   if (!rod) return undefined;
@@ -1651,11 +1662,7 @@ export function canAddPlateSegment(rodId: number, y: number, direction: Directio
     if (!rodPlan) return undefined; // Can't create rod, so can't extend plate
 
     // Determine the rod ID that will exist after applying the plan
-    const newRodId = rodPlan.action === 'create'
-      ? shelf.metadata.nextId // New rod will get this ID
-      : rodPlan.action === 'merge'
-      ? rodPlan.bottomRodId! // Merge keeps bottom rod
-      : rodPlan.targetRodId!; // Extend keeps the rod
+    const newRodId = resolveNewRodId(rodPlan, shelf);
 
     const newConnections = direction === 'left'
       ? [newRodId, ...existingPlate.connections]
@@ -1677,11 +1684,7 @@ export function canAddPlateSegment(rodId: number, y: number, direction: Directio
   if (!rodPlan) return undefined; // Can't create rod, so can't create plate
 
   // Determine the rod ID that will exist after applying the plan
-  const newRodId = rodPlan.action === 'create'
-    ? shelf.metadata.nextId
-    : rodPlan.action === 'merge'
-    ? rodPlan.bottomRodId!
-    : rodPlan.targetRodId!;
+  const newRodId = resolveNewRodId(rodPlan, shelf);
 
   return {
     sku_id: defaultPlateSku.sku_id,
@@ -1793,45 +1796,49 @@ export function extendRodToHeight(rodId: number, targetY: number, shelf: Shelf):
   return false;
 }
 
-export function findNextExtensionUp(rodId: number, spanToAdd: number, shelf: Shelf): number | undefined {
+/**
+ * Internal helper to find next extension SKU in either direction
+ */
+function findNextExtension(
+  rodId: number,
+  spanToAdd: number,
+  direction: 'up' | 'down',
+  shelf: Shelf
+): number | undefined {
   const rod = shelf.rods.get(rodId);
   if (!rod) return undefined;
 
   const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
   if (!rodSKU) return undefined;
 
-  // Search for SKU where newSpans = [...oldSpans, spanToAdd]
   const newSKU = AVAILABLE_RODS.find(sku => {
     if (sku.spans.length !== rodSKU.spans.length + 1) return false;
-    // Check if it's the same pattern plus one more span
-    for (let i = 0; i < rodSKU.spans.length; i++) {
-      if (sku.spans[i] !== rodSKU.spans[i]) return false;
+
+    if (direction === 'up') {
+      // Check pattern matches and last span is spanToAdd: [...oldSpans, spanToAdd]
+      for (let i = 0; i < rodSKU.spans.length; i++) {
+        if (sku.spans[i] !== rodSKU.spans[i]) return false;
+      }
+      return sku.spans[sku.spans.length - 1] === spanToAdd;
+    } else {
+      // Check first span is spanToAdd and rest matches: [spanToAdd, ...oldSpans]
+      if (sku.spans[0] !== spanToAdd) return false;
+      for (let i = 0; i < rodSKU.spans.length; i++) {
+        if (sku.spans[i + 1] !== rodSKU.spans[i]) return false;
+      }
+      return true;
     }
-    return sku.spans[sku.spans.length - 1] === spanToAdd;
   });
 
   return newSKU?.sku_id;
 }
 
+export function findNextExtensionUp(rodId: number, spanToAdd: number, shelf: Shelf): number | undefined {
+  return findNextExtension(rodId, spanToAdd, 'up', shelf);
+}
+
 export function findNextExtensionDown(rodId: number, spanToAdd: number, shelf: Shelf): number | undefined {
-  const rod = shelf.rods.get(rodId);
-  if (!rod) return undefined;
-
-  const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
-  if (!rodSKU) return undefined;
-
-  // Search for SKU where newSpans = [spanToAdd, ...oldSpans]
-  const newSKU = AVAILABLE_RODS.find(sku => {
-    if (sku.spans.length !== rodSKU.spans.length + 1) return false;
-    // Check if it's one more span at the start plus the same pattern
-    if (sku.spans[0] !== spanToAdd) return false;
-    for (let i = 0; i < rodSKU.spans.length; i++) {
-      if (sku.spans[i + 1] !== rodSKU.spans[i]) return false;
-    }
-    return true;
-  });
-
-  return newSKU?.sku_id;
+  return findNextExtension(rodId, spanToAdd, 'down', shelf);
 }
 
 export function findCommonExtension(rodIds: number[], direction: 'up' | 'down', shelf: Shelf): Map<number, { newSKU_id: number, spanToAdd: number }> | undefined {
