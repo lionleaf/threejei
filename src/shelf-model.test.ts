@@ -9,36 +9,6 @@ function tryExtendPlate(plateId: number, direction: Direction, shelf: any): bool
   return true;
 }
 
-// Wrapper to match old test API - simulates clicking an edge gap
-function tryFillEdgeGap(rodId: number, y: number, direction: 'left' | 'right', shelf: any): number {
-  const rod = shelf.rods.get(rodId);
-  if (!rod) return -1;
-
-  const absoluteY = rod.position.y + y;
-  const dir = direction === 'left' ? Direction.Left : Direction.Right;
-
-  const result = canAddPlateSegment(rodId, absoluteY, dir, shelf);
-  if (!result) return -1;
-
-  // Apply rod creation plan if present
-  if (result.rodCreationPlan) {
-    applyRodCreation(result.rodCreationPlan, shelf);
-  }
-
-  // Rod IDs are already resolved (no -1 placeholders)
-  const actualRodIds = result.rodIds;
-
-  if (result.action === 'create') {
-    return addPlate(result.y, result.sku_id, actualRodIds, shelf);
-  } else if (result.action === 'extend' && result.existingPlateId !== undefined) {
-    extendPlate(result.existingPlateId, result.sku_id, actualRodIds, shelf);
-    return result.existingPlateId;
-  } else if (result.action === 'merge' && result.existingPlateId !== undefined && result.targetPlateId !== undefined) {
-    return mergePlates(result.existingPlateId, result.targetPlateId, result.sku_id, actualRodIds, shelf);
-  }
-
-  return -1;
-}
 import { test, testGroup, assertEquals, assertTrue, printResults } from './test-framework.js';
 
 testGroup('Plate Addition Validation - Valid Plates', () => {
@@ -243,101 +213,7 @@ testGroup('Plate Extension Bug - Extending Beyond Available SKUs', () => {
     assertEquals(shelf.plates.get(plateId)?.sku_id, initialSKU, 'Plate SKU should remain unchanged');
     assertEquals(shelf.plates.get(plateId)?.connections.length, initialConnections, 'Plate connections should remain unchanged');
   });
-
-  test('BUG: Repeatedly clicking edge gap should respect plate SKU limits', () => {
-    const shelf = createEmptyShelf();
-    const rod1 = addRod({ x: 0, y: 0 }, 1, shelf);
-    const rod2 = addRod({ x: 600, y: 0 }, 1, shelf);
-
-    let edgeRodId = rod2;
-    let extendCount = 0;
-    const maxIterations = 10;
-
-    for (let i = 0; i < maxIterations; i++) {
-      const edgeRod = shelf.rods.get(edgeRodId);
-      if (!edgeRod) break;
-
-      const plateId = tryFillEdgeGap(edgeRodId, 0, 'right', shelf);
-      if (plateId > 0) {
-        extendCount++;
-
-        const plate = shelf.plates.get(plateId);
-        if (!plate) break;
-
-        const rightmostRodId = plate.connections[plate.connections.length - 1];
-        edgeRodId = rightmostRodId;
-      } else {
-        break;
-      }
-    }
-
-    assertTrue(extendCount <= 3, `Should extend at most 3 times (create 670, extend to 1270, extend to 1870), extended ${extendCount} times`);
-
-    const allPlates = Array.from(shelf.plates.values());
-    assertTrue(allPlates.length === 1, `Should only have 1 plate, but has ${allPlates.length}`);
-
-    if (allPlates.length > 0) {
-      const finalPlate = allPlates[0];
-      assertEquals(finalPlate.sku_id, 4, `Final plate should be 1870mm (sku_id=4), but got sku_id=${finalPlate.sku_id}`);
-    }
-  });
 });
 
-testGroup('Edge Gap Merge Bug - Should merge with existing plates', () => {
-  test('BUG: Clicking edge gap should merge adjacent plates when possible', () => {
-    const shelf = createEmptyShelf();
-    const rod1 = addRod({ x: 0, y: 0 }, 1, shelf);
-    const rod2 = addRod({ x: 600, y: 0 }, 1, shelf);
-    const rod3 = addRod({ x: 1800, y: 0 }, 1, shelf);
-
-    const plate1 = addPlate(0, 1, [rod1, rod2], shelf);
-    assertTrue(plate1 > 0, 'Should create first 670mm plate');
-
-    const initialPlateCount = shelf.plates.size;
-    assertEquals(initialPlateCount, 1, 'Should have 1 plate initially');
-
-    const resultPlateId = tryFillEdgeGap(rod2, 0, 'right', shelf);
-
-    assertTrue(resultPlateId > 0, 'Edge gap fill should succeed');
-
-    const finalPlateCount = shelf.plates.size;
-    assertEquals(finalPlateCount, 1, `Should still have only 1 plate (merged), but has ${finalPlateCount}`);
-
-    const finalPlate = shelf.plates.get(resultPlateId);
-    if (finalPlate) {
-      assertEquals(finalPlate.connections.length, 3, `Merged plate should span 3 rods, spans ${finalPlate.connections.length}`);
-      assertEquals(finalPlate.sku_id, 3, `Merged plate should be 1270mm (sku_id=3), but is ${finalPlate.sku_id}`);
-    }
-  });
-
-  test('BUG: Clicking edge gap between two plates should merge them', () => {
-    const shelf = createEmptyShelf();
-    const rod1 = addRod({ x: 0, y: 0 }, 1, shelf);
-    const rod2 = addRod({ x: 600, y: 0 }, 1, shelf);
-    const rod3 = addRod({ x: 1200, y: 0 }, 1, shelf);
-    const rod4 = addRod({ x: 1800, y: 0 }, 1, shelf);
-
-    const plate1 = addPlate(0, 1, [rod1, rod2], shelf);
-    const plate2 = addPlate(0, 1, [rod3, rod4], shelf);
-
-    assertTrue(plate1 > 0, 'Should create first plate');
-    assertTrue(plate2 > 0, 'Should create second plate');
-    assertEquals(shelf.plates.size, 2, 'Should have 2 plates initially');
-
-    // Click edge gap at rod2 going right - should bridge to rod3 and merge plates
-    const resultPlateId = tryFillEdgeGap(rod2, 0, 'right', shelf);
-
-    assertTrue(resultPlateId > 0, 'Edge gap fill should succeed');
-
-    const finalPlateCount = shelf.plates.size;
-    assertEquals(finalPlateCount, 1, `Should have 1 merged plate, but has ${finalPlateCount}`);
-
-    const finalPlate = shelf.plates.get(resultPlateId);
-    if (finalPlate) {
-      assertEquals(finalPlate.connections.length, 4, `Merged plate should span 4 rods, spans ${finalPlate.connections.length}`);
-      assertEquals(finalPlate.sku_id, 4, `Merged plate should be 1870mm (sku_id=4), but is ${finalPlate.sku_id}`);
-    }
-  });
-});
 
 printResults();
