@@ -260,11 +260,21 @@ export function setupInteractions(
         break;
       } else if (userData?.type === 'ghost_plate') {
         const ghostPlate = userData.ghostPlate;
-        if (ghostPlate.legal) {
-          (hit.object.material as any).opacity = 0.5;
-        } else {
-          (hit.object.material as any).opacity = 0.3;
-        }
+        const ghostPlateIndex = userData.ghostPlateIndex;
+        const targetOpacity = ghostPlate.legal ? 0.5 : 0.3;
+
+        // Update ghost plate opacity
+        (hit.object.material as any).opacity = targetOpacity;
+
+        // Also update all associated ghost rods with the same ghostPlateIndex
+        scene.children.forEach((child: any) => {
+          if (child.userData?.ghostPlateIndex === ghostPlateIndex) {
+            if (child.userData?.type === 'ghost_rod' ||
+                child.userData?.type === 'ghost_connection_rod') {
+              (child.material as any).opacity = targetOpacity;
+            }
+          }
+        });
 
         // Show tooltip in debug mode
         if (DEBUG_SHOW_COLLIDERS && tooltipContainer) {
