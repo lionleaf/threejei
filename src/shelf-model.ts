@@ -117,6 +117,7 @@ export interface Shelf {
 
 // Constants
 export const PLATE_PADDING_MM = 35;
+const POSITION_TOLERANCE_MM = 1; // Tolerance for floating point comparisons in mm
 
 export const AVAILABLE_RODS: RodSKU[] = [
   { sku_id: 1, name: "1P", spans: [] },
@@ -145,6 +146,58 @@ export const AVAILABLE_PLATES: PlateSKU[] = [
 
 export const DEFAULT_PLATE_SKU_ID: number = 1
 const STANDARD_GAP = 600; // Standard gap between rods (600mm)
+
+// Helper functions for SKU lookup
+function getRodSKU(skuId: number): RodSKU | undefined {
+  return AVAILABLE_RODS.find(r => r.sku_id === skuId);
+}
+
+function getPlateSKU(skuId: number): PlateSKU | undefined {
+  return AVAILABLE_PLATES.find(p => p.sku_id === skuId);
+}
+
+// Helper function to reattach all plates connected to a rod after rod modifications
+function reattachPlatesForRod(rodId: number, shelf: Shelf): void {
+  const rod = shelf.rods.get(rodId);
+  if (!rod) return;
+
+  shelf.plates.forEach((plate, plateId) => {
+    if (plate.connections.includes(rodId)) {
+      const attachmentY = plate.y - rod.position.y;
+      const attachmentIndex = rod.attachmentPoints.findIndex(ap => ap.y === attachmentY);
+      if (attachmentIndex !== -1) {
+        rod.attachmentPoints[attachmentIndex].plateId = plateId;
+      }
+    }
+  });
+}
+
+// Helper functions to find SKUs by span patterns
+function findRodSKUBySpans(spans: number[]): RodSKU | undefined {
+  return AVAILABLE_RODS.find(sku => {
+    if (sku.spans.length !== spans.length) return false;
+    return sku.spans.every((span, i) => span === spans[i]);
+  });
+}
+
+function findPlateSKUBySpans(spans: number[]): PlateSKU | undefined {
+  return AVAILABLE_PLATES.find(sku => {
+    if (sku.spans.length !== spans.length) return false;
+    return sku.spans.every((span, i) => span === spans[i]);
+  });
+}
+
+// Helper function to calculate plate spans from rod IDs
+function calculatePlateSpansForRods(rodIds: number[], shelf: Shelf): number[] {
+  const newSpans = [PLATE_PADDING_MM];
+  const rods = rodIds.map(id => shelf.rods.get(id)).filter(r => r !== undefined);
+  for (let i = 0; i < rods.length - 1; i++) {
+    const distance = rods[i + 1]!.position.x - rods[i]!.position.x;
+    newSpans.push(distance);
+  }
+  newSpans.push(PLATE_PADDING_MM);
+  return newSpans;
+}
 
 // Core functions
 export function createEmptyShelf(): Shelf {
@@ -229,7 +282,7 @@ function findClosestRod(shelf: Shelf, fromRodId: number, direction: Direction, y
 
 export function addRod(position: Vec2f, sku_id: number, shelf: Shelf): number {
   const id = shelf.metadata.nextId++;
-  const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === sku_id);
+  const rodSKU = getRodSKU(sku_id);
 
   // Create attachment points based on rod pattern
   const attachmentPoints: AttachmentPoint[] = [];
@@ -250,12 +303,10 @@ export function addRod(position: Vec2f, sku_id: number, shelf: Shelf): number {
  * This function performs NO mutations - it only validates and plans.
  */
 export function validateRodCreation(position: Vec2f, shelf: Shelf): RodCreationPlan | null {
-  const TOLERANCE = 1; // 1mm tolerance for floating point comparisons
-
   // Find all rods at the target X position
   const rodsAtX: Array<[number, Rod]> = [];
   for (const [rodId, rod] of shelf.rods) {
-    if (Math.abs(rod.position.x - position.x) < TOLERANCE) {
+    if (Math.abs(rod.position.x - position.x) < POSITION_TOLERANCE_MM) {
       rodsAtX.push([rodId, rod]);
     }
   }
@@ -275,12 +326,12 @@ export function validateRodCreation(position: Vec2f, shelf: Shelf): RodCreationP
   const downwardCandidates: Array<[number, Rod]> = [];
 
   for (const [rodId, rod] of rodsAtX) {
-    const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+    const rodSKU = getRodSKU(rod.sku_id);
     if (!rodSKU) continue;
 
     // Check if attachment already exists at this position
     const relativeY = position.y - rod.position.y;
-    const alreadyExists = rod.attachmentPoints.some(ap => Math.abs(ap.y - relativeY) < TOLERANCE);
+    const alreadyExists = rod.attachmentPoints.some(ap => Math.abs(ap.y - relativeY) < POSITION_TOLERANCE_MM);
     if (alreadyExists) {
       // Already has attachment - return a plan that won't do anything
       return {
@@ -298,14 +349,14 @@ export function validateRodCreation(position: Vec2f, shelf: Shelf): RodCreationP
     const absoluteBottom = rod.position.y + attachmentPositions[0];
 
     // Check if position overlaps with existing rod (illegal)
-    if (position.y > absoluteBottom + TOLERANCE && position.y < absoluteTop - TOLERANCE) {
+    if (position.y > absoluteBottom + POSITION_TOLERANCE_MM && position.y < absoluteTop - POSITION_TOLERANCE_MM) {
       continue; // Skip this rod - overlap is illegal
     }
 
     // Categorize as upward or downward extension candidate
-    if (position.y > absoluteTop + TOLERANCE) {
+    if (position.y > absoluteTop + POSITION_TOLERANCE_MM) {
       upwardCandidates.push([rodId, rod]);
-    } else if (position.y < absoluteBottom - TOLERANCE) {
+    } else if (position.y < absoluteBottom - POSITION_TOLERANCE_MM) {
       downwardCandidates.push([rodId, rod]);
     }
   }
@@ -359,10 +410,8 @@ function validateMerge(
   if (bottomRod === undefined || topRod === undefined) {
     return null;
   }
-
-  const TOLERANCE = 1;
-  const bottomRodSKU = AVAILABLE_RODS.find(r => r.sku_id === bottomRod.sku_id);
-  const topRodSKU = AVAILABLE_RODS.find(r => r.sku_id === topRod.sku_id);
+  const bottomRodSKU = getRodSKU(bottomRod.sku_id);
+  const topRodSKU = getRodSKU(topRod.sku_id);
   if (!bottomRodSKU || !topRodSKU) return null;
 
   // Get all existing attachment positions (absolute coordinates)
@@ -381,7 +430,7 @@ function validateMerge(
   // Search for a matching SKU
   const matchingSKU = AVAILABLE_RODS.find(sku => {
     if (sku.spans.length !== gaps.length) return false;
-    return sku.spans.every((span, i) => Math.abs(span - gaps[i]) < TOLERANCE);
+    return sku.spans.every((span, i) => Math.abs(span - gaps[i]) < POSITION_TOLERANCE_MM);
   });
 
   if (!matchingSKU) return null;
@@ -406,7 +455,6 @@ function validateExtension(
   direction: 'up' | 'down',
   shelf: Shelf
 ): RodCreationPlan | null {
-  const TOLERANCE = 1;
   const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
   if (!rodSKU) return null;
 
@@ -416,10 +464,10 @@ function validateExtension(
   const absoluteBottom = rod.position.y + attachmentPositions[0];
 
   // VALIDATE: newY must be beyond the rod in the specified direction
-  if (direction === 'up' && newY <= absoluteTop + TOLERANCE) {
+  if (direction === 'up' && newY <= absoluteTop + POSITION_TOLERANCE_MM) {
     return null; // newY is not above the rod
   }
-  if (direction === 'down' && newY >= absoluteBottom - TOLERANCE) {
+  if (direction === 'down' && newY >= absoluteBottom - POSITION_TOLERANCE_MM) {
     return null; // newY is not below the rod
   }
 
@@ -430,17 +478,14 @@ function validateExtension(
 
   // Try standard spans (200mm and 300mm)
   for (const span of [200, 300]) {
-    if (Math.abs(gap - span) < TOLERANCE) {
+    if (Math.abs(gap - span) < POSITION_TOLERANCE_MM) {
       // Build expected spans for the extended rod
       const expectedSpans = direction === 'up'
         ? [...rodSKU.spans, span]
         : [span, ...rodSKU.spans];
 
       // Find matching SKU with exact span pattern
-      const matchingSKU = AVAILABLE_RODS.find(sku => {
-        if (sku.spans.length !== expectedSpans.length) return false;
-        return sku.spans.every((s, i) => s === expectedSpans[i]);
-      });
+      const matchingSKU = findRodSKUBySpans(expectedSpans);
 
       if (matchingSKU) {
         return {
@@ -508,7 +553,7 @@ export function mergeRods(
   const topRod = shelf.rods.get(topRodId);
   if (!bottomRod || !topRod) return -1;
 
-  const newSKU = AVAILABLE_RODS.find(r => r.sku_id === newSkuId);
+  const newSKU = getRodSKU(newSkuId);
   if (!newSKU) return -1;
 
   // Update the bottom rod with the new SKU
@@ -562,7 +607,7 @@ export function resolveRodConnections(
 
 // rodIds MUST be in order of increasing x position
 export function addPlate(height: number, sku_id: number, rodIds: number[], shelf: Shelf): number {
-  const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === sku_id);
+  const plateSKU = getPlateSKU(sku_id);
   if (!plateSKU) return -1;
 
   // Validate rod spacing matches plate spans
@@ -682,10 +727,7 @@ function shortenRodFromEnd(rodId: number, fromTop: boolean, shelf: Shelf): void 
     if (segmentsToRemove <= 0) return;
 
     const newSpans = rodSKU.spans.slice(0, rodSKU.spans.length - segmentsToRemove);
-    const newRodSKU = AVAILABLE_RODS.find(sku => {
-      if (sku.spans.length !== newSpans.length) return false;
-      return sku.spans.every((span, i) => span === newSpans[i]);
-    });
+    const newRodSKU = findRodSKUBySpans(newSpans);
 
     if (!newRodSKU) return;
 
@@ -697,25 +739,14 @@ function shortenRodFromEnd(rodId: number, fromTop: boolean, shelf: Shelf): void 
     }
 
     // Re-attach remaining plates
-    shelf.plates.forEach((plate, pId) => {
-      if (plate.connections.includes(rodId)) {
-        const attachmentY = plate.y - rod.position.y;
-        const attachmentIndex = rod.attachmentPoints.findIndex(ap => ap.y === attachmentY);
-        if (attachmentIndex !== -1) {
-          rod.attachmentPoints[attachmentIndex].plateId = pId;
-        }
-      }
-    });
+    reattachPlatesForRod(rodId, shelf);
   } else {
     // Calculate segments to remove from bottom
     const segmentsToRemove = firstPlateIndex;
     if (segmentsToRemove <= 0) return;
 
     const newSpans = rodSKU.spans.slice(segmentsToRemove);
-    const newRodSKU = AVAILABLE_RODS.find(sku => {
-      if (sku.spans.length !== newSpans.length) return false;
-      return sku.spans.every((span, i) => span === newSpans[i]);
-    });
+    const newRodSKU = findRodSKUBySpans(newSpans);
 
     if (!newRodSKU) return;
 
@@ -731,15 +762,7 @@ function shortenRodFromEnd(rodId: number, fromTop: boolean, shelf: Shelf): void 
     }
 
     // Re-attach remaining plates
-    shelf.plates.forEach((plate, pId) => {
-      if (plate.connections.includes(rodId)) {
-        const attachmentY = plate.y - rod.position.y;
-        const attachmentIndex = rod.attachmentPoints.findIndex(ap => ap.y === attachmentY);
-        if (attachmentIndex !== -1) {
-          rod.attachmentPoints[attachmentIndex].plateId = pId;
-        }
-      }
-    });
+    reattachPlatesForRod(rodId, shelf);
   }
 }
 
@@ -749,7 +772,7 @@ export function canExtendPlate(plateId: number, extendDirection: Direction, shel
   if (!plate) return undefined;
 
   // Get current plateSKU to understand current span structure
-  const currentSKU = AVAILABLE_PLATES.find(p => p.sku_id === plate.sku_id);
+  const currentSKU = getPlateSKU(plate.sku_id);
   if (!currentSKU) return undefined;
 
   // Find all connected rods and their positions
@@ -815,10 +838,7 @@ export function canExtendPlate(plateId: number, extendDirection: Direction, shel
   }
 
   // Find plate SKU that exactly matches the new span pattern
-  const targetSKU = AVAILABLE_PLATES.find(sku => {
-    if (sku.spans.length !== newSpans.length) return false;
-    return sku.spans.every((span, index) => span === newSpans[index]);
-  });
+  const targetSKU = findPlateSKUBySpans(newSpans);
   if (!targetSKU) return undefined; // No plate available for this span pattern
 
 
@@ -888,8 +908,8 @@ export function canMergePlates(leftPlateId: number, rightPlateId: number, shelf:
   if (!leftPlate || !rightPlate) return undefined;
   if (leftPlate.y !== rightPlate.y) return undefined;
 
-  const leftSKU = AVAILABLE_PLATES.find(p => p.sku_id === leftPlate.sku_id);
-  const rightSKU = AVAILABLE_PLATES.find(p => p.sku_id === rightPlate.sku_id);
+  const leftSKU = getPlateSKU(leftPlate.sku_id);
+  const rightSKU = getPlateSKU(rightPlate.sku_id);
   if (!leftSKU || !rightSKU) return undefined;
 
   const leftRightmostRodId = leftPlate.connections[leftPlate.connections.length - 1];
@@ -919,10 +939,7 @@ export function canMergePlates(leftPlateId: number, rightPlateId: number, shelf:
     ];
   }
 
-  const mergedSKU = AVAILABLE_PLATES.find(sku => {
-    if (sku.spans.length !== mergedSpans.length) return false;
-    return sku.spans.every((span, index) => span === mergedSpans[index]);
-  });
+  const mergedSKU = findPlateSKUBySpans(mergedSpans);
 
   if (!mergedSKU) return undefined;
 
@@ -1032,10 +1049,7 @@ export function removeRodSegment(rodId: number, segmentIndex: number, shelf: She
 
     const newSpans = rodSKU.spans.slice(segmentsToRemove); // Remove first N segments
 
-    const newRodSKU = AVAILABLE_RODS.find(sku => {
-      if (sku.spans.length !== newSpans.length) return false;
-      return sku.spans.every((span, i) => span === newSpans[i]);
-    });
+    const newRodSKU = findRodSKUBySpans(newSpans);
 
     if (!newRodSKU) {
       console.log('removeRodSegment: No matching rod SKU for trimmed rod');
@@ -1091,10 +1105,7 @@ export function removeRodSegment(rodId: number, segmentIndex: number, shelf: She
 
     const newSpans = rodSKU.spans.slice(0, numSegments - segmentsToRemove); // Remove last N segments
 
-    const newRodSKU = AVAILABLE_RODS.find(sku => {
-      if (sku.spans.length !== newSpans.length) return false;
-      return sku.spans.every((span, i) => span === newSpans[i]);
-    });
+    const newRodSKU = findRodSKUBySpans(newSpans);
 
     if (!newRodSKU) {
       console.log('removeRodSegment: No matching rod SKU for trimmed rod');
@@ -1164,15 +1175,9 @@ export function removeRodSegment(rodId: number, segmentIndex: number, shelf: She
   const bottomSpans = rodSKU.spans.slice(0, segmentIndex);
   const topSpans = rodSKU.spans.slice(segmentIndex + 1);
 
-  const bottomRodSKU = AVAILABLE_RODS.find(sku => {
-    if (sku.spans.length !== bottomSpans.length) return false;
-    return sku.spans.every((span, i) => span === bottomSpans[i]);
-  });
+  const bottomRodSKU = findRodSKUBySpans(bottomSpans);
 
-  const topRodSKU = AVAILABLE_RODS.find(sku => {
-    if (sku.spans.length !== topSpans.length) return false;
-    return sku.spans.every((span, i) => span === topSpans[i]);
-  });
+  const topRodSKU = findRodSKUBySpans(topSpans);
 
   if (!bottomRodSKU || !topRodSKU) {
     console.log('removeRodSegment: Cannot split - no matching SKUs for both parts');
@@ -1247,7 +1252,7 @@ export function removeSegmentFromPlate(plateId: number, segmentIndex: number, sh
     return false;
   }
 
-  const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === plate.sku_id);
+  const plateSKU = getPlateSKU(plate.sku_id);
   if (!plateSKU) {
     console.log('removeSegmentFromPlate: Plate SKU not found');
     return false;
@@ -1280,19 +1285,10 @@ export function removeSegmentFromPlate(plateId: number, segmentIndex: number, sh
     const newRods = plate.connections.slice(1);
 
     // Calculate new spans
-    const newSpans = [PLATE_PADDING_MM];
-    const rods = newRods.map(id => shelf.rods.get(id)).filter(r => r !== undefined);
-    for (let i = 0; i < rods.length - 1; i++) {
-      const distance = rods[i + 1]!.position.x - rods[i]!.position.x;
-      newSpans.push(distance);
-    }
-    newSpans.push(PLATE_PADDING_MM);
+    const newSpans = calculatePlateSpansForRods(newRods, shelf);
 
     // Find matching SKU
-    const newSKU = AVAILABLE_PLATES.find(sku => {
-      if (sku.spans.length !== newSpans.length) return false;
-      return sku.spans.every((span, i) => span === newSpans[i]);
-    });
+    const newSKU = findPlateSKUBySpans(newSpans);
 
     if (!newSKU) {
       console.log('removeSegmentFromPlate: No matching SKU for trimmed plate, removing entirely');
@@ -1330,19 +1326,10 @@ export function removeSegmentFromPlate(plateId: number, segmentIndex: number, sh
     const newRods = plate.connections.slice(0, -1);
 
     // Calculate new spans
-    const newSpans = [PLATE_PADDING_MM];
-    const rods = newRods.map(id => shelf.rods.get(id)).filter(r => r !== undefined);
-    for (let i = 0; i < rods.length - 1; i++) {
-      const distance = rods[i + 1]!.position.x - rods[i]!.position.x;
-      newSpans.push(distance);
-    }
-    newSpans.push(PLATE_PADDING_MM);
+    const newSpans = calculatePlateSpansForRods(newRods, shelf);
 
     // Find matching SKU
-    const newSKU = AVAILABLE_PLATES.find(sku => {
-      if (sku.spans.length !== newSpans.length) return false;
-      return sku.spans.every((span, i) => span === newSpans[i]);
-    });
+    const newSKU = findPlateSKUBySpans(newSpans);
 
     if (!newSKU) {
       console.log('removeSegmentFromPlate: No matching SKU for trimmed plate, removing entirely');
@@ -1397,15 +1384,9 @@ export function removeSegmentFromPlate(plateId: number, segmentIndex: number, sh
   rightSpans.push(PLATE_PADDING_MM);
 
   // Find matching SKUs
-  const leftSKU = AVAILABLE_PLATES.find(sku => {
-    if (sku.spans.length !== leftSpans.length) return false;
-    return sku.spans.every((span, i) => span === leftSpans[i]);
-  });
+  const leftSKU = findPlateSKUBySpans(leftSpans);
 
-  const rightSKU = AVAILABLE_PLATES.find(sku => {
-    if (sku.spans.length !== rightSpans.length) return false;
-    return sku.spans.every((span, i) => span === rightSpans[i]);
-  });
+  const rightSKU = findPlateSKUBySpans(rightSpans);
 
   if (!leftSKU || !rightSKU) {
     console.log('removeSegmentFromPlate: Cannot split - no matching SKUs for both parts, removing entirely');
@@ -1616,7 +1597,7 @@ export function canAddPlateSegment(rodId: number, y: number, direction: Directio
 
   // No rod on the other end (TODO: Or rod too far away)
 
-  const defaultPlateSku = AVAILABLE_PLATES.find(p => p.sku_id === DEFAULT_PLATE_SKU_ID);;
+  const defaultPlateSku = getPlateSKU(DEFAULT_PLATE_SKU_ID);
 
   const defaultPlateGapWidth = defaultPlateSku?.spans[1]
   if (defaultPlateGapWidth === undefined || !defaultPlateSku) {
@@ -1633,7 +1614,7 @@ export function canAddPlateSegment(rodId: number, y: number, direction: Directio
     const existingPlate = shelf.plates.get(sourcePlateId);
     if (!existingPlate) return undefined;
 
-    const existingSKU = AVAILABLE_PLATES.find(p => p.sku_id === existingPlate.sku_id);
+    const existingSKU = getPlateSKU(existingPlate.sku_id);
     if (!existingSKU) return undefined;
 
     // Calculate new spans for the extended plate
@@ -1651,10 +1632,7 @@ export function canAddPlateSegment(rodId: number, y: number, direction: Directio
     }
 
     // Find plate SKU that matches the new span pattern
-    const targetSKU = AVAILABLE_PLATES.find(sku => {
-      if (sku.spans.length !== newSpans.length) return false;
-      return sku.spans.every((span, index) => span === newSpans[index]);
-    });
+    const targetSKU = findPlateSKUBySpans(newSpans);
     if (!targetSKU) return undefined; // No plate available for this span pattern
 
     // Validate rod creation before proceeding
@@ -1775,15 +1753,7 @@ export function extendRodToHeight(rodId: number, targetY: number, shelf: Shelf):
           rod.attachmentPoints = newAttachmentPositions.map(y => ({ y }));
 
           // Re-attach plates (Y positions unchanged, but indices shift)
-          shelf.plates.forEach((plate, plateId) => {
-            if (plate.connections.includes(rodId)) {
-              const attachmentY = plate.y - rod.position.y;
-              const attachmentIndex = rod.attachmentPoints.findIndex(ap => ap.y === attachmentY);
-              if (attachmentIndex !== -1) {
-                rod.attachmentPoints[attachmentIndex].plateId = plateId;
-              }
-            }
-          });
+          reattachPlatesForRod(rodId, shelf);
 
           console.log(`extendRodToHeight: Extended downward with ${span}mm span to SKU ${newSKU.name}`);
           return true;
@@ -1883,7 +1853,7 @@ export function validateRodExtension(
   const rod = shelf.rods.get(rodId);
   if (!rod) return null;
 
-  const oldSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+  const oldSKU = getRodSKU(rod.sku_id);
   if (!oldSKU) return null;
 
   // Try 200mm span first, then 300mm
@@ -1894,10 +1864,7 @@ export function validateRodExtension(
       : [span, ...oldSKU.spans];
 
     // Find matching SKU
-    const newSKU = AVAILABLE_RODS.find(sku => {
-      if (sku.spans.length !== expectedSpans.length) return false;
-      return sku.spans.every((s, i) => s === expectedSpans[i]);
-    });
+    const newSKU = findRodSKUBySpans(expectedSpans);
 
     if (newSKU) {
       return {
@@ -1927,8 +1894,8 @@ export function extendRodUp(rodId: number, newSKU_id: number, shelf: Shelf): boo
   const rod = shelf.rods.get(rodId);
   if (!rod) return false;
 
-  const oldSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
-  const newSKU = AVAILABLE_RODS.find(r => r.sku_id === newSKU_id);
+  const oldSKU = getRodSKU(rod.sku_id);
+  const newSKU = getRodSKU(newSKU_id);
 
   if (!oldSKU || !newSKU) return false;
 
@@ -1958,8 +1925,8 @@ export function extendRodDown(rodId: number, newSKU_id: number, shelf: Shelf): b
   const rod = shelf.rods.get(rodId);
   if (!rod) return false;
 
-  const oldSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
-  const newSKU = AVAILABLE_RODS.find(r => r.sku_id === newSKU_id);
+  const oldSKU = getRodSKU(rod.sku_id);
+  const newSKU = getRodSKU(newSKU_id);
 
   if (!oldSKU || !newSKU) return false;
 
@@ -1981,15 +1948,7 @@ export function extendRodDown(rodId: number, newSKU_id: number, shelf: Shelf): b
   rod.attachmentPoints = newAttachmentPositions.map(y => ({ y }));
 
   // Re-attach plates (Y positions unchanged in world space, but attachment indices shift)
-  shelf.plates.forEach((plate, plateId) => {
-    if (plate.connections.includes(rodId)) {
-      const attachmentY = plate.y - rod.position.y; // Calculate relative Y
-      const attachmentIndex = rod.attachmentPoints.findIndex(ap => ap.y === attachmentY);
-      if (attachmentIndex !== -1) {
-        rod.attachmentPoints[attachmentIndex].plateId = plateId;
-      }
-    }
-  });
+  reattachPlatesForRod(rodId, shelf);
 
   console.log(`extendRodDown: Extended rod ${rodId} downward with ${additionalSpan}mm span to SKU ${newSKU.name}`);
   return true;
@@ -2051,8 +2010,8 @@ function prepareRodModifications(
       const rod = shelf.rods.get(rodId);
       if (!rod) continue;
 
-      const oldSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
-      const newSKU = AVAILABLE_RODS.find(r => r.sku_id === plan.newSkuId);
+      const oldSKU = getRodSKU(rod.sku_id);
+      const newSKU = getRodSKU(plan.newSkuId);
       if (!oldSKU || !newSKU) continue;
 
       // Get the added span directly from the SKU
@@ -2099,7 +2058,7 @@ function createExtensionRodModifications(
     const extRod = shelf.rods.get(extRodId);
     if (!extRod) continue;
 
-    const extRodSKU = AVAILABLE_RODS.find(r => r.sku_id === extRod.sku_id);
+    const extRodSKU = getRodSKU(extRod.sku_id);
     if (!extRodSKU) continue;
 
     const visualHeight = ext.spanToAdd;
@@ -2220,7 +2179,7 @@ export function regenerateGhostPlates(shelf: Shelf): void {
   // Iterate through each rod
   for (let [rodId, rod] of shelf.rods) {
 
-    const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+    const rodSKU = getRodSKU(rod.sku_id);
     if (!rodSKU) continue;
 
     // Iterate through each attachment point, looking for extensions left or right
@@ -2252,7 +2211,7 @@ export function regenerateGhostPlates(shelf: Shelf): void {
 
     // Check for rod extension opportunities (above/below current rod)
     // Only check for the rod to the right to avoid duplicates
-    const defaultPlateSku = AVAILABLE_PLATES.find(p => p.sku_id === DEFAULT_PLATE_SKU_ID);
+    const defaultPlateSku = getPlateSKU(DEFAULT_PLATE_SKU_ID);
     if (!defaultPlateSku) continue;
 
     // Find adjacent rod to the right at standard gap
