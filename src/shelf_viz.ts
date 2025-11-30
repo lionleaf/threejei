@@ -46,7 +46,7 @@ function createRodMeshes(rod: Rod, isGhost: boolean): any[] {
     ? new THREE.MeshBasicMaterial({
         color: 0x90EE90, // Light green
         transparent: true,
-        opacity: 0.0 // Will be set to 0.5 on hover
+        opacity: DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0 // Will be set to 0.5 on hover
       })
     : new THREE.MeshStandardMaterial({
         color: 0x76685e,
@@ -82,7 +82,7 @@ function createRodMeshes(rod: Rod, isGhost: boolean): any[] {
       ? new THREE.MeshBasicMaterial({
           color: 0x90EE90, // Light green
           transparent: true,
-          opacity: 0.0 // Will be set to 0.5 on hover
+          opacity: DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0 // Will be set to 0.5 on hover
         })
       : new THREE.MeshStandardMaterial({
           color: 0x76685e,

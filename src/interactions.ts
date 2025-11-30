@@ -219,6 +219,10 @@ export function setupInteractions(
       if (child.userData?.type === 'ghost_plate' && child.material) {
         child.material.opacity = DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0;
       }
+      // Also reset ghost rod opacity
+      if ((child.userData?.type === 'ghost_rod' || child.userData?.type === 'ghost_connection_rod') && child.material) {
+        child.material.opacity = DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0;
+      }
     });
 
     // Hide tooltip by default
