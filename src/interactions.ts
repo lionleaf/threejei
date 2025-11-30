@@ -116,7 +116,7 @@ export function setupInteractions(
           // Create new rod
           addRod(rodMod.position, rodMod.newSkuId!, shelf);
         } else if (rodMod.type === 'extend') {
-          // Extend existing rod
+          // Extend existing rod using pre-validated direction
           const rodId = rodMod.affectedRodIds![0];
           const rod = shelf.rods.get(rodId);
           if (!rod) {
@@ -124,13 +124,8 @@ export function setupInteractions(
             continue;
           }
 
-          // Determine direction by checking if new SKU has more spans at beginning or end
-          const oldSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
-          const newSKU = AVAILABLE_RODS.find(r => r.sku_id === rodMod.newSkuId);
-          if (!oldSKU || !newSKU) continue;
-
-          const spansMatchUp = oldSKU.spans.every((span, i) => newSKU.spans[i] === span);
-          const direction = spansMatchUp ? 'up' : 'down';
+          // Use the direction stored in the rod modification
+          const direction = rodMod.direction!;
 
           if (direction === 'up') {
             extendRodUp(rodId, rodMod.newSkuId!, shelf);

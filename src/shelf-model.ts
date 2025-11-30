@@ -80,6 +80,7 @@ export interface RodModification {
   affectedRodIds?: number[]; // Rod(s) being modified
   visualHeight?: number;     // For extends: height of new segment only
   visualY?: number;          // For extends: Y position of new segment start
+  direction?: 'up' | 'down'; // For extends: direction of extension
 }
 
 export interface GhostPlate {
@@ -143,6 +144,7 @@ export const AVAILABLE_PLATES: PlateSKU[] = [
 ];
 
 export const DEFAULT_PLATE_SKU_ID: number = 1
+const STANDARD_GAP = 600; // Standard gap between rods (600mm)
 
 // Core functions
 export function createEmptyShelf(): Shelf {
@@ -1502,7 +1504,6 @@ function calculateGapPlate(leftRodId: number, rightRodId: number, height: number
 }
 
 export function canAddPlateSegment(rodId: number, y: number, direction: Direction, shelf: Shelf): PlateSegmentResult | undefined {
-  const STANDARD_GAP = 600;
   const rod = shelf.rods.get(rodId);
   if (!rod) return undefined;
 
@@ -2068,12 +2069,141 @@ function prepareRodModifications(
         newSkuId: plan.newSkuId,
         affectedRodIds: [rodId],
         visualHeight,
-        visualY
+        visualY,
+        direction: plan.direction
       });
     }
   }
 
   return rodModifications;
+}
+
+/**
+ * Helper to create rod modifications from extension map
+ */
+function createExtensionRodModifications(
+  extension: Map<number, { newSKU_id: number, spanToAdd: number }>,
+  direction: 'up' | 'down',
+  shelf: Shelf
+): RodModification[] {
+  const rodModifications: RodModification[] = [];
+
+  for (const [extRodId, ext] of extension.entries()) {
+    const extRod = shelf.rods.get(extRodId);
+    if (!extRod) continue;
+
+    const extRodSKU = AVAILABLE_RODS.find(r => r.sku_id === extRod.sku_id);
+    if (!extRodSKU) continue;
+
+    const visualHeight = ext.spanToAdd;
+    const visualY = direction === 'up'
+      ? (() => {
+          const attachmentPositions = calculateAttachmentPositions(extRodSKU);
+          return extRod.position.y + attachmentPositions[attachmentPositions.length - 1];
+        })()
+      : extRod.position.y - ext.spanToAdd;
+
+    rodModifications.push({
+      type: 'extend',
+      position: extRod.position,
+      newSkuId: ext.newSKU_id,
+      affectedRodIds: [extRodId],
+      visualHeight,
+      visualY,
+      direction
+    });
+  }
+
+  return rodModifications;
+}
+
+/**
+ * Helper to try adding a rod extension ghost plate (up or down)
+ */
+function tryAddRodExtensionGhost(
+  rodId: number,
+  rod: Rod,
+  rightRodId: number,
+  rightRod: Rod,
+  direction: 'up' | 'down',
+  boundaryY: number,
+  defaultPlateSku: PlateSKU,
+  shelf: Shelf
+): void {
+  const extension = findCommonExtension([rodId, rightRodId], direction, shelf);
+  if (!extension) return;
+
+  const spanToAdd = extension.get(rodId)!.spanToAdd;
+  const directionMultiplier = direction === 'up' ? 1 : -1;
+  const newY = boundaryY + (directionMultiplier * spanToAdd);
+  const centerX = (rod.position.x + rightRod.position.x) / 2;
+
+  const rodModifications = createExtensionRodModifications(extension, direction, shelf);
+
+  const candidate: GhostPlate = {
+    sku_id: defaultPlateSku.sku_id,
+    connections: [rodId, rightRodId],
+    midpointPosition: { x: centerX, y: newY },
+    legal: true,
+    action: 'extend_rod',
+    width: STANDARD_GAP,
+    rodModifications
+  };
+
+  if (!ghostPlateExists(shelf.ghostPlates, candidate)) {
+    shelf.ghostPlates.push(candidate);
+  }
+}
+
+/**
+ * Helper to add a directional ghost plate (left or right)
+ */
+function tryAddDirectionalGhost(
+  rodId: number,
+  rod: Rod,
+  y: number,
+  direction: Direction,
+  shelf: Shelf
+): void {
+  const result = canAddPlateSegment(rodId, y, direction, shelf);
+  const defaultWidth = 600;
+  const directionMultiplier = direction === Direction.Left ? -1 : 1;
+
+  let candidate: GhostPlate;
+
+  if (result) {
+    const rodModifications = prepareRodModifications(result, shelf);
+    const segmentWidth = result.segmentWidth;
+    candidate = {
+      sku_id: result.sku_id,
+      connections: result.rodIds,
+      midpointPosition: {
+        x: rod.position.x + (directionMultiplier * segmentWidth / 2),
+        y: result.y
+      },
+      legal: true,
+      direction: direction === Direction.Left ? 'left' : 'right',
+      action: result.action,
+      existingPlateId: result.existingPlateId,
+      targetPlateId: result.targetPlateId,
+      width: segmentWidth,
+      rodModifications: rodModifications.length > 0 ? rodModifications : undefined
+    };
+  } else {
+    candidate = {
+      midpointPosition: {
+        x: rod.position.x + (directionMultiplier * defaultWidth / 2),
+        y: y
+      },
+      legal: false,
+      direction: direction === Direction.Left ? 'left' : 'right',
+      width: defaultWidth
+    };
+  }
+
+  if (!ghostPlateExists(shelf.ghostPlates, candidate)) {
+    shelf.ghostPlates.push(candidate);
+  }
 }
 
 export function regenerateGhostPlates(shelf: Shelf): void {
@@ -2105,87 +2235,16 @@ export function regenerateGhostPlates(shelf: Shelf): void {
       }
 
       if (!hasLeftPlate) {
-        const result = canAddPlateSegment(rodId, y, Direction.Left, shelf);
-        let candidate: GhostPlate;
-
-        if (result) {
-          // Prepare rod modifications from pre-validated plans
-          const rodModifications = prepareRodModifications(result, shelf);
-
-          const segmentWidth = result.segmentWidth;
-          candidate = {
-            sku_id: result.sku_id,
-            connections: result.rodIds, // Already resolved (no -1)
-            midpointPosition: {
-              x: rod.position.x - segmentWidth / 2,
-              y: result.y
-            },
-            legal: true,
-            direction: 'left',
-            action: result.action,
-            existingPlateId: result.existingPlateId,
-            targetPlateId: result.targetPlateId,
-            width: segmentWidth,
-            rodModifications: rodModifications.length > 0 ? rodModifications : undefined
-          };
-        } else {
-          const defaultWidth = 600;
-          candidate = {
-            midpointPosition: { x: rod.position.x - defaultWidth / 2, y: y },
-            legal: false,
-            direction: 'left',
-            width: defaultWidth
-          };
-        }
-
-        if (!ghostPlateExists(shelf.ghostPlates, candidate)) {
-          shelf.ghostPlates.push(candidate);
-        }
+        tryAddDirectionalGhost(rodId, rod, y, Direction.Left, shelf);
       }
 
       if (!hasRightPlate) {
-        const result = canAddPlateSegment(rodId, y, Direction.Right, shelf);
-        let candidate: GhostPlate;
-
-        if (result) {
-          // Prepare rod modifications from pre-validated plans
-          const rodModifications = prepareRodModifications(result, shelf);
-
-          const segmentWidth = result.segmentWidth;
-          candidate = {
-            sku_id: result.sku_id,
-            connections: result.rodIds, // Already resolved (no -1)
-            midpointPosition: {
-              x: rod.position.x + segmentWidth / 2,
-              y: result.y
-            },
-            legal: true,
-            direction: 'right',
-            action: result.action,
-            existingPlateId: result.existingPlateId,
-            targetPlateId: result.targetPlateId,
-            width: segmentWidth,
-            rodModifications: rodModifications.length > 0 ? rodModifications : undefined
-          };
-        } else {
-          const defaultWidth = 600;
-          candidate = {
-            midpointPosition: { x: rod.position.x + defaultWidth / 2, y: y },
-            legal: false,
-            direction: 'right',
-            width: defaultWidth
-          };
-        }
-
-        if (!ghostPlateExists(shelf.ghostPlates, candidate)) {
-          shelf.ghostPlates.push(candidate);
-        }
+        tryAddDirectionalGhost(rodId, rod, y, Direction.Right, shelf);
       }
     }
 
     // Check for rod extension opportunities (above/below current rod)
     // Only check for the rod to the right to avoid duplicates
-    const STANDARD_GAP = 600;
     const defaultPlateSku = AVAILABLE_PLATES.find(p => p.sku_id === DEFAULT_PLATE_SKU_ID);
     if (!defaultPlateSku) continue;
 
@@ -2215,88 +2274,8 @@ export function regenerateGhostPlates(shelf: Shelf): void {
     const rightBottomY = rightRod.position.y;
     const shelfBottomY = Math.max(leftBottomY, rightBottomY);
 
-    const upExtension = findCommonExtension([rodId, rightRodId], 'up', shelf);
-    if (upExtension) {
-      const spanToAdd = upExtension.get(rodId)!.spanToAdd;
-      const newY = shelfTopY + spanToAdd;
-      const centerX = (rod.position.x + rightRod.position.x) / 2;
-
-      const rodModifications: RodModification[] = [];
-      for (const [extRodId, ext] of upExtension.entries()) {
-        const extRod = shelf.rods.get(extRodId);
-        if (!extRod) continue;
-
-        const extRodSKU = AVAILABLE_RODS.find(r => r.sku_id === extRod.sku_id);
-        if (!extRodSKU) continue;
-
-        const attachmentPositions = calculateAttachmentPositions(extRodSKU);
-        const visualHeight = ext.spanToAdd;
-        const visualY = extRod.position.y + attachmentPositions[attachmentPositions.length - 1];
-
-        rodModifications.push({
-          type: 'extend',
-          position: extRod.position,
-          newSkuId: ext.newSKU_id,
-          affectedRodIds: [extRodId],
-          visualHeight,
-          visualY
-        });
-      }
-
-      const candidate: GhostPlate = {
-        sku_id: defaultPlateSku.sku_id,
-        connections: [rodId, rightRodId],
-        midpointPosition: { x: centerX, y: newY },
-        legal: true,
-        action: 'extend_rod',
-        width: STANDARD_GAP,
-        rodModifications
-      };
-
-      if (!ghostPlateExists(shelf.ghostPlates, candidate)) {
-        shelf.ghostPlates.push(candidate);
-      }
-    }
-
-    // Check downward extension
-    const downExtension = findCommonExtension([rodId, rightRodId], 'down', shelf);
-    if (downExtension) {
-      const spanToAdd = downExtension.get(rodId)!.spanToAdd;
-      const newY = shelfBottomY - spanToAdd;
-      const centerX = (rod.position.x + rightRod.position.x) / 2;
-
-      const rodModifications: RodModification[] = [];
-      for (const [extRodId, ext] of downExtension.entries()) {
-        const extRod = shelf.rods.get(extRodId);
-        if (!extRod) continue;
-
-        const visualHeight = ext.spanToAdd;
-        const visualY = extRod.position.y - ext.spanToAdd;
-
-        rodModifications.push({
-          type: 'extend',
-          position: extRod.position,
-          newSkuId: ext.newSKU_id,
-          affectedRodIds: [extRodId],
-          visualHeight,
-          visualY
-        });
-      }
-
-      const candidate: GhostPlate = {
-        sku_id: defaultPlateSku.sku_id,
-        connections: [rodId, rightRodId],
-        midpointPosition: { x: centerX, y: newY },
-        legal: true,
-        action: 'extend_rod',
-        width: STANDARD_GAP,
-        rodModifications
-      };
-
-      if (!ghostPlateExists(shelf.ghostPlates, candidate)) {
-        shelf.ghostPlates.push(candidate);
-      }
-    }
+    tryAddRodExtensionGhost(rodId, rod, rightRodId, rightRod, 'up', shelfTopY, defaultPlateSku!, shelf);
+    tryAddRodExtensionGhost(rodId, rod, rightRodId, rightRod, 'down', shelfBottomY, defaultPlateSku!, shelf);
 
   }
 }
