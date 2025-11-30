@@ -1,4 +1,4 @@
-import { createEmptyShelf, addRod, addPlate, canExtendPlate, extendPlate, canAddPlateSegment, Direction, AVAILABLE_PLATES, mergePlates, resolveRodConnections } from './shelf-model.js';
+import { createEmptyShelf, addRod, addPlate, canExtendPlate, extendPlate, canAddPlateSegment, Direction, AVAILABLE_PLATES, mergePlates, applyRodCreation } from './shelf-model.js';
 
 // Wrapper to match old test API
 function tryExtendPlate(plateId: number, direction: Direction, shelf: any): boolean {
@@ -20,8 +20,13 @@ function tryFillEdgeGap(rodId: number, y: number, direction: 'left' | 'right', s
   const result = canAddPlateSegment(rodId, absoluteY, dir, shelf);
   if (!result) return -1;
 
-  // Resolve any -1 rod connections (creates new rods)
-  const actualRodIds = resolveRodConnections(result.rodIds, result.requiresNewRod, shelf);
+  // Apply rod creation plan if present
+  if (result.rodCreationPlan) {
+    applyRodCreation(result.rodCreationPlan, shelf);
+  }
+
+  // Rod IDs are already resolved (no -1 placeholders)
+  const actualRodIds = result.rodIds;
 
   if (result.action === 'create') {
     return addPlate(result.y, result.sku_id, actualRodIds, shelf);
