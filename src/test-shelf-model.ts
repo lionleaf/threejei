@@ -388,6 +388,101 @@ function testGhostPlateRodModifications() {
   }
 }
 
+function testRodExtensionEdgeCases() {
+  console.log('\n=== Testing Rod Extension Edge Cases ===');
+
+  // Test 1: Cannot extend rod in wrong direction (upward when target is below)
+  const shelf1 = createEmptyShelf();
+  const rod1 = addRod({ x: 0, y: 200 }, 2, shelf1); // 2P_2 at Y=200, goes to Y=400
+  const result1 = validateRodCreation({ x: 0, y: 100 }, shelf1); // Target at Y=100 (below rod)
+  // Should NOT create an 'extend' action with direction='up'
+  if (result1 && result1.action === 'extend') {
+    test('Cannot extend upward when target is below', result1.direction !== 'up');
+  } else {
+    test('Cannot extend upward when target is below', true); // Valid to not extend at all
+  }
+
+  // Test 2: Cannot extend rod when target is at interior point
+  const shelf2 = createEmptyShelf();
+  const rod2 = addRod({ x: 0, y: 0 }, 3, shelf2); // 2P_3 at Y=0, points at 0, 300
+  const result2 = validateRodCreation({ x: 0, y: 150 }, shelf2); // Target at Y=150 (between 0 and 300)
+  // Should NOT extend - Y=150 is inside the rod
+  if (result2 && result2.action === 'extend') {
+    test('Cannot extend to interior point', false); // Should not be an extension
+  } else {
+    test('Cannot extend to interior point', true); // Correctly rejected or created new rod
+  }
+
+  // Test 3: Extension in correct direction (upward)
+  const shelf3 = createEmptyShelf();
+  const rod3 = addRod({ x: 0, y: 0 }, 2, shelf3); // 2P_2 at Y=0, top at Y=200
+  const result3 = validateRodCreation({ x: 0, y: 400 }, shelf3); // Target at Y=400 (200mm above top)
+  test('Can extend upward when target is above',
+    result3?.action === 'extend' && result3.direction === 'up'
+  );
+
+  // Test 4: Extension in correct direction (downward)
+  const shelf4 = createEmptyShelf();
+  const rod4 = addRod({ x: 0, y: 200 }, 2, shelf4); // 2P_2 at Y=200, bottom at Y=200
+  const result4 = validateRodCreation({ x: 0, y: 0 }, shelf4); // Target at Y=0 (200mm below bottom)
+  test('Can extend downward when target is below',
+    result4?.action === 'extend' && result4.direction === 'down'
+  );
+
+  // Test 5: Ghost rod visualization shows correct height for single span extension
+  const shelf5 = createEmptyShelf();
+  const rod5a = addRod({ x: 0, y: 0 }, 2, shelf5); // 2P_2
+  const rod5b = addRod({ x: 600, y: 0 }, 2, shelf5); // 2P_2
+  addPlate(0, 1, [rod5a, rod5b], shelf5); // Plate at Y=0
+  addPlate(200, 1, [rod5a, rod5b], shelf5); // Plate at Y=200
+
+  regenerateGhostPlates(shelf5);
+  const extensionGhost5 = shelf5.ghostPlates.find(g =>
+    g.action === 'extend' && g.rodModifications && g.rodModifications.length > 0
+  );
+
+  if (extensionGhost5 && extensionGhost5.rodModifications) {
+    const extMod = extensionGhost5.rodModifications.find(m => m.type === 'extend');
+    if (extMod) {
+      // Should show 200mm extension (one span)
+      test('Single span extension visualHeight is 200mm',
+        extMod.visualHeight !== undefined && Math.abs(extMod.visualHeight! - 200) < 5
+      );
+    }
+  }
+
+  // Test 6: Cannot extend by non-standard gap (e.g., 250mm)
+  const shelf6 = createEmptyShelf();
+  const rod6 = addRod({ x: 0, y: 0 }, 2, shelf6); // 2P_2 at Y=0, top at Y=200
+  const result6 = validateRodCreation({ x: 0, y: 450 }, shelf6); // Target at Y=450 (250mm above, non-standard)
+  // Should NOT extend with 250mm gap
+  if (result6 && result6.action === 'extend') {
+    const rod = shelf6.rods.get(result6.targetRodId!)!;
+    const oldSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+    const newSKU = AVAILABLE_RODS.find(r => r.sku_id === result6.extendedSkuId);
+    if (oldSKU && newSKU) {
+      const addedSpan = newSKU.spans[newSKU.spans.length - 1];
+      test('Cannot extend by non-standard gap', addedSpan === 200 || addedSpan === 300);
+    }
+  } else {
+    test('Cannot extend by non-standard gap', true); // Correctly rejected
+  }
+
+  // Test 7: Extension with 300mm span
+  const shelf7 = createEmptyShelf();
+  const rod7 = addRod({ x: 0, y: 0 }, 2, shelf7); // 2P_2 at Y=0, top at Y=200
+  const result7 = validateRodCreation({ x: 0, y: 500 }, shelf7); // Target at Y=500 (300mm above)
+  test('Can extend upward with 300mm span',
+    result7?.action === 'extend' && result7.direction === 'up'
+  );
+  if (result7 && result7.action === 'extend') {
+    const newSKU = AVAILABLE_RODS.find(r => r.sku_id === result7.extendedSkuId);
+    test('Extended SKU has 300mm span at end',
+      newSKU?.spans[newSKU.spans.length - 1] === 300
+    );
+  }
+}
+
 // Run all tests
 testPlateValidation();
 testTryExtendPlate();
@@ -395,6 +490,7 @@ testAddOrExtendRod();
 testValidateRodCreation();
 testValidateRodExtension();
 testGhostPlateRodModifications();
+testRodExtensionEdgeCases();
 
 // Print results
 if (failedTests.length === 0) {

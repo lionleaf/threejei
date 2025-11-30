@@ -408,33 +408,51 @@ function validateExtension(
   const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
   if (!rodSKU) return null;
 
-  // Get all existing attachment positions (absolute coordinates)
-  const existingAbsoluteYs = rod.attachmentPoints.map(ap => rod.position.y + ap.y);
+  // Calculate attachment positions for this rod
+  const attachmentPositions = calculateAttachmentPositions(rodSKU);
+  const absoluteTop = rod.position.y + attachmentPositions[attachmentPositions.length - 1];
+  const absoluteBottom = rod.position.y + attachmentPositions[0];
 
-  // Add the new position
-  const allPositions = [...existingAbsoluteYs, newY].sort((a, b) => a - b);
-
-  // Calculate gaps between consecutive positions
-  const gaps: number[] = [];
-  for (let i = 0; i < allPositions.length - 1; i++) {
-    gaps.push(allPositions[i + 1] - allPositions[i]);
+  // VALIDATE: newY must be beyond the rod in the specified direction
+  if (direction === 'up' && newY <= absoluteTop + TOLERANCE) {
+    return null; // newY is not above the rod
+  }
+  if (direction === 'down' && newY >= absoluteBottom - TOLERANCE) {
+    return null; // newY is not below the rod
   }
 
-  // Search for a matching SKU
-  const matchingSKU = AVAILABLE_RODS.find(sku => {
-    if (sku.spans.length !== gaps.length) return false;
-    return sku.spans.every((span, i) => Math.abs(span - gaps[i]) < TOLERANCE);
-  });
+  // Calculate gap from the appropriate end
+  const gap = direction === 'up'
+    ? newY - absoluteTop
+    : absoluteBottom - newY;
 
-  if (!matchingSKU) return null;
+  // Try standard spans (200mm and 300mm)
+  for (const span of [200, 300]) {
+    if (Math.abs(gap - span) < TOLERANCE) {
+      // Build expected spans for the extended rod
+      const expectedSpans = direction === 'up'
+        ? [...rodSKU.spans, span]
+        : [span, ...rodSKU.spans];
 
-  return {
-    action: 'extend',
-    position: rod.position,
-    targetRodId: rodId,
-    direction,
-    extendedSkuId: matchingSKU.sku_id
-  };
+      // Find matching SKU with exact span pattern
+      const matchingSKU = AVAILABLE_RODS.find(sku => {
+        if (sku.spans.length !== expectedSpans.length) return false;
+        return sku.spans.every((s, i) => s === expectedSpans[i]);
+      });
+
+      if (matchingSKU) {
+        return {
+          action: 'extend',
+          position: rod.position,
+          targetRodId: rodId,
+          direction,
+          extendedSkuId: matchingSKU.sku_id
+        };
+      }
+    }
+  }
+
+  return null; // No valid extension found
 }
 
 /**
@@ -2025,16 +2043,23 @@ function prepareRodModifications(
       const rod = shelf.rods.get(rodId);
       if (!rod) continue;
 
-      const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
-      if (!rodSKU) continue;
+      const oldSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+      const newSKU = AVAILABLE_RODS.find(r => r.sku_id === plan.newSkuId);
+      if (!oldSKU || !newSKU) continue;
 
-      // Calculate visual properties for the extension
-      const attachmentPositions = calculateAttachmentPositions(rodSKU);
+      // Calculate actual height difference between old and new SKUs
+      const oldPositions = calculateAttachmentPositions(oldSKU);
+      const newPositions = calculateAttachmentPositions(newSKU);
 
-      const visualHeight = plan.addedSpan;
+      // Visual height is the difference in total height
+      const visualHeight = plan.direction === 'up'
+        ? newPositions[newPositions.length - 1] - oldPositions[oldPositions.length - 1]
+        : oldPositions[0] - newPositions[0];
+
+      // Visual Y is where the extension starts
       const visualY = plan.direction === 'up'
-        ? rod.position.y + attachmentPositions[attachmentPositions.length - 1]
-        : rod.position.y - plan.addedSpan;
+        ? rod.position.y + oldPositions[oldPositions.length - 1]
+        : rod.position.y + newPositions[0];
 
       rodModifications.push({
         type: 'extend',
