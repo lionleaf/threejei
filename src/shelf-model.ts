@@ -2047,19 +2047,20 @@ function prepareRodModifications(
       const newSKU = AVAILABLE_RODS.find(r => r.sku_id === plan.newSkuId);
       if (!oldSKU || !newSKU) continue;
 
-      // Calculate actual height difference between old and new SKUs
+      // Get the added span directly from the SKU
+      const addedSpan = plan.direction === 'up'
+        ? newSKU.spans[newSKU.spans.length - 1]  // Last span for upward
+        : newSKU.spans[0];  // First span for downward
+
+      const visualHeight = addedSpan;
+
+      // Calculate attachment positions for visualY
       const oldPositions = calculateAttachmentPositions(oldSKU);
-      const newPositions = calculateAttachmentPositions(newSKU);
 
-      // Visual height is the difference in total height
-      const visualHeight = plan.direction === 'up'
-        ? newPositions[newPositions.length - 1] - oldPositions[oldPositions.length - 1]
-        : oldPositions[0] - newPositions[0];
-
-      // Visual Y is where the extension starts
+      // Visual Y is where the extension starts (in CURRENT world coordinates)
       const visualY = plan.direction === 'up'
-        ? rod.position.y + oldPositions[oldPositions.length - 1]
-        : rod.position.y + newPositions[0];
+        ? rod.position.y + oldPositions[oldPositions.length - 1]  // Start from old top
+        : rod.position.y + oldPositions[0] - addedSpan;  // Start from old bottom minus span
 
       rodModifications.push({
         type: 'extend',

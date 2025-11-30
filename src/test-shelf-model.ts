@@ -388,6 +388,73 @@ function testGhostPlateRodModifications() {
   }
 }
 
+function testSimpleDownwardExtension() {
+  console.log('\n=== Testing Simple Downward Extension Bug ===');
+
+  // Two 1P rods with single plate between them
+  // Click bottom ghost plate -> should extend DOWN, not UP
+  const shelf = createEmptyShelf();
+  const rod1 = addRod({ x: 0, y: 0 }, 1, shelf); // 1P rod at Y=0
+  const rod2 = addRod({ x: 600, y: 0 }, 1, shelf); // 1P rod at Y=0
+  addPlate(0, 1, [rod1, rod2], shelf); // Plate at Y=0
+
+  // Generate ghost plates
+  regenerateGhostPlates(shelf);
+
+  console.log(`  Total ghost plates: ${shelf.ghostPlates.length}`);
+  shelf.ghostPlates.forEach((g, i) => {
+    console.log(`  Ghost ${i}: action=${g.action}, Y=${g.midpointPosition.y}, legal=${g.legal}`);
+    if (g.rodModifications && g.rodModifications.length > 0) {
+      g.rodModifications.forEach(rm => {
+        console.log(`    RodMod: type=${rm.type}, visualY=${rm.visualY}, visualHeight=${rm.visualHeight}`);
+      });
+    }
+  });
+
+  // Find the downward extension ghost (should be below Y=0)
+  // Could be action='extend' or action='extend_rod'
+  const downwardGhost = shelf.ghostPlates.find(g =>
+    (g.action === 'extend' || g.action === 'extend_rod') && g.midpointPosition.y < 0
+  );
+
+  test('Downward ghost plate exists', downwardGhost !== undefined);
+
+  if (downwardGhost && downwardGhost.rodModifications) {
+    console.log(`  Ghost plate at Y=${downwardGhost.midpointPosition.y}`);
+    console.log(`  Rod modifications:`, downwardGhost.rodModifications);
+
+    for (const rodMod of downwardGhost.rodModifications) {
+      if (rodMod.type === 'extend') {
+        // Check the new SKU - for downward extension from 1P, should be 2P_2 or 2P_3
+        const newSKU = AVAILABLE_RODS.find(r => r.sku_id === rodMod.newSkuId);
+        console.log(`  New SKU: ${newSKU?.sku_id} with spans [${newSKU?.spans}]`);
+
+        // The critical test: visualY should be BELOW the original rod
+        // Original rod is at Y=0, so visualY should be negative (below)
+        test('Extension visualY is below original rod (Y < 0)',
+          rodMod.visualY !== undefined && rodMod.visualY! < 0
+        );
+
+        // Also verify the new SKU starts with the added span
+        // For downward extension, the new span should be at the BEGINNING
+        const rod = shelf.rods.get(rodMod.affectedRodIds![0])!;
+        const oldSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+
+        if (oldSKU && newSKU) {
+          console.log(`  Old SKU spans: [${oldSKU.spans}]`);
+          console.log(`  New SKU spans: [${newSKU.spans}]`);
+
+          // For downward: newSKU.spans should be [newSpan, ...oldSKU.spans]
+          // Old is 1P (no spans), new should be 2P with one span
+          test('Downward extension adds span at beginning',
+            newSKU.spans.length === oldSKU.spans.length + 1
+          );
+        }
+      }
+    }
+  }
+}
+
 function testRodExtensionEdgeCases() {
   console.log('\n=== Testing Rod Extension Edge Cases ===');
 
@@ -490,6 +557,7 @@ testAddOrExtendRod();
 testValidateRodCreation();
 testValidateRodExtension();
 testGhostPlateRodModifications();
+testSimpleDownwardExtension();
 testRodExtensionEdgeCases();
 
 // Print results
