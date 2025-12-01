@@ -357,6 +357,47 @@ testGroup('Ghost Plate Generation - Rod Extension Upward', () => {
     }
   });
 
+  test('No illegal ghost plates at misaligned rod attachment points', () => {
+    const shelf = createEmptyShelf();
+
+    // Create configuration from the picture with 3 rods at different heights
+    // Rod 1 (left): Short rod starting at y=0
+    const rod1 = addRod({ x: 0, y: 0 }, 2, shelf); // 2P_2: two points at y=0, y=200
+
+    // Rod 2 (middle): Tall rod with multiple points
+    const rod2 = addRod({ x: 600, y: 0 }, 4, shelf); // 4P_223: points at y=0, y=200, y=400, y=700
+
+    // Rod 3 (right): Tall rod at different alignment
+    const rod3 = addRod({ x: 1200, y: 100 }, 4, shelf); // 4P_223: points at y=100, y=300, y=500, y=800
+
+    // Add some plates to create the configuration
+    addPlate(0, 1, [rod1, rod2], shelf); // Bottom plate between rod1 and rod2 at y=0
+    addPlate(200, 1, [rod1, rod2], shelf); // Plate at y=200
+    addPlate(700, 1, [rod2, rod3], shelf); // Top plate (rod2 at 700, rod3 at 800 needs extension)
+
+    regenerateGhostPlates(shelf);
+
+    // Get actual rod data
+    const rod2Data = shelf.rods.get(rod2)!;
+
+    // The bug: Ghosts are being generated that include a rod at a height
+    // where that rod has NO attachment point. This is illegal!
+
+    // Get rod2's absolute attachment Y positions
+    const rod2AbsoluteYs = rod2Data.attachmentPoints.map(ap => rod2Data.position.y + ap.y);
+
+    // Find ghosts involving rod2 at heights where rod2 has no attachment point
+    const illegalGhosts = shelf.ghostPlates.filter(g => {
+      if (!g.legal || !g.connections?.includes(rod2)) return false;
+      const ghostY = g.midpointPosition.y;
+      // Check if rod2 has an attachment at this height (within tolerance)
+      const hasAttachment = rod2AbsoluteYs.some(y => Math.abs(y - ghostY) < 1);
+      return !hasAttachment;
+    });
+
+    assertTrue(illegalGhosts.length === 0, `Should NOT have ghost plates involving rod2 at heights where rod2 has no attachment (found ${illegalGhosts.length})`);
+  });
+
   //   test('Single rod extend up 200mm has correct modification data', () => {
   //     const shelf = createEmptyShelf();
   //     const rod1 = addRod({ x: 0, y: 0 }, 2, shelf); // 2P_2: spans=[200]
