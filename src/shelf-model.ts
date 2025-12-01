@@ -64,14 +64,6 @@ export interface RodCreationPlan {
   mergedSkuId?: number;
 }
 
-// Rod extension plan - result of validation
-export interface RodExtensionPlan {
-  rodId: number;
-  direction: 'up' | 'down';
-  newSkuId: number;
-  addedSpan: number; // The span being added (200 or 300)
-}
-
 // Rod modification for ghost visualization
 export interface RodModification {
   type: 'create' | 'extend' | 'merge';
@@ -1437,7 +1429,6 @@ export interface PlateSegmentResult {
   existingPlateId?: number;
   targetPlateId?: number; // For merge actions, the second plate to merge with
   rodCreationPlan?: RodCreationPlan; // Pre-validated plan for creating new rod
-  rodExtensionPlans?: Map<number, RodExtensionPlan>; // Pre-validated plans for extending rods
   segmentWidth: number; // Width of the segment being added (distance between rods)
 }
 
@@ -1840,56 +1831,6 @@ export function findCommonExtension(rodIds: number[], direction: 'up' | 'down', 
   return undefined;
 }
 
-/**
- * Validates whether a rod can be extended in the given direction.
- * Returns an extension plan or null if not possible.
- * This function performs NO mutations - it only validates and plans.
- */
-export function validateRodExtension(
-  rodId: number,
-  direction: 'up' | 'down',
-  shelf: Shelf
-): RodExtensionPlan | null {
-  const rod = shelf.rods.get(rodId);
-  if (!rod) return null;
-
-  const oldSKU = getRodSKU(rod.sku_id);
-  if (!oldSKU) return null;
-
-  // Try 200mm span first, then 300mm
-  for (const span of [200, 300]) {
-    // Build expected spans for new SKU
-    const expectedSpans = direction === 'up'
-      ? [...oldSKU.spans, span]
-      : [span, ...oldSKU.spans];
-
-    // Find matching SKU
-    const newSKU = findRodSKUBySpans(expectedSpans);
-
-    if (newSKU) {
-      return {
-        rodId,
-        direction,
-        newSkuId: newSKU.sku_id,
-        addedSpan: span
-      };
-    }
-  }
-
-  return null; // No valid extension found
-}
-
-/**
- * Applies a pre-validated rod extension plan to the shelf.
- * This function performs mutations but NO validation.
- * Returns true if successful, false otherwise.
- */
-export function applyRodExtension(plan: RodExtensionPlan, shelf: Shelf): boolean {
-  return plan.direction === 'up'
-    ? extendRodUp(plan.rodId, plan.newSkuId, shelf)
-    : extendRodDown(plan.rodId, plan.newSkuId, shelf);
-}
-
 export function extendRodUp(rodId: number, newSKU_id: number, shelf: Shelf): boolean {
   const rod = shelf.rods.get(rodId);
   if (!rod) return false;
@@ -1992,6 +1933,33 @@ function prepareRodModifications(
   if (result.rodCreationPlan) {
     const plan = result.rodCreationPlan;
 
+    // Calculate visual properties for extend actions
+    let visualHeight: number | undefined;
+    let visualY: number | undefined;
+    if (plan.action === 'extend' && plan.targetRodId && plan.direction && plan.extendedSkuId) {
+      const rod = shelf.rods.get(plan.targetRodId);
+      if (rod) {
+        const oldSKU = getRodSKU(rod.sku_id);
+        const newSKU = getRodSKU(plan.extendedSkuId);
+        if (oldSKU && newSKU) {
+          // Get the added span directly from the SKU
+          const addedSpan = plan.direction === 'up'
+            ? newSKU.spans[newSKU.spans.length - 1]  // Last span for upward
+            : newSKU.spans[0];  // First span for downward
+
+          visualHeight = addedSpan;
+
+          // Calculate attachment positions for visualY
+          const oldPositions = calculateAttachmentPositions(oldSKU);
+
+          // Visual Y is where the extension starts (in CURRENT world coordinates)
+          visualY = plan.direction === 'up'
+            ? rod.position.y + oldPositions[oldPositions.length - 1]  // Start from old top
+            : rod.position.y + oldPositions[0] - addedSpan;  // Start from old bottom minus span
+        }
+      }
+    }
+
     rodModifications.push({
       type: plan.action,
       position: plan.position,
@@ -2000,45 +1968,11 @@ function prepareRodModifications(
         ? [plan.bottomRodId!, plan.topRodId!]
         : plan.action === 'extend'
         ? [plan.targetRodId!]
-        : []
+        : [],
+      visualHeight,
+      visualY,
+      direction: plan.direction
     });
-  }
-
-  // Process rod extension plans (if present)
-  if (result.rodExtensionPlans) {
-    for (const [rodId, plan] of result.rodExtensionPlans) {
-      const rod = shelf.rods.get(rodId);
-      if (!rod) continue;
-
-      const oldSKU = getRodSKU(rod.sku_id);
-      const newSKU = getRodSKU(plan.newSkuId);
-      if (!oldSKU || !newSKU) continue;
-
-      // Get the added span directly from the SKU
-      const addedSpan = plan.direction === 'up'
-        ? newSKU.spans[newSKU.spans.length - 1]  // Last span for upward
-        : newSKU.spans[0];  // First span for downward
-
-      const visualHeight = addedSpan;
-
-      // Calculate attachment positions for visualY
-      const oldPositions = calculateAttachmentPositions(oldSKU);
-
-      // Visual Y is where the extension starts (in CURRENT world coordinates)
-      const visualY = plan.direction === 'up'
-        ? rod.position.y + oldPositions[oldPositions.length - 1]  // Start from old top
-        : rod.position.y + oldPositions[0] - addedSpan;  // Start from old bottom minus span
-
-      rodModifications.push({
-        type: 'extend',
-        position: rod.position,
-        newSkuId: plan.newSkuId,
-        affectedRodIds: [rodId],
-        visualHeight,
-        visualY,
-        direction: plan.direction
-      });
-    }
   }
 
   return rodModifications;
