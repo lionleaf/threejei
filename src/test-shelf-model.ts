@@ -1,4 +1,4 @@
-import { createEmptyShelf, addRod, addPlate, canExtendPlate, extendPlate, removePlate, Direction, addOrExtendRod, AVAILABLE_RODS, validateRodCreation, validateRodExtension, applyRodCreation, applyRodExtension, regenerateGhostPlates } from './shelf-model.js';
+import { createEmptyShelf, addRod, addPlate, canExtendPlate, extendPlate, removePlate, Direction, addOrExtendRod, AVAILABLE_RODS, validateRodCreation, applyRodCreation, regenerateGhostPlates } from './shelf-model.js';
 
 // Wrapper to match old test API
 function tryExtendPlate(plateId: number, direction: Direction, shelf: any): boolean {
@@ -320,35 +320,36 @@ function testValidateRodCreation() {
   test('Merge plan identifies both rods', plan4?.bottomRodId !== undefined && plan4?.topRodId !== undefined);
 }
 
-function testValidateRodExtension() {
-  console.log('\nTesting validateRodExtension()...');
+// DISABLED: validateRodExtension and applyRodExtension functions removed
+// function testValidateRodExtension() {
+//   console.log('\nTesting validateRodExtension()...');
 
-  // Test 1: Extend rod upward
-  const shelf1 = createEmptyShelf();
-  const rod1 = addRod({ x: 0, y: 0 }, 1, shelf1); // 1P rod
-  const plan1 = validateRodExtension(rod1, 'up', shelf1);
-  test('Valid upward extension plan', plan1 !== null);
-  test('Extension plan has newSkuId', plan1?.newSkuId !== undefined);
-  test('Extension plan has addedSpan', plan1?.addedSpan === 200 || plan1?.addedSpan === 300);
+//   // Test 1: Extend rod upward
+//   const shelf1 = createEmptyShelf();
+//   const rod1 = addRod({ x: 0, y: 0 }, 1, shelf1); // 1P rod
+//   const plan1 = validateRodExtension(rod1, 'up', shelf1);
+//   test('Valid upward extension plan', plan1 !== null);
+//   test('Extension plan has newSkuId', plan1?.newSkuId !== undefined);
+//   test('Extension plan has addedSpan', plan1?.addedSpan === 200 || plan1?.addedSpan === 300);
 
-  // Test 2: Extend rod downward
-  const shelf2 = createEmptyShelf();
-  const rod2 = addRod({ x: 0, y: 200 }, 1, shelf2); // 1P rod at Y=200
-  const plan2 = validateRodExtension(rod2, 'down', shelf2);
-  test('Valid downward extension plan', plan2 !== null);
-  test('Downward extension direction correct', plan2?.direction === 'down');
+//   // Test 2: Extend rod downward
+//   const shelf2 = createEmptyShelf();
+//   const rod2 = addRod({ x: 0, y: 200 }, 1, shelf2); // 1P rod at Y=200
+//   const plan2 = validateRodExtension(rod2, 'down', shelf2);
+//   test('Valid downward extension plan', plan2 !== null);
+//   test('Downward extension direction correct', plan2?.direction === 'down');
 
-  // Test 3: Apply extension plan
-  const shelf3 = createEmptyShelf();
-  const rod3 = addRod({ x: 0, y: 0 }, 1, shelf3); // 1P rod
-  const plan3 = validateRodExtension(rod3, 'up', shelf3);
-  if (plan3) {
-    const success = applyRodExtension(plan3, shelf3);
-    test('Extension plan applied successfully', success === true);
-    const extendedRod = shelf3.rods.get(rod3);
-    test('Extended rod has more attachment points', extendedRod?.attachmentPoints.length === 2);
-  }
-}
+//   // Test 3: Apply extension plan
+//   const shelf3 = createEmptyShelf();
+//   const rod3 = addRod({ x: 0, y: 0 }, 1, shelf3); // 1P rod
+//   const plan3 = validateRodExtension(rod3, 'up', shelf3);
+//   if (plan3) {
+//     const success = applyRodExtension(plan3, shelf3);
+//     test('Extension plan applied successfully', success === true);
+//     const extendedRod = shelf3.rods.get(rod3);
+//     test('Extended rod has more attachment points', extendedRod?.attachmentPoints.length === 2);
+//   }
+// }
 
 function testGhostPlateRodModifications() {
   console.log('\nTesting ghost plate rod modifications...');
@@ -555,7 +556,7 @@ testPlateValidation();
 testTryExtendPlate();
 testAddOrExtendRod();
 testValidateRodCreation();
-testValidateRodExtension();
+// testValidateRodExtension(); // DISABLED: validateRodExtension and applyRodExtension functions removed
 testGhostPlateRodModifications();
 testSimpleDownwardExtension();
 testRodExtensionEdgeCases();
