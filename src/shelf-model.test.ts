@@ -379,6 +379,30 @@ testGroup('Ghost Plate Generation - Rod Extension Upward', () => {
     assertTrue(invalidYGhosts.length === 0, `All ghosts should be at valid Y levels, found ${invalidYGhosts.length} at invalid levels: ${invalidYGhosts.map(g => g.midpointPosition.y).join(', ')}`);
   });
 
+  test('Legal ghost plates remove overlapping illegal ghost plates', () => {
+    const shelf = createEmptyShelf();
+
+    const rod1 = addRod({ x: 0, y: 0 }, 4, shelf); // 3P_22 at y=0
+    const rod2 = addRod({ x: 600, y: 100 }, 2, shelf); // 2P_2 at y=100
+
+    regenerateGhostPlates(shelf);
+
+    const allGhosts = shelf.ghostPlates;
+    const legalGhosts = allGhosts.filter(g => g.legal);
+    const illegalGhosts = allGhosts.filter(g => !g.legal);
+
+    for (const illegal of illegalGhosts) {
+      const overlapsWithLegal = legalGhosts.some(legal => {
+        const xDiff = Math.abs(legal.midpointPosition.x - illegal.midpointPosition.x);
+        const yDiff = Math.abs(legal.midpointPosition.y - illegal.midpointPosition.y);
+        return xDiff <= 1 && yDiff <= 1;
+      });
+
+      assertTrue(!overlapsWithLegal,
+        `Illegal ghost at (${illegal.midpointPosition.x}, ${illegal.midpointPosition.y}) overlaps with a legal ghost`);
+    }
+  });
+
   //   test('Single rod extend up 200mm has correct modification data', () => {
   //     const shelf = createEmptyShelf();
   //     const rod1 = addRod({ x: 0, y: 0 }, 2, shelf); // 2P_2: spans=[200]

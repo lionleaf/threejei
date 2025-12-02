@@ -2106,6 +2106,26 @@ function tryAddDirectionalGhost(
   }
 }
 
+/**
+ * Removes illegal ghost plates that overlap with legal ghost plates.
+ * When a legal and illegal ghost occupy the same position, keep only the legal one.
+ */
+function removeOverlappingIllegalGhosts(ghostPlates: GhostPlate[]): GhostPlate[] {
+  const legalGhosts = ghostPlates.filter(g => g.legal);
+
+  return ghostPlates.filter(ghost => {
+    if (ghost.legal) return true;
+
+    const overlapsWithLegal = legalGhosts.some(legal => {
+      const xDiff = Math.abs(legal.midpointPosition.x - ghost.midpointPosition.x);
+      const yDiff = Math.abs(legal.midpointPosition.y - ghost.midpointPosition.y);
+      return xDiff <= 1 && yDiff <= 1;
+    });
+
+    return !overlapsWithLegal;
+  });
+}
+
 export function regenerateGhostPlates(shelf: Shelf): void {
 
   shelf.ghostPlates.length = 0
@@ -2178,4 +2198,6 @@ export function regenerateGhostPlates(shelf: Shelf): void {
     tryAddRodExtensionGhost(rodId, rod, rightRodId, rightRod, 'down', shelfBottomY, defaultPlateSku!, shelf);
 
   }
+
+  shelf.ghostPlates = removeOverlappingIllegalGhosts(shelf.ghostPlates);
 }
