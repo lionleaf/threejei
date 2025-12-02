@@ -1967,8 +1967,8 @@ function prepareRodModifications(
       affectedRodIds: plan.action === 'merge'
         ? [plan.bottomRodId!, plan.topRodId!]
         : plan.action === 'extend'
-        ? [plan.targetRodId!]
-        : [],
+          ? [plan.targetRodId!]
+          : [],
       visualHeight,
       visualY,
       direction: plan.direction
@@ -1998,9 +1998,9 @@ function createExtensionRodModifications(
     const visualHeight = ext.spanToAdd;
     const visualY = direction === 'up'
       ? (() => {
-          const attachmentPositions = calculateAttachmentPositions(extRodSKU);
-          return extRod.position.y + attachmentPositions[attachmentPositions.length - 1];
-        })()
+        const attachmentPositions = calculateAttachmentPositions(extRodSKU);
+        return extRod.position.y + attachmentPositions[attachmentPositions.length - 1];
+      })()
       : extRod.position.y - ext.spanToAdd;
 
     rodModifications.push({
@@ -2168,11 +2168,11 @@ export function regenerateGhostPlates(shelf: Shelf): void {
     const rightTopY = rightRod.position.y + (rightRod.attachmentPoints.length > 0
       ? rightRod.attachmentPoints[rightRod.attachmentPoints.length - 1].y
       : 0);
-    const shelfTopY = Math.min(leftTopY, rightTopY);
+    const shelfTopY = Math.max(leftTopY, rightTopY);
 
     const leftBottomY = rod.position.y;
     const rightBottomY = rightRod.position.y;
-    const shelfBottomY = Math.max(leftBottomY, rightBottomY);
+    const shelfBottomY = Math.min(leftBottomY, rightBottomY);
 
     tryAddRodExtensionGhost(rodId, rod, rightRodId, rightRod, 'up', shelfTopY, defaultPlateSku!, shelf);
     tryAddRodExtensionGhost(rodId, rod, rightRodId, rightRod, 'down', shelfBottomY, defaultPlateSku!, shelf);
