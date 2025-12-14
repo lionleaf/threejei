@@ -429,7 +429,7 @@ function validateMerge(
 
   return {
     action: 'merge',
-    position: { x: bottomRod.position.x, y: newAttachmentY },
+    position: { x: bottomRod.position.x, y: bottomRod.position.y },
     bottomRodId,
     topRodId,
     mergedSkuId: matchingSKU.sku_id
