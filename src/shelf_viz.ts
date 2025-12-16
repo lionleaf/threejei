@@ -125,11 +125,11 @@ function createWallGrid(scene: any, shelf: Shelf): void {
   }
 
   // Fixed wall size - large enough for most configurations
-  const wallWidth = 3600; // 3.6m wide
-  const wallHeight = 2400; // 2.4m tall
-  const minX = -600;
+  const wallWidth = 10000; // 10m wide
+  const wallHeight = 3140; // >3m tall
+  const minX = -5000;
   const maxX = minX + wallWidth;
-  const minY = -200;
+  const minY = -1500;
   const maxY = minY + wallHeight;
 
   const wallZ = -10; // Position wall slightly behind the inner rods
@@ -180,22 +180,35 @@ function createWallGrid(scene: any, shelf: Shelf): void {
     scene.add(lineMesh);
   }
 
-  // Add labels on 60cm vertical lines at the bottom
-  const labelY = minY + 50; // Position near bottom
+  // Calculate bottom of shelf for label positioning
+  let shelfBottomY = 0;
+  if (rods.length > 0) {
+    const yPositions = rods.map(rod => rod.position.y);
+    shelfBottomY = Math.min(...yPositions);
+  }
+
+  // Add labels on 60cm vertical lines underneath the shelf bottom
+  const labelY = shelfBottomY - 60; // Position 60mm below shelf bottom
   for (let x = Math.floor(minX / largeGridSpacing) * largeGridSpacing; x <= maxX; x += largeGridSpacing) {
     // Calculate label value relative to leftmost rod (0 at leftmost)
     const labelValueCm = Math.round((x - leftmostX) / 10); // Convert mm to cm
 
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d')!;
-    canvas.width = 128;
-    canvas.height = 64;
+    canvas.width = 256;
+    canvas.height = 96;
 
     context.fillStyle = '#666666';
-    context.font = 'bold 48px Arial';
     context.textAlign = 'center';
-    context.textBaseline = 'middle';
-    context.fillText(`${labelValueCm}`, 64, 32);
+    context.textBaseline = 'alphabetic';
+
+    // Draw the main number
+    context.font = 'bold 60px Arial';
+    context.fillText(`${labelValueCm}`, 128, 60);
+
+    // Draw "cm" subscript
+    context.font = 'bold 30px Arial';
+    context.fillText('cm', 190, 60);
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.minFilter = THREE.LinearFilter;
@@ -208,7 +221,7 @@ function createWallGrid(scene: any, shelf: Shelf): void {
       side: THREE.DoubleSide
     });
 
-    const labelGeometry = new THREE.PlaneGeometry(80, 40);
+    const labelGeometry = new THREE.PlaneGeometry(120, 50);
     const labelMesh = new THREE.Mesh(labelGeometry, labelMaterial);
     labelMesh.position.set(x, labelY, wallZ + 1);
     labelMesh.userData = { type: 'wall_label' };
