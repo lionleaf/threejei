@@ -19,6 +19,9 @@ declare const THREE: any;
 // Debug state to make colliders visible
 export let DEBUG_SHOW_COLLIDERS = false;
 
+// Flag to enable/disable wall drawing
+export let DRAW_WALL = false;
+
 // Distance (in mm) between the two rods holding a plate
 const rodDistance = 153
 
@@ -125,11 +128,11 @@ function createWallGrid(scene: any, shelf: Shelf): void {
   }
 
   // Fixed wall size - large enough for most configurations
-  const wallWidth = 10000; // 10m wide
-  const wallHeight = 3140; // >3m tall
-  const minX = -5000;
+  const wallWidth = 10240; // 10m wide
+  const wallHeight = 6000; // >3m tall
+  const minX = -4800;
   const maxX = minX + wallWidth;
-  const minY = -1500;
+  const minY = -2 * 600;
   const maxY = minY + wallHeight;
 
   const wallZ = -10; // Position wall slightly behind the inner rods
@@ -139,8 +142,8 @@ function createWallGrid(scene: any, shelf: Shelf): void {
   const largeGridSpacing = 600; // 60cm in mm
 
   // Create grid texture
-  const textureWidth = 512;
-  const textureHeight = 512;
+  const textureWidth = 2048;
+  const textureHeight = 260 * 2;
   const canvas = document.createElement('canvas');
   canvas.width = textureWidth;
   canvas.height = textureHeight;
@@ -284,7 +287,9 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
   scene.add(backLight);
 
   // Add wall with grid pattern
-  createWallGrid(scene, shelf);
+  if (DRAW_WALL) {
+    createWallGrid(scene, shelf);
+  }
 
   // Create gradient map for toon/cell shading with more steps for smoother transitions
   const gradientMap = new THREE.DataTexture(
