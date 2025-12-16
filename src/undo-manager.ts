@@ -14,7 +14,7 @@ interface HistoryEntry {
 export class UndoManager {
   private history: HistoryEntry[] = [];
   private currentIndex: number = -1;
-  private maxSize: number = 50;
+  private maxSize: number = 150;
   private shelf: Shelf;
   private rebuildCallback?: () => void;
 
