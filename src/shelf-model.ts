@@ -2201,3 +2201,15 @@ export function regenerateGhostPlates(shelf: Shelf): void {
 
   shelf.ghostPlates = removeOverlappingIllegalGhosts(shelf.ghostPlates);
 }
+
+/**
+ * Clear all data from a shelf, resetting it to empty state.
+ * Useful for applying a completely new configuration.
+ */
+export function clearShelf(shelf: Shelf): void {
+  shelf.rods.clear();
+  shelf.plates.clear();
+  shelf.ghostPlates.length = 0;
+  shelf.metadata.nextId = 1;
+}
+

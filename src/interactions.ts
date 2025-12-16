@@ -1,11 +1,13 @@
 import { type Shelf, removePlate, removeSegmentFromPlate, removeRodSegment, addPlate, addRod, type Plate, type Rod, AVAILABLE_RODS, calculateAttachmentPositions, mergePlates, extendPlate, Direction, type PlateSegmentResult, GhostPlate, resolveRodConnections, extendRodUp, extendRodDown, mergeRods } from './shelf-model.js';
 import { DEBUG_SHOW_COLLIDERS } from './shelf_viz.js';
+import { UndoManager } from './undo-manager.js';
 
 // Declare THREE as global (loaded via CDN)
 declare const THREE: any;
 
 export interface InteractionSystem {
   dispose(): void;
+  undoManager: UndoManager;
 }
 
 export interface RegenerationCallbacks {
@@ -22,6 +24,9 @@ export function setupInteractions(
 ): InteractionSystem {
   // Raycasting setup
   const raycaster = new THREE.Raycaster();
+
+  // Initialize undo manager
+  const undoManager = new UndoManager(shelf, callbacks.rebuildGeometry);
 
   function calculatePlateSegmentIndex(plate: Plate, hitX: number): number {
     const rods = plate.connections.map(id => shelf.rods.get(id)).filter(r => r !== undefined);
@@ -70,6 +75,7 @@ export function setupInteractions(
     if (success) {
       console.log(`Rod segment removed successfully`);
       callbacks.rebuildGeometry();
+      undoManager.saveState('removeRodSegment');
     } else {
       console.log(`Failed to remove rod segment`);
     }
@@ -90,6 +96,7 @@ export function setupInteractions(
     if (success) {
       console.log(`Plate segment removed successfully`);
       callbacks.rebuildGeometry();
+      undoManager.saveState('removePlateSegment');
     } else {
       console.log(`Failed to remove plate segment`);
     }
@@ -191,6 +198,7 @@ export function setupInteractions(
     }
 
     callbacks.rebuildGeometry();
+    undoManager.saveState('addGhostPlate');
   }
 
   // Pointer event handling for raycasting
@@ -313,15 +321,43 @@ export function setupInteractions(
     }
   }
 
-  // Bind pointer events
+  // Keyboard shortcuts for undo/redo
+  function onKeyDown(event: KeyboardEvent) {
+    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+    const ctrlKey = isMac ? event.metaKey : event.ctrlKey;
+
+    // Ctrl+Z / Cmd+Z: Undo
+    if (ctrlKey && event.key === 'z' && !event.shiftKey) {
+      event.preventDefault();
+      if (undoManager.undo()) {
+        console.log('Undo successful');
+      }
+      return;
+    }
+
+    // Ctrl+Shift+Z / Cmd+Shift+Z: Redo
+    // Also support Ctrl+Y / Cmd+Y
+    if ((ctrlKey && event.key === 'z' && event.shiftKey) || (ctrlKey && event.key === 'y')) {
+      event.preventDefault();
+      if (undoManager.redo()) {
+        console.log('Redo successful');
+      }
+      return;
+    }
+  }
+
+  // Bind events
   renderer.domElement.addEventListener('pointermove', onPointerMove);
   renderer.domElement.addEventListener('pointerdown', onPointerClick);
+  window.addEventListener('keydown', onKeyDown);
 
   // Return cleanup function
   return {
     dispose() {
       renderer.domElement.removeEventListener('pointermove', onPointerMove);
       renderer.domElement.removeEventListener('pointerdown', onPointerClick);
-    }
+      window.removeEventListener('keydown', onKeyDown);
+    },
+    undoManager
   };
 }
