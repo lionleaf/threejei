@@ -21,9 +21,6 @@ export class UndoManager {
   constructor(shelf: Shelf, rebuildCallback?: () => void) {
     this.shelf = shelf;
     this.rebuildCallback = rebuildCallback;
-
-    // Save initial state
-    this.saveState('initial');
   }
 
   /**

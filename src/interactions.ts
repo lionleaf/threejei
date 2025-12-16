@@ -28,6 +28,9 @@ export function setupInteractions(
   // Initialize undo manager
   const undoManager = new UndoManager(shelf, callbacks.rebuildGeometry);
 
+  // Save initial state
+  undoManager.saveState('initial');
+
   function calculatePlateSegmentIndex(plate: Plate, hitX: number): number {
     const rods = plate.connections.map(id => shelf.rods.get(id)).filter(r => r !== undefined);
 
@@ -74,8 +77,8 @@ export function setupInteractions(
 
     if (success) {
       console.log(`Rod segment removed successfully`);
-      callbacks.rebuildGeometry();
       undoManager.saveState('removeRodSegment');
+      callbacks.rebuildGeometry();
     } else {
       console.log(`Failed to remove rod segment`);
     }
@@ -95,8 +98,8 @@ export function setupInteractions(
 
     if (success) {
       console.log(`Plate segment removed successfully`);
-      callbacks.rebuildGeometry();
       undoManager.saveState('removePlateSegment');
+      callbacks.rebuildGeometry();
     } else {
       console.log(`Failed to remove plate segment`);
     }
@@ -197,8 +200,8 @@ export function setupInteractions(
       }
     }
 
-    callbacks.rebuildGeometry();
     undoManager.saveState('addGhostPlate');
+    callbacks.rebuildGeometry();
   }
 
   // Pointer event handling for raycasting
