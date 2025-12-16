@@ -187,8 +187,9 @@ function createWallGrid(scene: any, shelf: Shelf): void {
     shelfBottomY = Math.min(...yPositions);
   }
 
-  // Add labels on 60cm vertical lines underneath the shelf bottom
-  const labelY = shelfBottomY - 60; // Position 60mm below shelf bottom
+  // Find the closest 60cm grid line that is at least 20cm below the shelf bottom
+  const minLabelY = shelfBottomY - 200; // At least 200mm (20cm) below shelf
+  const labelY = Math.floor(minLabelY / largeGridSpacing) * largeGridSpacing;
   for (let x = Math.floor(minX / largeGridSpacing) * largeGridSpacing; x <= maxX; x += largeGridSpacing) {
     // Calculate label value relative to leftmost rod (0 at leftmost)
     const labelValueCm = Math.round((x - leftmostX) / 10); // Convert mm to cm
