@@ -44,15 +44,15 @@ function createRodMeshes(rod: Rod, isGhost: boolean): any[] {
   // Determine material based on ghost/normal mode
   const rodMaterial = isGhost
     ? new THREE.MeshBasicMaterial({
-        color: 0x90EE90, // Light green
-        transparent: true,
-        opacity: DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0 // Will be set to 0.5 on hover
-      })
+      color: 0x90EE90, // Light green
+      transparent: true,
+      opacity: DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0 // Will be set to 0.5 on hover
+    })
     : new THREE.MeshStandardMaterial({
-        color: 0x76685e,
-        roughness: 0.7,
-        metalness: 0.0
-      });
+      color: 0x76685e,
+      roughness: 0.7,
+      metalness: 0.0
+    });
 
   // [bool innerRod, radius]. The inner rod is the one attached to the wall
   const zPositions = [[true, rodRadius], [false, rodDistance + rodRadius]];
@@ -80,15 +80,15 @@ function createRodMeshes(rod: Rod, isGhost: boolean): any[] {
     // Connection rod material
     const connectionRodMaterial = isGhost
       ? new THREE.MeshBasicMaterial({
-          color: 0x90EE90, // Light green
-          transparent: true,
-          opacity: DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0 // Will be set to 0.5 on hover
-        })
+        color: 0x90EE90, // Light green
+        transparent: true,
+        opacity: DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0 // Will be set to 0.5 on hover
+      })
       : new THREE.MeshStandardMaterial({
-          color: 0x76685e,
-          roughness: 0.7,
-          metalness: 0.0
-        });
+        color: 0x76685e,
+        roughness: 0.7,
+        metalness: 0.0
+      });
 
     let connectionRodLength = 202;
 
@@ -110,6 +110,126 @@ function createRodMeshes(rod: Rod, isGhost: boolean): any[] {
   return meshes;
 }
 
+/**
+ * Creates a wall behind the shelf with a grid pattern.
+ * Grid lines every 20cm, with thicker lines every 60cm (3 × 20cm).
+ */
+function createWallGrid(scene: any, shelf: Shelf): void {
+  const rods = Array.from(shelf.rods.values());
+
+  // Calculate leftmost rod position for label alignment (0 reference)
+  let leftmostX = 0;
+  if (rods.length > 0) {
+    const xPositions = rods.map(rod => rod.position.x);
+    leftmostX = Math.min(...xPositions);
+  }
+
+  // Fixed wall size - large enough for most configurations
+  const wallWidth = 3600; // 3.6m wide
+  const wallHeight = 2400; // 2.4m tall
+  const minX = -600;
+  const maxX = minX + wallWidth;
+  const minY = -200;
+  const maxY = minY + wallHeight;
+
+  const wallZ = -10; // Position wall slightly behind the inner rods
+
+  // Grid spacing constants
+  const smallGridSpacing = 200; // 20cm in mm
+  const largeGridSpacing = 600; // 60cm in mm
+
+  // Create vertical lines using meshes for better antialiasing
+  for (let x = Math.floor(minX / smallGridSpacing) * smallGridSpacing; x <= maxX; x += smallGridSpacing) {
+    const isThickLine = Math.abs(x % largeGridSpacing) < 0.1;
+    const lineWidth = isThickLine ? 3 : 1;
+    const lineColor = isThickLine ? 0x999999 : 0xdddddd;
+    const lineOpacity = isThickLine ? 0.8 : 0.5;
+
+    const lineGeometry = new THREE.PlaneGeometry(lineWidth, wallHeight);
+    const lineMaterial = new THREE.MeshBasicMaterial({
+      color: lineColor,
+      transparent: true,
+      opacity: lineOpacity,
+      side: THREE.DoubleSide
+    });
+
+    const lineMesh = new THREE.Mesh(lineGeometry, lineMaterial);
+    lineMesh.position.set(x, (minY + maxY) / 2, wallZ + 0.5);
+    lineMesh.userData = { type: 'wall_grid' };
+    scene.add(lineMesh);
+  }
+
+  // Create horizontal lines using meshes
+  for (let y = Math.floor(minY / smallGridSpacing) * smallGridSpacing; y <= maxY; y += smallGridSpacing) {
+    const isThickLine = Math.abs(y % largeGridSpacing) < 0.1;
+    const lineWidth = isThickLine ? 3 : 1;
+    const lineColor = isThickLine ? 0x999999 : 0xdddddd;
+    const lineOpacity = isThickLine ? 0.8 : 0.5;
+
+    const lineGeometry = new THREE.PlaneGeometry(wallWidth, lineWidth);
+    const lineMaterial = new THREE.MeshBasicMaterial({
+      color: lineColor,
+      transparent: true,
+      opacity: lineOpacity,
+      side: THREE.DoubleSide
+    });
+
+    const lineMesh = new THREE.Mesh(lineGeometry, lineMaterial);
+    lineMesh.position.set((minX + maxX) / 2, y, wallZ + 0.5);
+    lineMesh.userData = { type: 'wall_grid' };
+    scene.add(lineMesh);
+  }
+
+  // Add labels on 60cm vertical lines at the bottom
+  const labelY = minY + 50; // Position near bottom
+  for (let x = Math.floor(minX / largeGridSpacing) * largeGridSpacing; x <= maxX; x += largeGridSpacing) {
+    // Calculate label value relative to leftmost rod (0 at leftmost)
+    const labelValueCm = Math.round((x - leftmostX) / 10); // Convert mm to cm
+
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d')!;
+    canvas.width = 128;
+    canvas.height = 64;
+
+    context.fillStyle = '#666666';
+    context.font = 'bold 48px Arial';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(`${labelValueCm}`, 64, 32);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+
+    const labelMaterial = new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: true,
+      opacity: 0.7,
+      side: THREE.DoubleSide
+    });
+
+    const labelGeometry = new THREE.PlaneGeometry(80, 40);
+    const labelMesh = new THREE.Mesh(labelGeometry, labelMaterial);
+    labelMesh.position.set(x, labelY, wallZ + 1);
+    labelMesh.userData = { type: 'wall_label' };
+    scene.add(labelMesh);
+  }
+
+  // Add a solid wall background plane
+  const wallGeometry = new THREE.PlaneGeometry(wallWidth, wallHeight);
+  const wallMaterial = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    side: THREE.DoubleSide,
+    opacity: 0.95,
+    transparent: true
+  });
+
+  const wallMesh = new THREE.Mesh(wallGeometry, wallMaterial);
+  wallMesh.position.set((minX + maxX) / 2, (minY + maxY) / 2, wallZ - 1);
+  wallMesh.userData = { type: 'wall_background' };
+  scene.add(wallMesh);
+}
+
 // Rebuild all shelf geometry (rods, plates, gap colliders)
 function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLDivElement): void {
   // Remove all children from scene
@@ -126,6 +246,9 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
   const backLight = new THREE.DirectionalLight(0xffffff, 0.3);
   backLight.position.set(-500, 500, -500);
   scene.add(backLight);
+
+  // Add wall with grid pattern
+  createWallGrid(scene, shelf);
 
   // Create gradient map for toon/cell shading with more steps for smoother transitions
   const gradientMap = new THREE.DataTexture(
