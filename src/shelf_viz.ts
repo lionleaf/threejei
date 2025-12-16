@@ -138,47 +138,69 @@ function createWallGrid(scene: any, shelf: Shelf): void {
   const smallGridSpacing = 200; // 20cm in mm
   const largeGridSpacing = 600; // 60cm in mm
 
-  // Create vertical lines using meshes for better antialiasing
-  for (let x = Math.floor(minX / smallGridSpacing) * smallGridSpacing; x <= maxX; x += smallGridSpacing) {
-    const isThickLine = Math.abs(x % largeGridSpacing) < 0.1;
-    const lineWidth = isThickLine ? 3 : 1;
-    const lineColor = isThickLine ? 0x999999 : 0xdddddd;
-    const lineOpacity = isThickLine ? 0.8 : 0.5;
+  // Create grid texture
+  const textureWidth = 512;
+  const textureHeight = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = textureWidth;
+  canvas.height = textureHeight;
+  const context = canvas.getContext('2d')!;
 
-    const lineGeometry = new THREE.PlaneGeometry(lineWidth, wallHeight);
-    const lineMaterial = new THREE.MeshBasicMaterial({
-      color: lineColor,
-      transparent: true,
-      opacity: lineOpacity,
-      side: THREE.DoubleSide
-    });
+  // Fill with white background
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, textureWidth, textureHeight);
 
-    const lineMesh = new THREE.Mesh(lineGeometry, lineMaterial);
-    lineMesh.position.set(x, (minY + maxY) / 2, wallZ + 0.5);
-    lineMesh.userData = { type: 'wall_grid' };
-    scene.add(lineMesh);
+  // Calculate grid cell size in texture pixels
+  const cellSize = textureWidth / (wallWidth / smallGridSpacing);
+
+  // Draw vertical lines
+  for (let i = 0; i <= textureWidth / cellSize; i++) {
+    const x = i * cellSize;
+    const isThickLine = Math.abs(i % 3) < 0.1; // Every 3rd line is thick (60cm)
+
+    if (isThickLine) {
+      context.strokeStyle = 'rgba(153, 153, 153, 0.8)'; // #999999 with 0.8 opacity
+      context.lineWidth = 3;
+    } else {
+      context.strokeStyle = 'rgba(221, 221, 221, 0.5)'; // #dddddd with 0.5 opacity
+      context.lineWidth = 1;
+    }
+
+    context.beginPath();
+    context.moveTo(x, 0);
+    context.lineTo(x, textureHeight);
+    context.stroke();
   }
 
-  // Create horizontal lines using meshes
-  for (let y = Math.floor(minY / smallGridSpacing) * smallGridSpacing; y <= maxY; y += smallGridSpacing) {
-    const isThickLine = Math.abs(y % largeGridSpacing) < 0.1;
-    const lineWidth = isThickLine ? 3 : 1;
-    const lineColor = isThickLine ? 0x999999 : 0xdddddd;
-    const lineOpacity = isThickLine ? 0.8 : 0.5;
+  // Draw horizontal lines
+  for (let i = 0; i <= textureHeight / cellSize; i++) {
+    const y = i * cellSize;
+    const isThickLine = Math.abs(i % 3) < 0.1; // Every 3rd line is thick (60cm)
 
-    const lineGeometry = new THREE.PlaneGeometry(wallWidth, lineWidth);
-    const lineMaterial = new THREE.MeshBasicMaterial({
-      color: lineColor,
-      transparent: true,
-      opacity: lineOpacity,
-      side: THREE.DoubleSide
-    });
+    if (isThickLine) {
+      context.strokeStyle = 'rgba(153, 153, 153, 0.8)';
+      context.lineWidth = 3;
+    } else {
+      context.strokeStyle = 'rgba(221, 221, 221, 0.5)';
+      context.lineWidth = 1;
+    }
 
-    const lineMesh = new THREE.Mesh(lineGeometry, lineMaterial);
-    lineMesh.position.set((minX + maxX) / 2, y, wallZ + 0.5);
-    lineMesh.userData = { type: 'wall_grid' };
-    scene.add(lineMesh);
+    context.beginPath();
+    context.moveTo(0, y);
+    context.lineTo(textureWidth, y);
+    context.stroke();
   }
+
+  // Create texture from canvas
+  const gridTexture = new THREE.CanvasTexture(canvas);
+  gridTexture.wrapS = THREE.RepeatWrapping;
+  gridTexture.wrapT = THREE.RepeatWrapping;
+  gridTexture.repeat.set(
+    wallWidth / smallGridSpacing / (textureWidth / cellSize),
+    wallHeight / smallGridSpacing / (textureHeight / cellSize)
+  );
+  gridTexture.minFilter = THREE.LinearFilter;
+  gridTexture.magFilter = THREE.LinearFilter;
 
   // Calculate bottom of shelf for label positioning
   let shelfBottomY = 0;
@@ -229,17 +251,17 @@ function createWallGrid(scene: any, shelf: Shelf): void {
     scene.add(labelMesh);
   }
 
-  // Add a solid wall background plane
+  // Add wall background plane with grid texture
   const wallGeometry = new THREE.PlaneGeometry(wallWidth, wallHeight);
   const wallMaterial = new THREE.MeshBasicMaterial({
-    color: 0xffffff,
+    map: gridTexture,
     side: THREE.DoubleSide,
-    opacity: 0.95,
-    transparent: true
+    transparent: true,
+    opacity: 1.0
   });
 
   const wallMesh = new THREE.Mesh(wallGeometry, wallMaterial);
-  wallMesh.position.set((minX + maxX) / 2, (minY + maxY) / 2, wallZ - 1);
+  wallMesh.position.set((minX + maxX) / 2, (minY + maxY) / 2, wallZ);
   wallMesh.userData = { type: 'wall_background' };
   scene.add(wallMesh);
 }
