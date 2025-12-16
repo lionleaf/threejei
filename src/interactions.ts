@@ -325,9 +325,10 @@ export function setupInteractions(
   function onKeyDown(event: KeyboardEvent) {
     const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
     const ctrlKey = isMac ? event.metaKey : event.ctrlKey;
+    const key = event.key.toLowerCase();
 
     // Ctrl+Z / Cmd+Z: Undo
-    if (ctrlKey && event.key === 'z' && !event.shiftKey) {
+    if (ctrlKey && key === 'z' && !event.shiftKey) {
       event.preventDefault();
       if (undoManager.undo()) {
         console.log('Undo successful');
@@ -337,7 +338,7 @@ export function setupInteractions(
 
     // Ctrl+Shift+Z / Cmd+Shift+Z: Redo
     // Also support Ctrl+Y / Cmd+Y
-    if ((ctrlKey && event.key === 'z' && event.shiftKey) || (ctrlKey && event.key === 'y')) {
+    if ((ctrlKey && key === 'z' && event.shiftKey) || (ctrlKey && key === 'y')) {
       event.preventDefault();
       if (undoManager.redo()) {
         console.log('Redo successful');
