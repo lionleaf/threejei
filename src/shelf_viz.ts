@@ -600,6 +600,48 @@ function visualizeShelf(shelf: Shelf): void {
   tooltipContainer.style.whiteSpace = 'pre-wrap';
   document.body.appendChild(tooltipContainer);
 
+  // Create undo/redo button container
+  const undoRedoContainer = document.createElement('div');
+  undoRedoContainer.style.position = 'absolute';
+  undoRedoContainer.style.bottom = '10px';
+  undoRedoContainer.style.left = '10px';
+  undoRedoContainer.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
+  undoRedoContainer.style.padding = '8px';
+  undoRedoContainer.style.borderRadius = '6px';
+  undoRedoContainer.style.fontFamily = 'monospace';
+  undoRedoContainer.style.fontSize = '12px';
+  undoRedoContainer.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.2)';
+  undoRedoContainer.style.display = 'flex';
+  undoRedoContainer.style.gap = '8px';
+  undoRedoContainer.style.zIndex = '1000';
+  document.body.appendChild(undoRedoContainer);
+
+  // Create undo button
+  const undoButton = document.createElement('button');
+  undoButton.textContent = '↶ Undo';
+  undoButton.style.padding = '6px 12px';
+  undoButton.style.border = '1px solid #ccc';
+  undoButton.style.borderRadius = '4px';
+  undoButton.style.backgroundColor = '#fff';
+  undoButton.style.cursor = 'pointer';
+  undoButton.style.fontFamily = 'monospace';
+  undoButton.style.fontSize = '11px';
+  undoButton.title = 'Undo (Ctrl+Z)';
+  undoRedoContainer.appendChild(undoButton);
+
+  // Create redo button
+  const redoButton = document.createElement('button');
+  redoButton.textContent = '↷ Redo';
+  redoButton.style.padding = '6px 12px';
+  redoButton.style.border = '1px solid #ccc';
+  redoButton.style.borderRadius = '4px';
+  redoButton.style.backgroundColor = '#fff';
+  redoButton.style.cursor = 'pointer';
+  redoButton.style.fontFamily = 'monospace';
+  redoButton.style.fontSize = '11px';
+  redoButton.title = 'Redo (Ctrl+Shift+Z)';
+  undoRedoContainer.appendChild(redoButton);
+
   // Setup debug checkbox event listener
   const setupDebugCheckbox = () => {
     const checkbox = document.getElementById('debugCheckbox') as HTMLInputElement;
@@ -656,10 +698,54 @@ function visualizeShelf(shelf: Shelf): void {
       rebuildGeometry: () => {
         rebuildShelfGeometry(shelf, scene, skuListContainer);
         setupDebugCheckbox();
+        updateUndoRedoButtons();
       }
     },
     tooltipContainer
   );
+
+  // Function to update undo/redo button states
+  function updateUndoRedoButtons() {
+    const undoManager = interactions.undoManager;
+
+    // Update undo button
+    if (undoManager.canUndo()) {
+      undoButton.disabled = false;
+      undoButton.style.opacity = '1';
+      undoButton.style.cursor = 'pointer';
+    } else {
+      undoButton.disabled = true;
+      undoButton.style.opacity = '0.5';
+      undoButton.style.cursor = 'not-allowed';
+    }
+
+    // Update redo button
+    if (undoManager.canRedo()) {
+      redoButton.disabled = false;
+      redoButton.style.opacity = '1';
+      redoButton.style.cursor = 'pointer';
+    } else {
+      redoButton.disabled = true;
+      redoButton.style.opacity = '0.5';
+      redoButton.style.cursor = 'not-allowed';
+    }
+  }
+
+  // Setup button event listeners
+  undoButton.addEventListener('click', () => {
+    if (interactions.undoManager.undo()) {
+      console.log('Undo successful');
+    }
+  });
+
+  redoButton.addEventListener('click', () => {
+    if (interactions.undoManager.redo()) {
+      console.log('Redo successful');
+    }
+  });
+
+  // Initial button state update
+  updateUndoRedoButtons();
 
   // Handle window resize
   function onWindowResize() {
