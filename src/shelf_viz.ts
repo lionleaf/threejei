@@ -13,6 +13,7 @@ import {
 
 import { setupInteractions } from './interactions.js';
 import { loadPrices, calculateShelfPricing, formatPrice, type PriceData } from './pricing.js';
+import { encodeShelf, applyEncodedState } from './shelf-encoding.js';
 
 // Declare THREE as global (loaded via CDN)
 declare const THREE: any;
@@ -670,6 +671,218 @@ function visualizeShelf(shelf: Shelf): void {
   tooltipContainer.style.whiteSpace = 'pre-wrap';
   document.body.appendChild(tooltipContainer);
 
+  // Modal helper functions
+  function createModal(title: string): { overlay: HTMLDivElement, content: HTMLDivElement, close: () => void } {
+    const overlay = document.createElement('div');
+    overlay.style.position = 'fixed';
+    overlay.style.top = '0';
+    overlay.style.left = '0';
+    overlay.style.right = '0';
+    overlay.style.bottom = '0';
+    overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+    overlay.style.zIndex = '10000';
+    overlay.style.display = 'flex';
+    overlay.style.alignItems = 'center';
+    overlay.style.justifyContent = 'center';
+
+    const content = document.createElement('div');
+    content.style.backgroundColor = 'white';
+    content.style.padding = '20px';
+    content.style.borderRadius = '8px';
+    content.style.boxShadow = '0 4px 20px rgba(0, 0, 0, 0.3)';
+    content.style.maxWidth = '600px';
+    content.style.width = '90%';
+    content.style.position = 'relative';
+
+    const titleElement = document.createElement('h3');
+    titleElement.textContent = title;
+    titleElement.style.margin = '0 0 15px 0';
+    titleElement.style.fontFamily = 'monospace';
+    titleElement.style.fontSize = '16px';
+
+    const closeButton = document.createElement('button');
+    closeButton.textContent = '×';
+    closeButton.style.position = 'absolute';
+    closeButton.style.top = '10px';
+    closeButton.style.right = '10px';
+    closeButton.style.border = 'none';
+    closeButton.style.background = 'none';
+    closeButton.style.fontSize = '24px';
+    closeButton.style.cursor = 'pointer';
+    closeButton.style.color = '#666';
+
+    content.appendChild(closeButton);
+    content.appendChild(titleElement);
+    overlay.appendChild(content);
+
+    const close = () => {
+      document.body.removeChild(overlay);
+    };
+
+    closeButton.onclick = close;
+    overlay.onclick = (e) => {
+      if (e.target === overlay) close();
+    };
+
+    document.addEventListener('keydown', function escapeHandler(e) {
+      if (e.key === 'Escape') {
+        close();
+        document.removeEventListener('keydown', escapeHandler);
+      }
+    });
+
+    document.body.appendChild(overlay);
+
+    return { overlay, content, close };
+  }
+
+  function showExportModal(shelf: Shelf): void {
+    const encoded = encodeShelf(shelf);
+    const { content, close } = createModal('Export Shelf Configuration');
+
+    const instruction = document.createElement('p');
+    instruction.textContent = 'Copy this code to save your shelf:';
+    instruction.style.margin = '0 0 10px 0';
+    instruction.style.fontFamily = 'monospace';
+    instruction.style.fontSize = '12px';
+    content.appendChild(instruction);
+
+    const textarea = document.createElement('textarea');
+    textarea.value = encoded;
+    textarea.readOnly = true;
+    textarea.style.width = '100%';
+    textarea.style.height = '150px';
+    textarea.style.fontFamily = 'monospace';
+    textarea.style.fontSize = '11px';
+    textarea.style.padding = '8px';
+    textarea.style.border = '1px solid #ccc';
+    textarea.style.borderRadius = '4px';
+    textarea.style.resize = 'vertical';
+    textarea.style.boxSizing = 'border-box';
+    content.appendChild(textarea);
+
+    textarea.select();
+    textarea.focus();
+
+    const buttonContainer = document.createElement('div');
+    buttonContainer.style.marginTop = '15px';
+    buttonContainer.style.textAlign = 'center';
+    content.appendChild(buttonContainer);
+
+    const copyButton = document.createElement('button');
+    copyButton.textContent = 'Copy to Clipboard';
+    copyButton.style.padding = '8px 16px';
+    copyButton.style.border = '1px solid #ccc';
+    copyButton.style.borderRadius = '4px';
+    copyButton.style.backgroundColor = '#007bff';
+    copyButton.style.color = 'white';
+    copyButton.style.cursor = 'pointer';
+    copyButton.style.fontFamily = 'monospace';
+    copyButton.style.fontSize = '12px';
+    buttonContainer.appendChild(copyButton);
+
+    copyButton.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(encoded);
+        copyButton.textContent = '✓ Copied!';
+        copyButton.style.backgroundColor = '#28a745';
+        setTimeout(() => {
+          copyButton.textContent = 'Copy to Clipboard';
+          copyButton.style.backgroundColor = '#007bff';
+        }, 2000);
+      } catch (err) {
+        console.error('Failed to copy:', err);
+        copyButton.textContent = '✗ Failed';
+        copyButton.style.backgroundColor = '#dc3545';
+      }
+    };
+  }
+
+  function showImportModal(shelf: Shelf, rebuildCallback: () => void): void {
+    const { content, close } = createModal('Import Shelf Configuration');
+
+    const instruction = document.createElement('p');
+    instruction.textContent = 'Paste your shelf code here:';
+    instruction.style.margin = '0 0 10px 0';
+    instruction.style.fontFamily = 'monospace';
+    instruction.style.fontSize = '12px';
+    content.appendChild(instruction);
+
+    const textarea = document.createElement('textarea');
+    textarea.placeholder = 'Paste encoded shelf string...';
+    textarea.style.width = '100%';
+    textarea.style.height = '150px';
+    textarea.style.fontFamily = 'monospace';
+    textarea.style.fontSize = '11px';
+    textarea.style.padding = '8px';
+    textarea.style.border = '1px solid #ccc';
+    textarea.style.borderRadius = '4px';
+    textarea.style.resize = 'vertical';
+    textarea.style.boxSizing = 'border-box';
+    content.appendChild(textarea);
+
+    textarea.focus();
+
+    const errorMessage = document.createElement('p');
+    errorMessage.style.color = '#dc3545';
+    errorMessage.style.fontFamily = 'monospace';
+    errorMessage.style.fontSize = '11px';
+    errorMessage.style.margin = '10px 0 0 0';
+    errorMessage.style.display = 'none';
+    content.appendChild(errorMessage);
+
+    const buttonContainer = document.createElement('div');
+    buttonContainer.style.marginTop = '15px';
+    buttonContainer.style.textAlign = 'center';
+    buttonContainer.style.display = 'flex';
+    buttonContainer.style.gap = '10px';
+    buttonContainer.style.justifyContent = 'center';
+    content.appendChild(buttonContainer);
+
+    const cancelButton = document.createElement('button');
+    cancelButton.textContent = 'Cancel';
+    cancelButton.style.padding = '8px 16px';
+    cancelButton.style.border = '1px solid #ccc';
+    cancelButton.style.borderRadius = '4px';
+    cancelButton.style.backgroundColor = '#fff';
+    cancelButton.style.cursor = 'pointer';
+    cancelButton.style.fontFamily = 'monospace';
+    cancelButton.style.fontSize = '12px';
+    buttonContainer.appendChild(cancelButton);
+
+    const importButton = document.createElement('button');
+    importButton.textContent = 'Import';
+    importButton.style.padding = '8px 16px';
+    importButton.style.border = '1px solid #ccc';
+    importButton.style.borderRadius = '4px';
+    importButton.style.backgroundColor = '#28a745';
+    importButton.style.color = 'white';
+    importButton.style.cursor = 'pointer';
+    importButton.style.fontFamily = 'monospace';
+    importButton.style.fontSize = '12px';
+    buttonContainer.appendChild(importButton);
+
+    cancelButton.onclick = close;
+
+    importButton.onclick = () => {
+      const encoded = textarea.value.trim();
+      if (!encoded) {
+        errorMessage.textContent = 'Please paste a shelf code';
+        errorMessage.style.display = 'block';
+        return;
+      }
+
+      try {
+        applyEncodedState(encoded, shelf);
+        rebuildCallback();
+        close();
+      } catch (err) {
+        errorMessage.textContent = `Invalid shelf code: ${err instanceof Error ? err.message : 'Unknown error'}`;
+        errorMessage.style.display = 'block';
+      }
+    };
+  }
+
   // Create undo/redo button container
   const undoRedoContainer = document.createElement('div');
   undoRedoContainer.style.position = 'absolute';
@@ -711,6 +924,43 @@ function visualizeShelf(shelf: Shelf): void {
   redoButton.style.fontSize = '11px';
   redoButton.title = 'Redo (Ctrl+Shift+Z)';
   undoRedoContainer.appendChild(redoButton);
+
+  // Create export button
+  const exportButton = document.createElement('button');
+  exportButton.textContent = '💾 Export';
+  exportButton.style.padding = '6px 12px';
+  exportButton.style.border = '1px solid #ccc';
+  exportButton.style.borderRadius = '4px';
+  exportButton.style.backgroundColor = '#fff';
+  exportButton.style.cursor = 'pointer';
+  exportButton.style.fontFamily = 'monospace';
+  exportButton.style.fontSize = '11px';
+  exportButton.title = 'Export shelf configuration';
+  undoRedoContainer.appendChild(exportButton);
+
+  // Create import button
+  const importButton = document.createElement('button');
+  importButton.textContent = '📥 Import';
+  importButton.style.padding = '6px 12px';
+  importButton.style.border = '1px solid #ccc';
+  importButton.style.borderRadius = '4px';
+  importButton.style.backgroundColor = '#fff';
+  importButton.style.cursor = 'pointer';
+  importButton.style.fontFamily = 'monospace';
+  importButton.style.fontSize = '11px';
+  importButton.title = 'Import shelf configuration';
+  undoRedoContainer.appendChild(importButton);
+
+  // Wire up export/import button handlers
+  exportButton.onclick = () => {
+    showExportModal(shelf);
+  };
+
+  importButton.onclick = () => {
+    showImportModal(shelf, () => {
+      rebuildShelfGeometry(shelf, scene, skuListContainer);
+    });
+  };
 
   // Setup debug checkbox event listener
   const setupDebugCheckbox = () => {
