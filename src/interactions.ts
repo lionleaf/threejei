@@ -223,11 +223,19 @@ export function setupInteractions(
     });
     scene.children.forEach((child: any) => {
       if (child.userData?.type === 'ghost_plate' && child.material) {
-        child.material.opacity = DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0;
+        const ghostPlate = child.userData.ghostPlate;
+        const isLegal = ghostPlate?.legal;
+        // Legal ghosts: 0.15 normally, 0.3 in debug mode
+        // Illegal ghosts: 0.0 normally, 0.3 in debug mode
+        child.material.opacity = isLegal ? (DEBUG_SHOW_COLLIDERS ? 0.3 : 0.15) : (DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0);
       }
       // Also reset ghost rod opacity
       if ((child.userData?.type === 'ghost_rod' || child.userData?.type === 'ghost_connection_rod') && child.material) {
-        child.material.opacity = DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0;
+        // Find the associated ghost plate to check if it's legal
+        const ghostPlateIndex = child.userData.ghostPlateIndex;
+        const ghostPlate = shelf.ghostPlates[ghostPlateIndex];
+        const isLegal = ghostPlate?.legal;
+        child.material.opacity = isLegal ? (DEBUG_SHOW_COLLIDERS ? 0.3 : 0.15) : (DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0);
       }
     });
 
