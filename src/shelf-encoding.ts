@@ -186,6 +186,119 @@ function fromUrlSafeBase64(encoded: string): string {
 }
 
 /**
+ * Encode shelf to pretty-printed JSON string (no base64).
+ */
+export function encodeShelfToJSON(shelf: Shelf): string {
+  // Sort rods by X position for consistent ordering
+  const sortedRods = Array.from(shelf.rods.entries())
+    .sort(([_idA, rodA], [_idB, rodB]) => rodA.position.x - rodB.position.x);
+
+  // Create ID-to-index mapping
+  const rodIdToIndex = new Map<number, number>();
+  sortedRods.forEach(([rodId, _rod], index) => {
+    rodIdToIndex.set(rodId, index);
+  });
+
+  // Encode rods
+  const encodedRods: EncodedRod[] = sortedRods.map(([_rodId, rod]) => {
+    const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+    return {
+      pos: {
+        x: rod.position.x,
+        y: rod.position.y
+      },
+      sku: rodSKU?.name || ''
+    };
+  });
+
+  // Encode plates
+  const encodedPlates: EncodedPlate[] = Array.from(shelf.plates.values()).map(plate => {
+    const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === plate.sku_id);
+    // Map rod IDs to indices
+    const rodIndices = plate.connections.map(rodId => rodIdToIndex.get(rodId) ?? -1);
+
+    return {
+      y: plate.y,
+      sku: plateSKU?.name || '',
+      rods: rodIndices
+    };
+  });
+
+  const encodedShelf: EncodedShelf = {
+    rods: encodedRods,
+    plates: encodedPlates
+  };
+
+  // Convert to pretty-printed JSON string
+  return JSON.stringify(encodedShelf, null, 2);
+}
+
+/**
+ * Decode shelf from JSON string (no base64).
+ */
+export function decodeShelfFromJSON(jsonString: string): Shelf {
+  try {
+    // Parse JSON
+    const data = JSON.parse(jsonString) as EncodedShelf;
+
+    // Validate structure
+    if (!data.rods || !Array.isArray(data.rods)) {
+      console.error('Invalid shelf encoding: missing or invalid rods array');
+      return createEmptyShelf();
+    }
+    if (!data.plates || !Array.isArray(data.plates)) {
+      console.error('Invalid shelf encoding: missing or invalid plates array');
+      return createEmptyShelf();
+    }
+
+    // Create new shelf
+    const shelf = createEmptyShelf();
+
+    // Add rods
+    const rodIdMapping: number[] = [];
+    data.rods.forEach((encodedRod) => {
+      const rodSKU = AVAILABLE_RODS.find(r => r.name === encodedRod.sku);
+      if (!rodSKU) {
+        console.error(`Unknown rod SKU: ${encodedRod.sku}`);
+        return;
+      }
+
+      const rodId = addRod(encodedRod.pos, rodSKU.sku_id, shelf);
+      rodIdMapping.push(rodId);
+    });
+
+    // Add plates
+    data.plates.forEach((encodedPlate) => {
+      const plateSKU = AVAILABLE_PLATES.find(p => p.name === encodedPlate.sku);
+      if (!plateSKU) {
+        console.error(`Unknown plate SKU: ${encodedPlate.sku}`);
+        return;
+      }
+
+      // Map rod indices back to IDs
+      const rodIds = encodedPlate.rods
+        .map(index => rodIdMapping[index])
+        .filter(id => id !== undefined);
+
+      if (rodIds.length < 2) {
+        console.error(`Plate needs at least 2 rods, got ${rodIds.length}`);
+        return;
+      }
+
+      addPlate(encodedPlate.y, plateSKU.sku_id, rodIds, shelf);
+    });
+
+    // Regenerate ghost plates
+    regenerateGhostPlates(shelf);
+
+    return shelf;
+  } catch (error) {
+    console.error('Failed to decode shelf from JSON:', error);
+    return createEmptyShelf();
+  }
+}
+
+/**
  * Apply an encoded shelf state to an existing shelf object.
  * Clears the current shelf and reconstructs it from the encoding.
  * @param encoded - Base64-encoded shelf configuration

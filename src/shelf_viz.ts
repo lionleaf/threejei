@@ -13,7 +13,7 @@ import {
 
 import { setupInteractions } from './interactions.js';
 import { loadPrices, calculateShelfPricing, formatPrice, type PriceData } from './pricing.js';
-import { encodeShelf, applyEncodedState } from './shelf-encoding.js';
+import { encodeShelfToJSON, decodeShelfFromJSON, encodeShelf, decodeShelf } from './shelf-encoding.js';
 
 // Declare THREE as global (loaded via CDN)
 declare const THREE: any;
@@ -518,6 +518,9 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
       }
     }
   });
+
+  // Update URL with current shelf state
+  updateURLWithShelf(shelf);
 }
 
 
@@ -737,7 +740,7 @@ function visualizeShelf(shelf: Shelf): void {
   }
 
   function showExportModal(shelf: Shelf): void {
-    const encoded = encodeShelf(shelf);
+    const jsonString = encodeShelfToJSON(shelf);
     const { content, close } = createModal('Export Shelf Configuration');
 
     const instruction = document.createElement('p');
@@ -748,7 +751,7 @@ function visualizeShelf(shelf: Shelf): void {
     content.appendChild(instruction);
 
     const textarea = document.createElement('textarea');
-    textarea.value = encoded;
+    textarea.value = jsonString;
     textarea.readOnly = true;
     textarea.style.width = '100%';
     textarea.style.height = '150px';
@@ -783,7 +786,7 @@ function visualizeShelf(shelf: Shelf): void {
 
     copyButton.onclick = async () => {
       try {
-        await navigator.clipboard.writeText(encoded);
+        await navigator.clipboard.writeText(jsonString);
         copyButton.textContent = '✓ Copied!';
         copyButton.style.backgroundColor = '#28a745';
         setTimeout(() => {
@@ -865,15 +868,24 @@ function visualizeShelf(shelf: Shelf): void {
     cancelButton.onclick = close;
 
     importButton.onclick = () => {
-      const encoded = textarea.value.trim();
-      if (!encoded) {
+      const jsonString = textarea.value.trim();
+      if (!jsonString) {
         errorMessage.textContent = 'Please paste a shelf code';
         errorMessage.style.display = 'block';
         return;
       }
 
       try {
-        applyEncodedState(encoded, shelf);
+        const importedShelf = decodeShelfFromJSON(jsonString);
+        // Clear current shelf and copy imported data
+        shelf.rods.clear();
+        shelf.plates.clear();
+        shelf.ghostPlates = [];
+        shelf.metadata.nextId = importedShelf.metadata.nextId;
+        importedShelf.rods.forEach((rod, id) => shelf.rods.set(id, rod));
+        importedShelf.plates.forEach((plate, id) => shelf.plates.set(id, plate));
+        shelf.ghostPlates = importedShelf.ghostPlates;
+
         rebuildCallback();
         close();
       } catch (err) {
@@ -1084,7 +1096,57 @@ function visualizeShelf(shelf: Shelf): void {
   animate();
 }
 
-// Create and display a simple default shelf
+/**
+ * Update the browser URL with the current shelf state.
+ */
+function updateURLWithShelf(shelf: Shelf): void {
+  try {
+    const encoded = encodeShelf(shelf);
+    const url = new URL(window.location.href);
+    url.searchParams.set('shelf', encoded);
+    window.history.replaceState({}, '', url.toString());
+  } catch (error) {
+    console.error('Failed to update URL:', error);
+  }
+}
+
+/**
+ * Load shelf from URL parameter if available.
+ * Returns the loaded shelf or null if no URL parameter exists.
+ */
+function loadShelfFromURL(): Shelf | null {
+  try {
+    const url = new URL(window.location.href);
+    const encoded = url.searchParams.get('shelf');
+    if (!encoded) return null;
+
+    const shelf = decodeShelf(encoded);
+    // Check if shelf has any content
+    if (shelf.rods.size === 0) return null;
+
+    return shelf;
+  } catch (error) {
+    console.error('Failed to load shelf from URL:', error);
+    return null;
+  }
+}
+
+/**
+ * Create a default demo shelf.
+ */
+function createDefaultShelf(): Shelf {
+  const shelf = createEmptyShelf();
+
+  const rod1 = addRod({ x: 0, y: 0 }, 4, shelf); // 3P_22: 3 attachment points, 200mm + 200mm gaps
+  const rod2 = addRod({ x: 600, y: 0 }, 4, shelf); // 3P_22: matching rod
+
+  addPlate(0, 1, [rod1, rod2], shelf);
+  addPlate(200, 1, [rod1, rod2], shelf);
+  addPlate(400, 1, [rod1, rod2], shelf);
+
+  return shelf;
+}
+
 // Initialize the application
 async function init() {
   // Load prices first
@@ -1096,14 +1158,14 @@ async function init() {
     // Continue without pricing - will show fallback UI
   }
 
-  const shelf = createEmptyShelf();
+  // Try to load from URL, otherwise create default shelf
+  let shelf = loadShelfFromURL();
+  if (!shelf) {
+    shelf = createDefaultShelf();
+  }
 
-  const rod1 = addRod({ x: 0, y: 0 }, 4, shelf); // 3P_22: 3 attachment points, 200mm + 200mm gaps
-  const rod2 = addRod({ x: 600, y: 0 }, 4, shelf); // 3P_22: matching rod
-
-  addPlate(0, 1, [rod1, rod2], shelf);
-  addPlate(200, 1, [rod1, rod2], shelf);
-  addPlate(400, 1, [rod1, rod2], shelf);
+  // Update URL with current shelf state
+  updateURLWithShelf(shelf);
 
   visualizeShelf(shelf);
 }
