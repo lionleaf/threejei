@@ -39,11 +39,11 @@ async function testPricing() {
   console.log(`\nTotal price: ${formatPrice(pricing.totalPrice)}`);
 
   // Expected calculation:
-  // 2 rods * 2 physical = 4 rods @ 200.00 kr = 800.00 kr
-  // 3 plates @ 250.00 kr = 750.00 kr
-  // 6 attachment points (3 per rod * 2 rods) * 30.00 kr = 180.00 kr
-  // Total: 1730.00 kr
-  const expectedTotal = 1730.00;
+  // 2 rods * 2 physical = 4 rods @ 586.00 kr = 2344.00 kr
+  // 3 plates @ 1075.00 kr = 3225.00 kr
+  // 6 attachment points (3 per rod * 2 rods) * 60.00 kr = 360.00 kr
+  // Total: 5929.00 kr
+  const expectedTotal = 5929.00;
   console.log(`Expected: ${formatPrice(expectedTotal)}`);
   console.log(`Pass: ${pricing.totalPrice === expectedTotal}\n`);
 
@@ -66,12 +66,12 @@ async function testPricing() {
   console.log(`\nTotal price: ${formatPrice(mixedPricing.totalPrice)}`);
 
   // Expected:
-  // 1x 3P_22 rod * 2 physical = 2 @ 200.00 kr = 400.00 kr
-  // 1x 4P_223 rod * 2 physical = 2 @ 230.00 kr = 460.00 kr
-  // 1 plate @ 250.00 kr = 250.00 kr
-  // 7 attachment points (3 + 4) * 30.00 kr = 210.00 kr
-  // Total: 1320.00 kr
-  const expectedMixed = 1320.00;
+  // 1x 3P_22 rod * 2 physical = 2 @ 586.00 kr = 1172.00 kr
+  // 1x 4P_223 rod * 2 physical = 2 @ 701.33 kr = 1402.66 kr
+  // 1 plate @ 1075.00 kr = 1075.00 kr
+  // 7 attachment points (3 + 4) * 60.00 kr = 420.00 kr
+  // Total: 4069.66 kr
+  const expectedMixed = 4069.66;
   console.log(`Expected: ${formatPrice(expectedMixed)}`);
   console.log(`Pass: ${mixedPricing.totalPrice === expectedMixed}\n`);
 
