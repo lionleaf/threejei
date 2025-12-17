@@ -1,4 +1,4 @@
-import { type Shelf, removePlate, removeSegmentFromPlate, removeRodSegment, addPlate, addRod, type Plate, type Rod, AVAILABLE_RODS, calculateAttachmentPositions, mergePlates, extendPlate, Direction, type PlateSegmentResult, GhostPlate, resolveRodConnections, extendRodUp, extendRodDown, mergeRods } from './shelf-model.js';
+import { type Shelf, removePlate, removeSegmentFromPlate, removeRodSegment, addPlate, addRod, type Plate, type Rod, AVAILABLE_RODS, AVAILABLE_PLATES, calculateAttachmentPositions, mergePlates, extendPlate, Direction, type PlateSegmentResult, GhostPlate, resolveRodConnections, extendRodUp, extendRodDown, mergeRods } from './shelf-model.js';
 import { DEBUG_SHOW_COLLIDERS } from './shelf_viz.js';
 import { UndoManager } from './undo-manager.js';
 
@@ -251,28 +251,47 @@ export function setupInteractions(
       if (userData?.type === 'plate') {
         const plateId = userData.plateId;
         const plate = shelf.plates.get(plateId);
-        if (plate) {
+        if (plate && tooltipContainer) {
           (plate as any).isHovered = true;
 
-          // Show tooltip in debug mode
-          if (DEBUG_SHOW_COLLIDERS && tooltipContainer) {
-            tooltipContainer.style.display = 'block';
-            tooltipContainer.style.left = `${event.clientX + 20}px`;
-            tooltipContainer.style.top = `${event.clientY + 20}px`;
+          // Show tooltip
+          tooltipContainer.style.display = 'block';
+          tooltipContainer.style.left = `${event.clientX + 20}px`;
+          tooltipContainer.style.top = `${event.clientY + 20}px`;
+
+          if (DEBUG_SHOW_COLLIDERS) {
+            // Debug mode: show full JSON
             tooltipContainer.textContent = `Plate ${plateId}\n` + JSON.stringify(plate, null, 2);
+          } else {
+            // Normal mode: show human-readable info
+            const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === plate.sku_id);
+            if (plateSKU) {
+              const width = plateSKU.spans.reduce((sum, span) => sum + span, 0);
+              tooltipContainer.textContent = `${plateSKU.name}\n${width}mm × ${plateSKU.depth}mm`;
+            }
           }
         }
         break; // Plates take priority
       } else if (userData?.type === 'rod') {
         const rodId = userData.rodId;
         const rod = shelf.rods.get(rodId);
-        if (rod) {
-          // Show tooltip in debug mode
-          if (DEBUG_SHOW_COLLIDERS && tooltipContainer) {
-            tooltipContainer.style.display = 'block';
-            tooltipContainer.style.left = `${event.clientX + 20}px`;
-            tooltipContainer.style.top = `${event.clientY + 20}px`;
+        if (rod && tooltipContainer) {
+          // Show tooltip
+          tooltipContainer.style.display = 'block';
+          tooltipContainer.style.left = `${event.clientX + 20}px`;
+          tooltipContainer.style.top = `${event.clientY + 20}px`;
+
+          if (DEBUG_SHOW_COLLIDERS) {
+            // Debug mode: show full JSON
             tooltipContainer.textContent = `Rod ${rodId}\n` + JSON.stringify(rod, null, 2);
+          } else {
+            // Normal mode: show human-readable info
+            const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+            if (rodSKU) {
+              const height = rodSKU.spans.reduce((sum, span) => sum + span, 0);
+              const attachmentCount = rodSKU.spans.length + 1;
+              tooltipContainer.textContent = `${rodSKU.name}\n${height}mm height, ${attachmentCount} attachment points`;
+            }
           }
         }
         break;
@@ -294,12 +313,28 @@ export function setupInteractions(
           }
         });
 
-        // Show tooltip in debug mode
-        if (DEBUG_SHOW_COLLIDERS && tooltipContainer) {
+        // Show tooltip
+        if (tooltipContainer) {
           tooltipContainer.style.display = 'block';
           tooltipContainer.style.left = `${event.clientX + 20}px`;
           tooltipContainer.style.top = `${event.clientY + 20}px`;
-          tooltipContainer.textContent = JSON.stringify(ghostPlate, null, 2);
+
+          if (DEBUG_SHOW_COLLIDERS) {
+            // Debug mode: show full JSON
+            tooltipContainer.textContent = JSON.stringify(ghostPlate, null, 2);
+          } else {
+            // Normal mode: show human-readable info
+            const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === ghostPlate.sku_id);
+            if (plateSKU && ghostPlate.legal) {
+              const width = plateSKU.spans.reduce((sum, span) => sum + span, 0);
+              const actionText = ghostPlate.action === 'create' ? 'Add' :
+                                ghostPlate.action === 'extend' ? 'Extend to' :
+                                ghostPlate.action === 'merge' ? 'Merge to' : '';
+              tooltipContainer.textContent = `${actionText} ${plateSKU.name}\n${width}mm × ${plateSKU.depth}mm\nClick to add`;
+            } else if (!ghostPlate.legal) {
+              tooltipContainer.textContent = 'Invalid placement';
+            }
+          }
         }
         break;
       }
