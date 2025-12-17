@@ -40,9 +40,10 @@ const connectionRodGrooveDepth = 4
  * Creates all meshes for a single logical rod (inner rod, outer rod, and connection rods).
  * @param rod - The rod data from shelf model
  * @param isGhost - Whether to render as ghost (transparent green) or normal
+ * @param ghostOpacity - Optional opacity for ghost rods (defaults to 0.15)
  * @returns Array of THREE.Mesh objects to add to scene
  */
-function createRodMeshes(rod: Rod, isGhost: boolean): any[] {
+function createRodMeshes(rod: Rod, isGhost: boolean, ghostOpacity: number = 0.15): any[] {
   const meshes: any[] = [];
 
   const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
@@ -53,7 +54,7 @@ function createRodMeshes(rod: Rod, isGhost: boolean): any[] {
     ? new THREE.MeshBasicMaterial({
       color: 0x90EE90, // Light green
       transparent: true,
-      opacity: DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0 // Will be set to 0.5 on hover
+      opacity: ghostOpacity // Will be set to 0.5 on hover
     })
     : new THREE.MeshStandardMaterial({
       color: 0x76685e,
@@ -89,7 +90,7 @@ function createRodMeshes(rod: Rod, isGhost: boolean): any[] {
       ? new THREE.MeshBasicMaterial({
         color: 0x90EE90, // Light green
         transparent: true,
-        opacity: DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0 // Will be set to 0.5 on hover
+        opacity: ghostOpacity // Will be set to 0.5 on hover
       })
       : new THREE.MeshStandardMaterial({
         color: 0x76685e,
@@ -367,8 +368,13 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
     const centerX = ghostPlate.midpointPosition.x;
 
     let ghostColor = 0x90EE90; // Light green for legal
+    let ghostOpacity = 0.15; // Default faint opacity for legal ghosts
+
     if (!ghostPlate.legal) {
       ghostColor = 0xff0000; // Red for illegal
+      ghostOpacity = DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0; // Only show illegal in debug mode
+    } else if (DEBUG_SHOW_COLLIDERS) {
+      ghostOpacity = 0.3; // Brighter in debug mode
     }
 
     const ghostMesh = new THREE.Mesh(
@@ -376,7 +382,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
       new THREE.MeshBasicMaterial({
         color: ghostColor,
         transparent: true,
-        opacity: DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0,
+        opacity: ghostOpacity,
         wireframe: !ghostPlate.legal
       })
     );
@@ -404,7 +410,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
             attachmentPoints: calculateAttachmentPositions(rodSKU).map(y => ({ y }))
           };
 
-          const meshes = createRodMeshes(ghostRod, true);
+          const meshes = createRodMeshes(ghostRod, true, ghostOpacity);
           meshes.forEach(mesh => {
             mesh.userData.type = 'ghost_rod';
             mesh.userData.ghostPlateIndex = index;
@@ -427,7 +433,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
           const ghostMaterial = new THREE.MeshBasicMaterial({
             color: 0x90EE90, // Light green
             transparent: true,
-            opacity: DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0
+            opacity: ghostPlate.legal ? (DEBUG_SHOW_COLLIDERS ? 0.3 : 0.15) : (DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0)
           });
 
           // Render inner and outer extension segments
@@ -462,7 +468,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
           const connectionMaterial = new THREE.MeshBasicMaterial({
             color: 0x90EE90,
             transparent: true,
-            opacity: DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0
+            opacity: ghostPlate.legal ? (DEBUG_SHOW_COLLIDERS ? 0.3 : 0.15) : (DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0)
           });
 
           const connectionRodLength = 202;
@@ -500,7 +506,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
             attachmentPoints: calculateAttachmentPositions(rodSKU).map(y => ({ y }))
           };
 
-          const meshes = createRodMeshes(ghostRod, true);
+          const meshes = createRodMeshes(ghostRod, true, ghostOpacity);
           meshes.forEach(mesh => {
             mesh.userData.type = 'ghost_rod';
             mesh.userData.ghostPlateIndex = index;
