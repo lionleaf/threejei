@@ -12,6 +12,7 @@ import {
 } from './shelf-model.js';
 
 import { setupInteractions } from './interactions.js';
+import { loadPrices, calculateShelfPricing, formatPrice, type PriceData } from './pricing.js';
 
 // Declare THREE as global (loaded via CDN)
 declare const THREE: any;
@@ -21,6 +22,9 @@ export let DEBUG_SHOW_COLLIDERS = false;
 
 // Flag to enable/disable wall drawing
 export let DRAW_WALL = false;
+
+// Cached price data
+let cachedPriceData: PriceData | null = null;
 
 // Distance (in mm) between the two rods holding a plate
 const rodDistance = 153
@@ -510,25 +514,8 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
 }
 
 
-// Update SKU list UI
+// Update SKU list UI with pricing
 function updateSKUList(shelf: Shelf, container: HTMLDivElement): void {
-  const rodCounts = new Map<string, number>();
-  const plateCounts = new Map<string, number>();
-
-  shelf.rods.forEach((rod) => {
-    const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
-    if (rodSKU) {
-      rodCounts.set(rodSKU.name, (rodCounts.get(rodSKU.name) || 0) + 1);
-    }
-  });
-
-  shelf.plates.forEach((plate) => {
-    const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === plate.sku_id);
-    if (plateSKU) {
-      plateCounts.set(plateSKU.name, (plateCounts.get(plateSKU.name) || 0) + 1);
-    }
-  });
-
   let html = '<div style="font-weight: bold; margin-bottom: 8px; font-size: 14px;">SKU List</div>';
 
   // Add debug checkbox
@@ -539,22 +526,82 @@ function updateSKUList(shelf: Shelf, container: HTMLDivElement): void {
   html += '</label>';
   html += '</div>';
 
-  if (rodCounts.size > 0) {
-    html += '<div style="margin-bottom: 6px; font-weight: bold; font-size: 12px;">Rods:</div>';
-    rodCounts.forEach((count, name) => {
-      html += `<div style="margin-left: 8px; font-size: 11px;">${count}x ${name}</div>`;
-    });
-  }
+  // Check if we have pricing data
+  if (cachedPriceData) {
+    const pricing = calculateShelfPricing(shelf, cachedPriceData);
 
-  if (plateCounts.size > 0) {
-    html += '<div style="margin-bottom: 6px; margin-top: 8px; font-weight: bold; font-size: 12px;">Plates:</div>';
-    plateCounts.forEach((count, name) => {
-      html += `<div style="margin-left: 8px; font-size: 11px;">${count}x ${name}</div>`;
-    });
-  }
+    if (pricing.rods.length === 0 && pricing.plates.length === 0) {
+      html += '<div style="font-size: 11px; color: #888;">Empty shelf</div>';
+    } else {
+      // Calculate total number of rod pairs for the summary
+      let totalPhysicalRods = 0;
+      let totalRodPrice = 0;
 
-  if (rodCounts.size === 0 && plateCounts.size === 0) {
-    html += '<div style="font-size: 11px; color: #888;">Empty shelf</div>';
+      if (pricing.rods.length > 0) {
+        html += '<div style="margin-bottom: 6px; font-weight: bold; font-size: 12px;">Rods (x2 for physical pairs):</div>';
+        pricing.rods.forEach((rod) => {
+          totalPhysicalRods += rod.quantity;
+          totalRodPrice += rod.totalPrice;
+          html += `<div style="margin-left: 8px; font-size: 11px;">${rod.quantity}x ${rod.name} @ ${formatPrice(rod.unitPrice)} = ${formatPrice(rod.totalPrice)}</div>`;
+        });
+        const rodPairs = totalPhysicalRods / 2;
+        html += `<div style="margin-left: 8px; font-size: 10px; color: #666; margin-top: 2px;">Total rods: ${totalPhysicalRods} physical (${rodPairs} pairs)</div>`;
+      }
+
+      if (pricing.plates.length > 0) {
+        html += '<div style="margin-bottom: 6px; margin-top: 8px; font-weight: bold; font-size: 12px;">Plates:</div>';
+        pricing.plates.forEach((plate) => {
+          html += `<div style="margin-left: 8px; font-size: 11px;">${plate.quantity}x ${plate.name} @ ${formatPrice(plate.unitPrice)} = ${formatPrice(plate.totalPrice)}</div>`;
+        });
+      }
+
+      // Support rods
+      if (pricing.supportRods.quantity > 0) {
+        html += '<div style="margin-bottom: 6px; margin-top: 8px; font-weight: bold; font-size: 12px;">Accessories:</div>';
+        html += `<div style="margin-left: 8px; font-size: 11px;">${pricing.supportRods.quantity}x ${pricing.supportRods.name} @ ${formatPrice(pricing.supportRods.unitPrice)} = ${formatPrice(pricing.supportRods.totalPrice)}</div>`;
+      }
+
+      // Total price
+      html += '<div style="margin-top: 12px; padding-top: 8px; border-top: 1px solid #ccc; font-weight: bold; font-size: 13px;">Total: ' + formatPrice(pricing.totalPrice) + '</div>';
+    }
+  } else {
+    // Fallback to non-priced display if prices haven't loaded yet
+    const rodCounts = new Map<string, number>();
+    const plateCounts = new Map<string, number>();
+
+    shelf.rods.forEach((rod) => {
+      const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+      if (rodSKU) {
+        rodCounts.set(rodSKU.name, (rodCounts.get(rodSKU.name) || 0) + 1);
+      }
+    });
+
+    shelf.plates.forEach((plate) => {
+      const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === plate.sku_id);
+      if (plateSKU) {
+        plateCounts.set(plateSKU.name, (plateCounts.get(plateSKU.name) || 0) + 1);
+      }
+    });
+
+    if (rodCounts.size > 0) {
+      html += '<div style="margin-bottom: 6px; font-weight: bold; font-size: 12px;">Rods:</div>';
+      rodCounts.forEach((count, name) => {
+        html += `<div style="margin-left: 8px; font-size: 11px;">${count}x ${name}</div>`;
+      });
+    }
+
+    if (plateCounts.size > 0) {
+      html += '<div style="margin-bottom: 6px; margin-top: 8px; font-weight: bold; font-size: 12px;">Plates:</div>';
+      plateCounts.forEach((count, name) => {
+        html += `<div style="margin-left: 8px; font-size: 11px;">${count}x ${name}</div>`;
+      });
+    }
+
+    if (rodCounts.size === 0 && plateCounts.size === 0) {
+      html += '<div style="font-size: 11px; color: #888;">Empty shelf</div>';
+    }
+
+    html += '<div style="margin-top: 8px; font-size: 10px; color: #888;">Loading prices...</div>';
   }
 
   container.innerHTML = html;
@@ -765,13 +812,28 @@ function visualizeShelf(shelf: Shelf): void {
 }
 
 // Create and display a simple default shelf
-const shelf = createEmptyShelf();
+// Initialize the application
+async function init() {
+  // Load prices first
+  try {
+    cachedPriceData = await loadPrices();
+    console.log('Prices loaded successfully');
+  } catch (error) {
+    console.error('Failed to load prices:', error);
+    // Continue without pricing - will show fallback UI
+  }
 
-const rod1 = addRod({ x: 0, y: 0 }, 4, shelf); // 3P_22: 3 attachment points, 200mm + 200mm gaps
-const rod2 = addRod({ x: 600, y: 0 }, 4, shelf); // 3P_22: matching rod
+  const shelf = createEmptyShelf();
 
-addPlate(0, 1, [rod1, rod2], shelf);
-addPlate(200, 1, [rod1, rod2], shelf);
-addPlate(400, 1, [rod1, rod2], shelf);
+  const rod1 = addRod({ x: 0, y: 0 }, 4, shelf); // 3P_22: 3 attachment points, 200mm + 200mm gaps
+  const rod2 = addRod({ x: 600, y: 0 }, 4, shelf); // 3P_22: matching rod
 
-visualizeShelf(shelf);
+  addPlate(0, 1, [rod1, rod2], shelf);
+  addPlate(200, 1, [rod1, rod2], shelf);
+  addPlate(400, 1, [rod1, rod2], shelf);
+
+  visualizeShelf(shelf);
+}
+
+// Start the application
+init();
