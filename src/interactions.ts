@@ -266,8 +266,7 @@ export function setupInteractions(
             // Normal mode: show human-readable info
             const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === plate.sku_id);
             if (plateSKU) {
-              const width = plateSKU.spans.reduce((sum, span) => sum + span, 0);
-              tooltipContainer.textContent = `${plateSKU.name}\n${width}mm × ${plateSKU.depth}mm`;
+              tooltipContainer.textContent = plateSKU.name;
             }
           }
         }
@@ -288,9 +287,7 @@ export function setupInteractions(
             // Normal mode: show human-readable info
             const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
             if (rodSKU) {
-              const height = rodSKU.spans.reduce((sum, span) => sum + span, 0);
-              const attachmentCount = rodSKU.spans.length + 1;
-              tooltipContainer.textContent = `${rodSKU.name}\n${height}mm height, ${attachmentCount} attachment points`;
+              tooltipContainer.textContent = rodSKU.name;
             }
           }
         }
@@ -326,13 +323,12 @@ export function setupInteractions(
             // Normal mode: show human-readable info
             const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === ghostPlate.sku_id);
             if (plateSKU && ghostPlate.legal) {
-              const width = plateSKU.spans.reduce((sum, span) => sum + span, 0);
               const actionText = ghostPlate.action === 'create' ? 'Add' :
-                                ghostPlate.action === 'extend' ? 'Extend to' :
-                                ghostPlate.action === 'merge' ? 'Merge to' : '';
-              tooltipContainer.textContent = `${actionText} ${plateSKU.name}\n${width}mm × ${plateSKU.depth}mm\nClick to add`;
+                                ghostPlate.action === 'extend' ? 'Extend' :
+                                ghostPlate.action === 'merge' ? 'Merge' : '';
+              tooltipContainer.textContent = `${actionText} ${plateSKU.name}`;
             } else if (!ghostPlate.legal) {
-              tooltipContainer.textContent = 'Invalid placement';
+              tooltipContainer.textContent = 'Invalid';
             }
           }
         }
