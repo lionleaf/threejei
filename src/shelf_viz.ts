@@ -522,11 +522,11 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
 
 // Update SKU list UI with pricing
 function updateSKUList(shelf: Shelf, container: HTMLDivElement): void {
-  let html = '<div style="font-weight: bold; margin-bottom: 8px; font-size: 14px;">SKU List</div>';
+  let html = '<div style="font-weight: bold; margin-bottom: 10px; font-size: 14px; color: #333;">Parts List</div>';
 
   // Add debug checkbox
-  html += '<div style="margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #ccc;">';
-  html += '<label style="display: flex; align-items: center; cursor: pointer; font-size: 11px;">';
+  html += '<div style="margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid #ddd;">';
+  html += '<label style="display: flex; align-items: center; cursor: pointer; font-size: 11px; color: #666;">';
   html += `<input type="checkbox" id="debugCheckbox" ${DEBUG_SHOW_COLLIDERS ? 'checked' : ''} style="margin-right: 6px;">`;
   html += 'Debug Mode';
   html += '</label>';
@@ -537,38 +537,55 @@ function updateSKUList(shelf: Shelf, container: HTMLDivElement): void {
     const pricing = calculateShelfPricing(shelf, cachedPriceData);
 
     if (pricing.rods.length === 0 && pricing.plates.length === 0) {
-      html += '<div style="font-size: 11px; color: #888;">Empty shelf</div>';
+      html += '<div style="font-size: 11px; color: #888; font-style: italic;">Empty shelf</div>';
     } else {
+      // Start table
+      html += '<table style="width: 100%; font-size: 11px; border-collapse: collapse;">';
+
       // Calculate total number of rod pairs for the summary
       let totalPhysicalRods = 0;
-      let totalRodPrice = 0;
 
       if (pricing.rods.length > 0) {
-        html += '<div style="margin-bottom: 6px; font-weight: bold; font-size: 12px;">Rods (x2 for physical pairs):</div>';
+        html += '<tr><td colspan="3" style="font-weight: bold; font-size: 11px; padding: 4px 0 4px 0; color: #555;">Rods (pairs)</td></tr>';
         pricing.rods.forEach((rod) => {
           totalPhysicalRods += rod.quantity;
-          totalRodPrice += rod.totalPrice;
-          html += `<div style="margin-left: 8px; font-size: 11px;">${rod.quantity}x ${rod.name} @ ${formatPrice(rod.unitPrice)} = ${formatPrice(rod.totalPrice)}</div>`;
+          const pairs = rod.quantity / 2;
+          html += `<tr style="border-bottom: 1px solid #f0f0f0;">`;
+          html += `<td style="padding: 3px 8px 3px 0; color: #666;">${pairs}×</td>`;
+          html += `<td style="padding: 3px 8px; text-align: left; color: #333;">${rod.name}</td>`;
+          html += `<td style="padding: 3px 0 3px 8px; text-align: right; font-family: 'Courier New', monospace; color: #333;">${formatPrice(rod.totalPrice)}</td>`;
+          html += `</tr>`;
         });
-        const rodPairs = totalPhysicalRods / 2;
-        html += `<div style="margin-left: 8px; font-size: 10px; color: #666; margin-top: 2px;">Total rods: ${totalPhysicalRods} physical (${rodPairs} pairs)</div>`;
       }
 
       if (pricing.plates.length > 0) {
-        html += '<div style="margin-bottom: 6px; margin-top: 8px; font-weight: bold; font-size: 12px;">Plates:</div>';
+        html += '<tr><td colspan="3" style="font-weight: bold; font-size: 11px; padding: 8px 0 4px 0; color: #555;">Plates</td></tr>';
         pricing.plates.forEach((plate) => {
-          html += `<div style="margin-left: 8px; font-size: 11px;">${plate.quantity}x ${plate.name} @ ${formatPrice(plate.unitPrice)} = ${formatPrice(plate.totalPrice)}</div>`;
+          html += `<tr style="border-bottom: 1px solid #f0f0f0;">`;
+          html += `<td style="padding: 3px 8px 3px 0; color: #666;">${plate.quantity}×</td>`;
+          html += `<td style="padding: 3px 8px; text-align: left; color: #333;">${plate.name}</td>`;
+          html += `<td style="padding: 3px 0 3px 8px; text-align: right; font-family: 'Courier New', monospace; color: #333;">${formatPrice(plate.totalPrice)}</td>`;
+          html += `</tr>`;
         });
       }
 
       // Support rods
       if (pricing.supportRods.quantity > 0) {
-        html += '<div style="margin-bottom: 6px; margin-top: 8px; font-weight: bold; font-size: 12px;">Accessories:</div>';
-        html += `<div style="margin-left: 8px; font-size: 11px;">${pricing.supportRods.quantity}x ${pricing.supportRods.name} @ ${formatPrice(pricing.supportRods.unitPrice)} = ${formatPrice(pricing.supportRods.totalPrice)}</div>`;
+        html += '<tr><td colspan="3" style="font-weight: bold; font-size: 11px; padding: 8px 0 4px 0; color: #555;">Accessories</td></tr>';
+        html += `<tr style="border-bottom: 1px solid #f0f0f0;">`;
+        html += `<td style="padding: 3px 8px 3px 0; color: #666;">${pricing.supportRods.quantity}×</td>`;
+        html += `<td style="padding: 3px 8px; text-align: left; color: #333;">${pricing.supportRods.name}</td>`;
+        html += `<td style="padding: 3px 0 3px 8px; text-align: right; font-family: 'Courier New', monospace; color: #333;">${formatPrice(pricing.supportRods.totalPrice)}</td>`;
+        html += `</tr>`;
       }
 
+      html += '</table>';
+
       // Total price
-      html += '<div style="margin-top: 12px; padding-top: 8px; border-top: 1px solid #ccc; font-weight: bold; font-size: 13px;">Total: ' + formatPrice(pricing.totalPrice) + '</div>';
+      html += '<div style="margin-top: 12px; padding-top: 10px; border-top: 2px solid #333; display: flex; justify-content: space-between; align-items: center;">';
+      html += '<span style="font-weight: bold; font-size: 13px; color: #333;">Total</span>';
+      html += '<span style="font-weight: bold; font-size: 14px; font-family: \'Courier New\', monospace; color: #333;">' + formatPrice(pricing.totalPrice) + '</span>';
+      html += '</div>';
     }
   } else {
     // Fallback to non-priced display if prices haven't loaded yet
