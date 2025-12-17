@@ -229,8 +229,8 @@ export function encodeShelfToJSON(shelf: Shelf): string {
     plates: encodedPlates
   };
 
-  // Convert to pretty-printed JSON string
-  return JSON.stringify(encodedShelf, null, 2);
+  // Convert to single-line JSON string
+  return JSON.stringify(encodedShelf);
 }
 
 /**
