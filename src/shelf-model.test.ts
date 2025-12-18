@@ -1009,6 +1009,79 @@ testGroup('Ghost Plate Generation - Rod Collision Bug', () => {
       'Test should have found at least one collision in this configuration. ' +
       'If no collision found, the test may need adjustment or the bug is fixed.');
   });
+
+  test('Ghost plates should not suggest rods too close to existing rods (config 2)', () => {
+    // Second configuration: {"v":2,"r":[[0,7],[600,7],[1200,400,2],[1800,400,2]],"p":[[0,1,[0,1]],[200,1,[0,1]],[400,1,[0,1]],[400,1,[2,3]],[700,1,[0,1]],[600,1,[2,3]]]}
+    // Note: plates at y=700 and y=600 are swapped compared to config 1
+
+    const shelf = createEmptyShelf();
+
+    // Create the exact configuration from the bug report
+    const rod0 = addRod({ x: 0, y: 0 }, 7, shelf);      // 4P_223 at x=0, y=0
+    const rod1 = addRod({ x: 600, y: 0 }, 7, shelf);    // 4P_223 at x=600, y=0
+    const rod2 = addRod({ x: 1200, y: 400 }, 2, shelf); // 2P_2 at x=1200, y=400
+    const rod3 = addRod({ x: 1800, y: 400 }, 2, shelf); // 2P_2 at x=1800, y=400
+
+    // Add plates (note the order difference from config 1)
+    addPlate(0, 1, [rod0, rod1], shelf);    // y=0, connects rod 0-1
+    addPlate(200, 1, [rod0, rod1], shelf);  // y=200, connects rod 0-1
+    addPlate(400, 1, [rod0, rod1], shelf);  // y=400, connects rod 0-1
+    addPlate(400, 1, [rod2, rod3], shelf);  // y=400, connects rod 2-3
+    addPlate(700, 1, [rod0, rod1], shelf);  // y=700, connects rod 0-1
+    addPlate(600, 1, [rod2, rod3], shelf);  // y=600, connects rod 2-3
+
+    // Generate ghost plates
+    regenerateGhostPlates(shelf);
+
+    console.log(`\n  Config 2: Total ghost plates generated: ${shelf.ghostPlates.length}`);
+
+    // Check that no ghost suggests creating a rod that would vertically overlap an existing rod
+    let foundCollision = false;
+    for (const ghost of shelf.ghostPlates) {
+      if (ghost.rodModifications) {
+        for (const rodMod of ghost.rodModifications) {
+          if (rodMod.type === 'create') {
+            const newX = rodMod.position.x;
+            const newY = rodMod.position.y;
+            const newRodSKU = AVAILABLE_RODS.find(r => r.sku_id === rodMod.newSkuId);
+            if (!newRodSKU) continue;
+            const newHeight = newRodSKU.spans.reduce((sum, span) => sum + span, 0);
+            const newTop = newY + newHeight;
+
+            // Check if this new rod would vertically overlap with any existing rod at the same X
+            for (const [rodId, rod] of shelf.rods) {
+              if (Math.abs(rod.position.x - newX) < 10) { // Same X position (with tolerance)
+                const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+                if (!rodSKU) continue;
+
+                const existingHeight = rodSKU.spans.reduce((sum, span) => sum + span, 0);
+                const existingTop = rod.position.y + existingHeight;
+
+                // Check for vertical overlap: rods overlap if neither is completely above/below the other
+                const overlaps = !(newTop <= rod.position.y || newY >= existingTop);
+
+                if (overlaps) {
+                  foundCollision = true;
+                  console.log(`  ⚠️  Config 2 COLLISION: Ghost rod at (${newX}, ${newY}-${newTop}) overlaps with rod ${rodId} at (${rod.position.x}, ${rod.position.y}-${existingTop}), legal=${ghost.legal}`);
+                  assertTrue(!ghost.legal,
+                    `Ghost suggests creating rod at (${newX}, ${newY}-${newTop}) which vertically overlaps with ` +
+                    `existing rod ${rodId} at (${rod.position.x}, ${rod.position.y}-${existingTop}). ` +
+                    `This ghost MUST be marked as illegal but legal=${ghost.legal}.`
+                  );
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (foundCollision) {
+      console.log('  Config 2: Found and correctly handled collision');
+    } else {
+      console.log('  Config 2: No collisions found');
+    }
+  });
 });
 
 
