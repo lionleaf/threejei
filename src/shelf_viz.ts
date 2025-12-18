@@ -7,6 +7,8 @@ import {
   AVAILABLE_PLATES,
   calculateAttachmentPositions,
   regenerateGhostPlates,
+  INNER_ROD_HEIGHT_PADDING,
+  OUTER_ROD_HEIGHT_PADDING,
   type Shelf,
   type Rod
 } from './shelf-model.js';
@@ -33,8 +35,9 @@ const rodDistance = 153
 const rodRadius = 14
 const plateThickness = 20
 const connectionRodRadius = 6
-const innerRodHeightPadding = 65
-const outerRodHeightPadding = 35
+// Import rod padding constants from shelf-model to ensure consistency
+const innerRodHeightPadding = INNER_ROD_HEIGHT_PADDING
+const outerRodHeightPadding = OUTER_ROD_HEIGHT_PADDING
 const connectionRodGrooveDepth = 4
 
 /**

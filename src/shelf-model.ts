@@ -111,6 +111,12 @@ export interface Shelf {
 export const PLATE_PADDING_MM = 35;
 const POSITION_TOLERANCE_MM = 1; // Tolerance for floating point comparisons in mm
 
+// Rod physical padding (used for visualization and collision detection)
+// The physical rods extend beyond the attachment points for structural purposes
+export const INNER_ROD_HEIGHT_PADDING = 65; // mm - padding for inner (wall-mounted) rod
+export const OUTER_ROD_HEIGHT_PADDING = 35; // mm - padding for outer rod
+export const ROD_HEIGHT_PADDING = Math.max(INNER_ROD_HEIGHT_PADDING, OUTER_ROD_HEIGHT_PADDING); // Use max for collision checks
+
 export const AVAILABLE_RODS: RodSKU[] = [
   { sku_id: 1, name: "1P", spans: [] },
   { sku_id: 2, name: "2P_2", spans: [200] },
@@ -2087,7 +2093,9 @@ function rodModificationsHaveCollision(
         : shelf.rods.get(rodMod.affectedRodIds![0])!.position.y;
 
     const modifiedRodHeight = newRodSKU.spans.reduce((sum, span) => sum + span, 0);
-    const modifiedRodTop = modifiedRodY + modifiedRodHeight;
+    // Account for physical rod padding that extends beyond attachment points
+    const modifiedRodBottom = modifiedRodY - ROD_HEIGHT_PADDING;
+    const modifiedRodTop = modifiedRodY + modifiedRodHeight + ROD_HEIGHT_PADDING;
     const skipRodId = rodMod.type === 'extend' ? rodMod.affectedRodIds![0] : undefined;
 
     // Check for vertical overlap with existing rods at the same X
@@ -2099,10 +2107,12 @@ function rodModificationsHaveCollision(
       if (!rodSKU) continue;
 
       const existingHeight = rodSKU.spans.reduce((sum, span) => sum + span, 0);
-      const existingTop = rod.position.y + existingHeight;
+      // Account for physical rod padding on existing rods too
+      const existingBottom = rod.position.y - ROD_HEIGHT_PADDING;
+      const existingTop = rod.position.y + existingHeight + ROD_HEIGHT_PADDING;
 
       // Check for vertical overlap: rods overlap if neither is completely above/below the other
-      const overlaps = !(modifiedRodTop <= rod.position.y || modifiedRodY >= existingTop);
+      const overlaps = !(modifiedRodTop <= existingBottom || modifiedRodBottom >= existingTop);
       if (overlaps) return true;
     }
   }
