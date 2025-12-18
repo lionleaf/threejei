@@ -2069,77 +2069,45 @@ function rodModificationsHaveCollision(
   if (!rodModifications) return false;
 
   for (const rodMod of rodModifications) {
-    if (rodMod.type === 'create') {
-      const newX = rodMod.position.x;
-      const newY = rodMod.position.y;
-      const newRodSKU = getRodSKU(rodMod.newSkuId!);
-      if (!newRodSKU) continue;
+    if (rodMod.type !== 'create' && rodMod.type !== 'extend') continue;
 
-      const newHeight = newRodSKU.spans.reduce((sum, span) => sum + span, 0);
-      const newTop = newY + newHeight;
+    const newRodSKU = getRodSKU(rodMod.newSkuId!);
+    if (!newRodSKU) continue;
 
-      // Check if this new rod would vertically overlap with any existing rod at the same X
-      for (const [rodId, rod] of shelf.rods) {
-        // Check if at same X position (with small tolerance)
-        if (Math.abs(rod.position.x - newX) < POSITION_TOLERANCE_MM) {
-          const rodSKU = getRodSKU(rod.sku_id);
-          if (!rodSKU) continue;
+    // Determine the modified rod's position and which rod ID to skip
+    const modifiedRodX = rodMod.type === 'create'
+      ? rodMod.position.x
+      : shelf.rods.get(rodMod.affectedRodIds![0])?.position.x;
+    if (modifiedRodX === undefined) continue;
 
-          const existingHeight = rodSKU.spans.reduce((sum, span) => sum + span, 0);
-          const existingTop = rod.position.y + existingHeight;
+    const modifiedRodY = rodMod.type === 'create'
+      ? rodMod.position.y
+      : rodMod.direction === 'down'
+        ? (rodMod.visualY ?? shelf.rods.get(rodMod.affectedRodIds![0])!.position.y)
+        : shelf.rods.get(rodMod.affectedRodIds![0])!.position.y;
 
-          // Check for vertical overlap: rods overlap if neither is completely above/below the other
-          const overlaps = !(newTop <= rod.position.y || newY >= existingTop);
+    const modifiedRodHeight = newRodSKU.spans.reduce((sum, span) => sum + span, 0);
+    const modifiedRodTop = modifiedRodY + modifiedRodHeight;
+    const skipRodId = rodMod.type === 'extend' ? rodMod.affectedRodIds![0] : undefined;
 
-          if (overlaps) {
-            return true; // Collision detected
-          }
-        }
-      }
-    } else if (rodMod.type === 'extend') {
-      // For extensions, check if the extended rod would overlap with other rods at the same X
-      if (!rodMod.affectedRodIds || rodMod.affectedRodIds.length === 0) continue;
+    // Check for vertical overlap with existing rods at the same X
+    for (const [rodId, rod] of shelf.rods) {
+      if (rodId === skipRodId) continue; // Skip the rod being extended
+      if (Math.abs(rod.position.x - modifiedRodX) >= POSITION_TOLERANCE_MM) continue;
 
-      const extendingRodId = rodMod.affectedRodIds[0];
-      const extendingRod = shelf.rods.get(extendingRodId);
-      if (!extendingRod) continue;
+      const rodSKU = getRodSKU(rod.sku_id);
+      if (!rodSKU) continue;
 
-      const newRodSKU = getRodSKU(rodMod.newSkuId!);
-      if (!newRodSKU) continue;
+      const existingHeight = rodSKU.spans.reduce((sum, span) => sum + span, 0);
+      const existingTop = rod.position.y + existingHeight;
 
-      // Calculate the new bounds of the extended rod
-      // The position might change for downward extensions
-      const newY = rodMod.direction === 'down'
-        ? (rodMod.visualY ?? extendingRod.position.y)
-        : extendingRod.position.y;
-      const newHeight = newRodSKU.spans.reduce((sum, span) => sum + span, 0);
-      const newTop = newY + newHeight;
-
-      // Check if the extended rod would overlap with any OTHER rod at the same X
-      for (const [rodId, rod] of shelf.rods) {
-        // Skip the rod being extended
-        if (rodId === extendingRodId) continue;
-
-        // Check if at same X position (with small tolerance)
-        if (Math.abs(rod.position.x - extendingRod.position.x) < POSITION_TOLERANCE_MM) {
-          const rodSKU = getRodSKU(rod.sku_id);
-          if (!rodSKU) continue;
-
-          const existingHeight = rodSKU.spans.reduce((sum, span) => sum + span, 0);
-          const existingTop = rod.position.y + existingHeight;
-
-          // Check for vertical overlap
-          const overlaps = !(newTop <= rod.position.y || newY >= existingTop);
-
-          if (overlaps) {
-            return true; // Collision detected
-          }
-        }
-      }
+      // Check for vertical overlap: rods overlap if neither is completely above/below the other
+      const overlaps = !(modifiedRodTop <= rod.position.y || modifiedRodY >= existingTop);
+      if (overlaps) return true;
     }
   }
 
-  return false; // No collisions
+  return false;
 }
 
 /**
