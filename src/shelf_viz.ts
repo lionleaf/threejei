@@ -963,6 +963,19 @@ function visualizeShelf(shelf: Shelf): void {
   importButton.title = 'Import shelf configuration';
   undoRedoContainer.appendChild(importButton);
 
+  // Create reset button
+  const resetButton = document.createElement('button');
+  resetButton.textContent = '🔄 Reset';
+  resetButton.style.padding = '6px 12px';
+  resetButton.style.border = '1px solid #ccc';
+  resetButton.style.borderRadius = '4px';
+  resetButton.style.backgroundColor = '#fff';
+  resetButton.style.cursor = 'pointer';
+  resetButton.style.fontFamily = 'monospace';
+  resetButton.style.fontSize = '11px';
+  resetButton.title = 'Reset to default shelf';
+  undoRedoContainer.appendChild(resetButton);
+
   // Wire up export/import button handlers
   exportButton.onclick = () => {
     showExportModal(shelf);
@@ -972,6 +985,27 @@ function visualizeShelf(shelf: Shelf): void {
     showImportModal(shelf, () => {
       rebuildShelfGeometry(shelf, scene, skuListContainer);
     });
+  };
+
+  resetButton.onclick = () => {
+    // Create default shelf
+    const defaultShelf = createDefaultShelf();
+
+    // Clear current shelf
+    shelf.rods.clear();
+    shelf.plates.clear();
+    shelf.ghostPlates = [];
+
+    // Copy default shelf data
+    shelf.metadata.nextId = defaultShelf.metadata.nextId;
+    defaultShelf.rods.forEach((rod, id) => shelf.rods.set(id, rod));
+    defaultShelf.plates.forEach((plate, id) => shelf.plates.set(id, plate));
+    shelf.ghostPlates = defaultShelf.ghostPlates;
+
+    // Rebuild visualization
+    rebuildShelfGeometry(shelf, scene, skuListContainer);
+    setupDebugCheckbox();
+    updateUndoRedoButtons();
   };
 
   // Setup debug checkbox event listener

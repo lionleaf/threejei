@@ -1,6 +1,16 @@
 import { type Shelf, type Rod, type Plate, AVAILABLE_RODS, AVAILABLE_PLATES, createEmptyShelf, addRod, addPlate, regenerateGhostPlates } from './shelf-model.js';
 
 /**
+ * Current encoding version.
+ * Increment this when making breaking changes to the encoding format.
+ *
+ * Version history:
+ * - Version 1: Initial versioned format (added 2024-12-17)
+ * - Version 0: Legacy format without version field (before 2024-12-17)
+ */
+export const CURRENT_ENCODING_VERSION = 1;
+
+/**
  * JSON structure for encoding/decoding shelves
  */
 interface EncodedRod {
@@ -15,6 +25,7 @@ interface EncodedPlate {
 }
 
 interface EncodedShelf {
+  version: number;
   rods: EncodedRod[];
   plates: EncodedPlate[];
 }
@@ -60,6 +71,7 @@ export function encodeShelf(shelf: Shelf): string {
   });
 
   const encodedShelf: EncodedShelf = {
+    version: CURRENT_ENCODING_VERSION,
     rods: encodedRods,
     plates: encodedPlates
   };
@@ -82,6 +94,22 @@ export function decodeShelf(encoded: string): Shelf {
 
     // Parse JSON
     const data = JSON.parse(jsonString) as EncodedShelf;
+
+    // Handle legacy encodings without version field (treat as version 0)
+    const version = data.version ?? 0;
+
+    if (version > CURRENT_ENCODING_VERSION) {
+      console.error(`Encoding version ${version} is newer than supported version ${CURRENT_ENCODING_VERSION}`);
+      console.error('Please update the application to load this shelf configuration.');
+      return createEmptyShelf();
+    }
+
+    // Log version for debugging
+    if (version === 0) {
+      console.log('Loading legacy shelf encoding (no version field)');
+    } else {
+      console.log(`Loading shelf encoding version ${version}`);
+    }
 
     // Validate structure
     if (!data.rods || !Array.isArray(data.rods)) {
@@ -147,6 +175,12 @@ export function validateEncoding(encoded: string): boolean {
   try {
     const jsonString = fromUrlSafeBase64(encoded);
     const data = JSON.parse(jsonString);
+
+    // Check version compatibility
+    const version = data.version ?? 0;
+    if (version > CURRENT_ENCODING_VERSION) {
+      return false;  // Unsupported future version
+    }
 
     // Check for required fields
     return (
@@ -225,6 +259,7 @@ export function encodeShelfToJSON(shelf: Shelf): string {
   });
 
   const encodedShelf: EncodedShelf = {
+    version: CURRENT_ENCODING_VERSION,
     rods: encodedRods,
     plates: encodedPlates
   };
@@ -240,6 +275,22 @@ export function decodeShelfFromJSON(jsonString: string): Shelf {
   try {
     // Parse JSON
     const data = JSON.parse(jsonString) as EncodedShelf;
+
+    // Handle legacy encodings without version field (treat as version 0)
+    const version = data.version ?? 0;
+
+    if (version > CURRENT_ENCODING_VERSION) {
+      console.error(`Encoding version ${version} is newer than supported version ${CURRENT_ENCODING_VERSION}`);
+      console.error('Please update the application to load this shelf configuration.');
+      return createEmptyShelf();
+    }
+
+    // Log version for debugging
+    if (version === 0) {
+      console.log('Loading legacy shelf encoding (no version field)');
+    } else {
+      console.log(`Loading shelf encoding version ${version}`);
+    }
 
     // Validate structure
     if (!data.rods || !Array.isArray(data.rods)) {
