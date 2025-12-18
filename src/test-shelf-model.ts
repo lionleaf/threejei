@@ -551,6 +551,99 @@ function testRodExtensionEdgeCases() {
   }
 }
 
+function testGhostPlateRodCollisionBug() {
+  console.log('\n=== Testing Ghost Plate Rod Collision Bug ===');
+
+  // Reproduce the bug from: {"v":2,"r":[[0,7],[600,7],[1200,400,2],[1800,400,2]],"p":[[0,1,[0,1]],[200,1,[0,1]],[400,1,[0,1]],[400,1,[2,3]],[600,1,[2,3]],[700,1,[0,1]]]}
+  // This configuration has:
+  // - Two 4P_223 rods at x=0 and x=600 (y=0)
+  // - Two 2P_2 rods at x=1200 and x=1800 (y=400)
+  // - Multiple plates between them
+  //
+  // The bug: Ghost plates suggest creating new rods that would intersect existing rods
+  // For example, a ghost at x=1100 would be only 100mm away from the rod at x=1200,
+  // which is too close (should be 600mm spacing)
+
+  const shelf = createEmptyShelf();
+
+  // Create the exact configuration from the bug report
+  // Rod 0: x=0, y=0, sku_id=7 (4P_223 - spans [200,200,300])
+  const rod0 = addRod({ x: 0, y: 0 }, 7, shelf);
+  // Rod 1: x=600, y=0, sku_id=7 (4P_223 - spans [200,200,300])
+  const rod1 = addRod({ x: 600, y: 0 }, 7, shelf);
+  // Rod 2: x=1200, y=400, sku_id=2 (2P_2 - spans [200])
+  const rod2 = addRod({ x: 1200, y: 400 }, 2, shelf);
+  // Rod 3: x=1800, y=400, sku_id=2 (2P_2 - spans [200])
+  const rod3 = addRod({ x: 1800, y: 400 }, 2, shelf);
+
+  // Add plates as specified
+  addPlate(0, 1, [rod0, rod1], shelf);    // y=0, connects rod 0-1
+  addPlate(200, 1, [rod0, rod1], shelf);  // y=200, connects rod 0-1
+  addPlate(400, 1, [rod0, rod1], shelf);  // y=400, connects rod 0-1
+  addPlate(400, 1, [rod2, rod3], shelf);  // y=400, connects rod 2-3
+  addPlate(600, 1, [rod2, rod3], shelf);  // y=600, connects rod 2-3
+  addPlate(700, 1, [rod0, rod1], shelf);  // y=700, connects rod 0-1
+
+  // Generate ghost plates
+  regenerateGhostPlates(shelf);
+
+  console.log(`  Total ghost plates: ${shelf.ghostPlates.length}`);
+
+  // Check for illegal ghosts that suggest creating rods at invalid positions
+  let foundCollidingGhost = false;
+
+  for (const ghost of shelf.ghostPlates) {
+    if (ghost.rodModifications) {
+      for (const rodMod of ghost.rodModifications) {
+        if (rodMod.type === 'create') {
+          const newX = rodMod.position.x;
+
+          // Check if this new rod would be too close to any existing rod
+          for (const [rodId, rod] of shelf.rods) {
+            const distance = Math.abs(newX - rod.position.x);
+
+            // Rods should be exactly 600mm apart
+            // If distance is not 0 and not 600mm (with tolerance), it's invalid
+            if (distance > 10 && distance < 590) {
+              console.log(`  ❌ Ghost suggests creating rod at x=${newX} which is ${distance}mm from existing rod at x=${rod.position.x}`);
+              console.log(`     Ghost at Y=${ghost.midpointPosition.y}, legal=${ghost.legal}`);
+              foundCollidingGhost = true;
+
+              // This ghost should be marked as illegal
+              test('Ghost with colliding rod position should be illegal', !ghost.legal);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (!foundCollidingGhost) {
+    console.log('  ✓ No colliding ghost rods found');
+  }
+
+  // Additional check: ensure no ghost suggests creating a rod within 100mm of an existing rod
+  for (const ghost of shelf.ghostPlates) {
+    if (ghost.rodModifications) {
+      for (const rodMod of ghost.rodModifications) {
+        if (rodMod.type === 'create') {
+          const newX = rodMod.position.x;
+
+          for (const [rodId, rod] of shelf.rods) {
+            const distance = Math.abs(newX - rod.position.x);
+
+            // Critical: no rod should be suggested within 100mm of an existing rod
+            if (distance > 0 && distance < 100) {
+              test('Ghost should not suggest rod within 100mm of existing rod', false);
+              console.log(`  ❌ CRITICAL: Ghost suggests rod at x=${newX}, only ${distance}mm from rod at x=${rod.position.x}`);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 // Run all tests
 testPlateValidation();
 testTryExtendPlate();
@@ -560,6 +653,7 @@ testValidateRodCreation();
 testGhostPlateRodModifications();
 testSimpleDownwardExtension();
 testRodExtensionEdgeCases();
+testGhostPlateRodCollisionBug();
 
 // Print results
 if (failedTests.length === 0) {

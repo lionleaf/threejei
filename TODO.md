@@ -6,7 +6,7 @@
 ### Make plate visualizations red on hoved when about to remove, or when the add is not possible
 
 ## General Improvements
-- [ ] Add undo/redo system for all operations
+- [x] Add undo/redo system for all operations
 
 
 
@@ -15,9 +15,8 @@
 - [ ] Show ghost plates to users outside debug mode
 - [ ] Add rod segment that was removed
 - [ ] Add measurements
-- [ ] Tooltips with information about the plates
+- [x] Tooltips with information about the plates
 - [ ] Fix ghost plate colors leaking through existing shelf (make objects centered and smaller?!)
-- [ ] Add a price list
-- [ ] 
+- [x] Add a price list
 
 

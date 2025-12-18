@@ -885,5 +885,131 @@ testGroup('Ghost Plate Generation - Rod Extension Upward', () => {
   //   });
 });
 
+testGroup('Ghost Plate Generation - Rod Collision Bug', () => {
+  test('Ghost plates should not suggest rods too close to existing rods', () => {
+    // Reproduce the bug from: {"v":2,"r":[[0,7],[600,7],[1200,400,2],[1800,400,2]],"p":[[0,1,[0,1]],[200,1,[0,1]],[400,1,[0,1]],[400,1,[2,3]],[600,1,[2,3]],[700,1,[0,1]]]}
+    // This configuration has:
+    // - Two 4P_223 rods at x=0 and x=600 (y=0)
+    // - Two 2P_2 rods at x=1200 and x=1800 (y=400)
+    // - Multiple plates between them
+    //
+    // The bug: Ghost plates suggest creating new rods that would intersect existing rods
+    // For example, a ghost at x=1100 would be only 100mm away from the rod at x=1200,
+    // which is too close (should be 600mm spacing)
+
+    const shelf = createEmptyShelf();
+
+    // Create the exact configuration from the bug report
+    // Rod 0: x=0, y=0, sku_id=7 (4P_223 - spans [200,200,300])
+    const rod0 = addRod({ x: 0, y: 0 }, 7, shelf);
+    // Rod 1: x=600, y=0, sku_id=7 (4P_223 - spans [200,200,300])
+    const rod1 = addRod({ x: 600, y: 0 }, 7, shelf);
+    // Rod 2: x=1200, y=400, sku_id=2 (2P_2 - spans [200])
+    const rod2 = addRod({ x: 1200, y: 400 }, 2, shelf);
+    // Rod 3: x=1800, y=400, sku_id=2 (2P_2 - spans [200])
+    const rod3 = addRod({ x: 1800, y: 400 }, 2, shelf);
+
+    // Add plates as specified
+    addPlate(0, 1, [rod0, rod1], shelf);    // y=0, connects rod 0-1
+    addPlate(200, 1, [rod0, rod1], shelf);  // y=200, connects rod 0-1
+    addPlate(400, 1, [rod0, rod1], shelf);  // y=400, connects rod 0-1
+    addPlate(400, 1, [rod2, rod3], shelf);  // y=400, connects rod 2-3
+    addPlate(600, 1, [rod2, rod3], shelf);  // y=600, connects rod 2-3
+    addPlate(700, 1, [rod0, rod1], shelf);  // y=700, connects rod 0-1
+
+    // Generate ghost plates
+    regenerateGhostPlates(shelf);
+
+    // Log all ghost plates for debugging
+    console.log(`\n  Total ghost plates generated: ${shelf.ghostPlates.length}`);
+    console.log('  Existing rods:');
+    shelf.rods.forEach((rod, id) => {
+      const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+      const height = rodSKU?.spans.reduce((sum, span) => sum + span, 0) || 0;
+      console.log(`    Rod ${id}: x=${rod.position.x}, y=${rod.position.y}, height=${height}, topY=${rod.position.y + height}`);
+    });
+    console.log('  Ghost plates creating new rods:');
+    shelf.ghostPlates.forEach((ghost, i) => {
+      if (ghost.rodModifications) {
+        ghost.rodModifications.forEach(rodMod => {
+          if (rodMod.type === 'create') {
+            const newRodSKU = AVAILABLE_RODS.find(r => r.sku_id === rodMod.newSkuId);
+            const newHeight = newRodSKU?.spans.reduce((sum, span) => sum + span, 0) || 0;
+            console.log(`    Ghost ${i}: action=${ghost.action}, legal=${ghost.legal}, creates rod at x=${rodMod.position.x}, y=${rodMod.position.y}, skuId=${rodMod.newSkuId}, skuName=${newRodSKU?.name}, height=${newHeight}, topY=${rodMod.position.y + newHeight}`);
+
+            // Check for vertical overlap with existing rods
+            for (const [rodId, rod] of shelf.rods) {
+              if (Math.abs(rod.position.x - rodMod.position.x) < 10) { // Same X position (with tolerance)
+                const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+                const existingHeight = rodSKU?.spans.reduce((sum, span) => sum + span, 0) || 0;
+                const existingTop = rod.position.y + existingHeight;
+                const newTop = rodMod.position.y + newHeight;
+
+                // Check for vertical overlap
+                const overlaps = !(newTop <= rod.position.y || rodMod.position.y >= existingTop);
+                if (overlaps) {
+                  console.log(`      ⚠️  COLLISION: Ghost rod at (${rodMod.position.x}, ${rodMod.position.y}-${newTop}) overlaps with existing rod ${rodId} at (${rod.position.x}, ${rod.position.y}-${existingTop})`);
+                }
+              }
+            }
+          }
+        });
+      }
+    });
+    console.log('');
+
+    // Check that no ghost suggests creating a rod that would vertically overlap an existing rod
+    let foundCollision = false;
+    for (const ghost of shelf.ghostPlates) {
+      if (ghost.rodModifications) {
+        for (const rodMod of ghost.rodModifications) {
+          if (rodMod.type === 'create') {
+            const newX = rodMod.position.x;
+            const newY = rodMod.position.y;
+            const newRodSKU = AVAILABLE_RODS.find(r => r.sku_id === rodMod.newSkuId);
+            const newHeight = newRodSKU?.spans.reduce((sum, span) => sum + span, 0) || 0;
+            const newTop = newY + newHeight;
+
+            // Check if this new rod would vertically overlap with any existing rod at the same X
+            for (const [rodId, rod] of shelf.rods) {
+              if (Math.abs(rod.position.x - newX) < 10) { // Same X position (with tolerance)
+                const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+                const existingHeight = rodSKU?.spans.reduce((sum, span) => sum + span, 0) || 0;
+                const existingTop = rod.position.y + existingHeight;
+
+                // Check for vertical overlap: rods overlap if neither is completely above/below the other
+                const overlaps = !(newTop <= rod.position.y || newY >= existingTop);
+
+                if (overlaps) {
+                  foundCollision = true;
+                  assertTrue(!ghost.legal,
+                    `Ghost suggests creating rod at (${newX}, ${newY}-${newTop}) which vertically overlaps with ` +
+                    `existing rod ${rodId} at (${rod.position.x}, ${rod.position.y}-${existingTop}). ` +
+                    `This ghost MUST be marked as illegal but legal=${ghost.legal}.`
+                  );
+                }
+              }
+
+              // Also check horizontal spacing for different X positions
+              const distanceX = Math.abs(newX - rod.position.x);
+              if (distanceX > 10 && distanceX < 590) {
+                // This ghost should be marked as illegal (wrong spacing)
+                assertTrue(!ghost.legal,
+                  `Ghost suggests creating rod at x=${newX} which is ${distanceX}mm from existing rod at x=${rod.position.x}. ` +
+                  `Rods must be 600mm apart, so this ghost should be illegal (legal=${ghost.legal}).`
+                );
+              }
+            }
+          }
+        }
+      }
+    }
+
+    assertTrue(foundCollision,
+      'Test should have found at least one collision in this configuration. ' +
+      'If no collision found, the test may need adjustment or the bug is fixed.');
+  });
+});
+
 
 printResults();
