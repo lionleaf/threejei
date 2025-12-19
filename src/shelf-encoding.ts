@@ -1,4 +1,4 @@
-import { type Shelf, type Rod, type Plate, AVAILABLE_RODS, AVAILABLE_PLATES, createEmptyShelf, addRod, addPlate, regenerateGhostPlates } from './shelf-model.js';
+import { type Shelf, type Rod, type Plate, AVAILABLE_RODS, AVAILABLE_PLATES, createEmptyShelf, addRod, addPlate, regenerateGhostPlates, getRodSKU, getPlateSKU } from './shelf-model.js';
 
 /**
  * Current encoding version.
@@ -63,7 +63,7 @@ function encodeShelfV2(shelf: Shelf): string {
   });
 
   const encodedRods: CompressedRod[] = sortedRods.map(([_id, rod]) => {
-    const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+    const rodSKU = getRodSKU(rod.sku_id);
     const skuId = rodSKU?.sku_id || 1;
 
     if (rod.position.y === 0) {
@@ -74,7 +74,7 @@ function encodeShelfV2(shelf: Shelf): string {
   });
 
   const encodedPlates: CompressedPlate[] = Array.from(shelf.plates.values()).map(plate => {
-    const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === plate.sku_id);
+    const plateSKU = getPlateSKU(plate.sku_id);
     const skuId = plateSKU?.sku_id || 1;
     const rodIndices = plate.connections.map(rodId => rodIdToIndex.get(rodId) ?? -1);
 
@@ -140,7 +140,7 @@ function encodeShelfV1(shelf: Shelf): string {
   });
 
   const encodedRods: EncodedRod[] = sortedRods.map(([_rodId, rod]) => {
-    const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+    const rodSKU = getRodSKU(rod.sku_id);
     return {
       pos: {
         x: rod.position.x,
@@ -151,7 +151,7 @@ function encodeShelfV1(shelf: Shelf): string {
   });
 
   const encodedPlates: EncodedPlate[] = Array.from(shelf.plates.values()).map(plate => {
-    const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === plate.sku_id);
+    const plateSKU = getPlateSKU(plate.sku_id);
     const rodIndices = plate.connections.map(rodId => rodIdToIndex.get(rodId) ?? -1);
 
     return {
@@ -335,7 +335,7 @@ function encodeShelfToV2Object(shelf: Shelf): EncodedShelfV2 {
   });
 
   const encodedRods: CompressedRod[] = sortedRods.map(([_id, rod]) => {
-    const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+    const rodSKU = getRodSKU(rod.sku_id);
     const skuId = rodSKU?.sku_id || 1;
 
     if (rod.position.y === 0) {
@@ -346,7 +346,7 @@ function encodeShelfToV2Object(shelf: Shelf): EncodedShelfV2 {
   });
 
   const encodedPlates: CompressedPlate[] = Array.from(shelf.plates.values()).map(plate => {
-    const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === plate.sku_id);
+    const plateSKU = getPlateSKU(plate.sku_id);
     const skuId = plateSKU?.sku_id || 1;
     const rodIndices = plate.connections.map(rodId => rodIdToIndex.get(rodId) ?? -1);
 

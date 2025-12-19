@@ -1,4 +1,4 @@
-import { type Shelf, removePlate, removeSegmentFromPlate, removeRodSegment, addPlate, addRod, type Plate, type Rod, AVAILABLE_RODS, AVAILABLE_PLATES, calculateAttachmentPositions, mergePlates, extendPlate, Direction, type PlateSegmentResult, GhostPlate, resolveRodConnections, extendRodUp, extendRodDown, mergeRods } from './shelf-model.js';
+import { type Shelf, removePlate, removeSegmentFromPlate, removeRodSegment, addPlate, addRod, type Plate, type Rod, calculateAttachmentPositions, mergePlates, extendPlate, Direction, type PlateSegmentResult, GhostPlate, resolveRodConnections, extendRodUp, extendRodDown, mergeRods, getRodSKU, getPlateSKU } from './shelf-model.js';
 import { DEBUG_SHOW_COLLIDERS } from './shelf_viz.js';
 import { UndoManager } from './undo-manager.js';
 
@@ -50,7 +50,7 @@ export function setupInteractions(
     const rod = shelf.rods.get(rodId);
     if (!rod) return 0;
 
-    const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+    const rodSKU = getRodSKU(rod.sku_id);
     if (!rodSKU) return 0;
 
     const attachmentPositions = calculateAttachmentPositions(rodSKU);
@@ -264,7 +264,7 @@ export function setupInteractions(
             tooltipContainer.textContent = `Plate ${plateId}\n` + JSON.stringify(plate, null, 2);
           } else {
             // Normal mode: show human-readable info
-            const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === plate.sku_id);
+            const plateSKU = getPlateSKU(plate.sku_id);
             if (plateSKU) {
               tooltipContainer.textContent = plateSKU.name;
             }
@@ -285,7 +285,7 @@ export function setupInteractions(
             tooltipContainer.textContent = `Rod ${rodId}\n` + JSON.stringify(rod, null, 2);
           } else {
             // Normal mode: show human-readable info
-            const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+            const rodSKU = getRodSKU(rod.sku_id);
             if (rodSKU) {
               tooltipContainer.textContent = rodSKU.name;
             }
@@ -321,7 +321,7 @@ export function setupInteractions(
             tooltipContainer.textContent = JSON.stringify(ghostPlate, null, 2);
           } else {
             // Normal mode: show human-readable info
-            const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === ghostPlate.sku_id);
+            const plateSKU = getPlateSKU(ghostPlate.sku_id);
             if (plateSKU && ghostPlate.legal) {
               const actionText = ghostPlate.action === 'create' ? 'Add' :
                                 ghostPlate.action === 'extend' ? 'Extend' :

@@ -1,3 +1,5 @@
+import { getTotalSpanLength, getRodHeight, getRelativeAttachmentY } from './shelf-utils.js';
+
 export interface RodSKU {
   sku_id: number; // Unique numeric ID
   name: string; // Name of the produced rod as used for ordering
@@ -146,12 +148,32 @@ export const DEFAULT_PLATE_SKU_ID: number = 1
 const STANDARD_GAP = 600; // Standard gap between rods (600mm)
 
 // Helper functions for SKU lookup
-function getRodSKU(skuId: number): RodSKU | undefined {
-  return AVAILABLE_RODS.find(r => r.sku_id === skuId);
+export function getRodSKU(skuId: number, warnIfMissing = false): RodSKU | undefined {
+  const sku = AVAILABLE_RODS.find(r => r.sku_id === skuId);
+  if (!sku && warnIfMissing) {
+    console.warn(`Unknown rod SKU: ${skuId}`);
+  }
+  return sku;
 }
 
-function getPlateSKU(skuId: number): PlateSKU | undefined {
-  return AVAILABLE_PLATES.find(p => p.sku_id === skuId);
+export function getPlateSKU(skuId: number, warnIfMissing = false): PlateSKU | undefined {
+  const sku = AVAILABLE_PLATES.find(p => p.sku_id === skuId);
+  if (!sku && warnIfMissing) {
+    console.warn(`Unknown plate SKU: ${skuId}`);
+  }
+  return sku;
+}
+
+/**
+ * Rebuild rod's attachment points from SKU definition
+ * Replaces duplicated reconstruction patterns
+ */
+export function reconstructAttachmentPoints(rod: Rod, rodSKU: RodSKU): void {
+  rod.attachmentPoints = [];
+  const positions = calculateAttachmentPositions(rodSKU);
+  for (const y of positions) {
+    rod.attachmentPoints.push({ y });
+  }
 }
 
 // Helper function to reattach all plates connected to a rod after rod modifications
@@ -730,11 +752,7 @@ function shortenRodFromEnd(rodId: number, fromTop: boolean, shelf: Shelf): void 
     if (!newRodSKU) return;
 
     rod.sku_id = newRodSKU.sku_id;
-    rod.attachmentPoints = [];
-    const positions = calculateAttachmentPositions(newRodSKU);
-    for (const y of positions) {
-      rod.attachmentPoints.push({ y });
-    }
+    reconstructAttachmentPoints(rod, newRodSKU);
 
     // Re-attach remaining plates
     reattachPlatesForRod(rodId, shelf);
@@ -753,11 +771,7 @@ function shortenRodFromEnd(rodId: number, fromTop: boolean, shelf: Shelf): void 
     rod.position.y += totalAdjustment;
     rod.sku_id = newRodSKU.sku_id;
 
-    rod.attachmentPoints = [];
-    const positions = calculateAttachmentPositions(newRodSKU);
-    for (const y of positions) {
-      rod.attachmentPoints.push({ y });
-    }
+    reconstructAttachmentPoints(rod, newRodSKU);
 
     // Re-attach remaining plates
     reattachPlatesForRod(rodId, shelf);
@@ -1146,11 +1160,7 @@ export function removeRodSegment(rodId: number, segmentIndex: number, shelf: She
     rod.sku_id = newRodSKU.sku_id;
 
     // Rebuild attachment points
-    rod.attachmentPoints = [];
-    const positions = calculateAttachmentPositions(newRodSKU);
-    for (const y of positions) {
-      rod.attachmentPoints.push({ y });
-    }
+    reconstructAttachmentPoints(rod, newRodSKU);
 
     // Re-attach remaining plates
     shelf.plates.forEach((plate, plateId) => {
@@ -1191,11 +1201,7 @@ export function removeRodSegment(rodId: number, segmentIndex: number, shelf: She
 
   // Update bottom rod (reuse existing rod)
   rod.sku_id = bottomRodSKU.sku_id;
-  rod.attachmentPoints = [];
-  const bottomPositions = calculateAttachmentPositions(bottomRodSKU);
-  for (const y of bottomPositions) {
-    rod.attachmentPoints.push({ y });
-  }
+  reconstructAttachmentPoints(rod, bottomRodSKU);
 
   // Reassign plates to appropriate rods
   const platesToReassign: number[] = [];
@@ -1891,8 +1897,7 @@ export function extendRodDown(rodId: number, newSKU_id: number, shelf: Shelf): b
   rod.sku_id = newSKU_id;
 
   // Rebuild entire attachment points array using new SKU
-  const newAttachmentPositions = calculateAttachmentPositions(newSKU);
-  rod.attachmentPoints = newAttachmentPositions.map(y => ({ y }));
+  reconstructAttachmentPoints(rod, newSKU);
 
   // Re-attach plates (Y positions unchanged in world space, but attachment indices shift)
   reattachPlatesForRod(rodId, shelf);
@@ -2092,7 +2097,7 @@ function rodModificationsHaveCollision(
         ? (rodMod.visualY ?? shelf.rods.get(rodMod.affectedRodIds![0])!.position.y)
         : shelf.rods.get(rodMod.affectedRodIds![0])!.position.y;
 
-    const modifiedRodHeight = newRodSKU.spans.reduce((sum, span) => sum + span, 0);
+    const modifiedRodHeight = getRodHeight(newRodSKU);
     // Account for physical rod padding that extends beyond attachment points
     const modifiedRodBottom = modifiedRodY - ROD_HEIGHT_PADDING;
     const modifiedRodTop = modifiedRodY + modifiedRodHeight + ROD_HEIGHT_PADDING;
@@ -2106,7 +2111,7 @@ function rodModificationsHaveCollision(
       const rodSKU = getRodSKU(rod.sku_id);
       if (!rodSKU) continue;
 
-      const existingHeight = rodSKU.spans.reduce((sum, span) => sum + span, 0);
+      const existingHeight = getRodHeight(rodSKU);
       // Account for physical rod padding on existing rods too
       const existingBottom = rod.position.y - ROD_HEIGHT_PADDING;
       const existingTop = rod.position.y + existingHeight + ROD_HEIGHT_PADDING;

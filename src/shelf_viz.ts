@@ -3,15 +3,17 @@ import {
   createEmptyShelf,
   addRod,
   addPlate,
-  AVAILABLE_RODS,
-  AVAILABLE_PLATES,
   calculateAttachmentPositions,
   regenerateGhostPlates,
   INNER_ROD_HEIGHT_PADDING,
   OUTER_ROD_HEIGHT_PADDING,
+  getRodSKU,
+  getPlateSKU,
   type Shelf,
   type Rod
 } from './shelf-model.js';
+
+import { getTotalSpanLength, getRodHeight } from './shelf-utils.js';
 
 import { setupInteractions } from './interactions.js';
 import { loadPrices, calculateShelfPricing, formatPrice, type PriceData } from './pricing.js';
@@ -50,8 +52,8 @@ const connectionRodGrooveDepth = 4
 function createRodMeshes(rod: Rod, isGhost: boolean, ghostOpacity: number = 0.15): any[] {
   const meshes: any[] = [];
 
-  const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
-  const height = rodSKU?.spans.reduce((sum, span) => sum + span, 0) || 0;
+  const rodSKU = getRodSKU(rod.sku_id);
+  const height = rodSKU ? getRodHeight(rodSKU) : 0;
 
   // Determine material based on ghost/normal mode
   const rodMaterial = isGhost
@@ -333,10 +335,10 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
 
   // Generate plate geometry
   shelf.plates.forEach((plate, plateId) => {
-    const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === plate.sku_id);
+    const plateSKU = getPlateSKU(plate.sku_id);
     if (!plateSKU) return;
 
-    const plateWidth = plateSKU.spans.reduce((sum, span) => sum + span, 0);
+    const plateWidth = getTotalSpanLength(plateSKU.spans);
 
     // Calculate plate center position from connected rods
     const connectedRods = plate.connections.map(id => shelf.rods.get(id)).filter(rod => rod !== undefined);
@@ -405,7 +407,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
       for (const rodMod of ghostPlate.rodModifications) {
         if (rodMod.type === 'create') {
           // Render complete new rod
-          const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rodMod.newSkuId);
+          const rodSKU = getRodSKU(rodMod.newSkuId!);
           if (!rodSKU) continue;
 
           const ghostRod: Rod = {
@@ -423,7 +425,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
 
         } else if (rodMod.type === 'extend') {
           // Render only the extension segment
-          const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rodMod.newSkuId);
+          const rodSKU = getRodSKU(rodMod.newSkuId!);
           if (!rodSKU) continue;
 
           const visualHeight = rodMod.visualHeight!;
@@ -498,7 +500,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
 
         } else if (rodMod.type === 'merge') {
           // For merge, render the complete merged rod
-          const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rodMod.newSkuId);
+          const rodSKU = getRodSKU(rodMod.newSkuId!);
           if (!rodSKU) continue;
 
           // We need to figure out the position of the merged rod
@@ -600,14 +602,14 @@ function updateSKUList(shelf: Shelf, container: HTMLDivElement): void {
     const plateCounts = new Map<string, number>();
 
     shelf.rods.forEach((rod) => {
-      const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+      const rodSKU = getRodSKU(rod.sku_id);
       if (rodSKU) {
         rodCounts.set(rodSKU.name, (rodCounts.get(rodSKU.name) || 0) + 1);
       }
     });
 
     shelf.plates.forEach((plate) => {
-      const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === plate.sku_id);
+      const plateSKU = getPlateSKU(plate.sku_id);
       if (plateSKU) {
         plateCounts.set(plateSKU.name, (plateCounts.get(plateSKU.name) || 0) + 1);
       }

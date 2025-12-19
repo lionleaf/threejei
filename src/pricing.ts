@@ -1,5 +1,5 @@
 import type { Shelf } from './shelf-model.js';
-import { AVAILABLE_RODS, AVAILABLE_PLATES } from './shelf-model.js';
+import { getRodSKU, getPlateSKU } from './shelf-model.js';
 import pricesData from './prices.json' with { type: 'json' };
 
 export interface PriceData {
@@ -55,7 +55,7 @@ export function calculateShelfPricing(shelf: Shelf, prices: PriceData): ShelfPri
 
   // Count rods by SKU name
   shelf.rods.forEach((rod) => {
-    const rodSKU = AVAILABLE_RODS.find(r => r.sku_id === rod.sku_id);
+    const rodSKU = getRodSKU(rod.sku_id);
     if (rodSKU) {
       rodCounts.set(rodSKU.name, (rodCounts.get(rodSKU.name) || 0) + 1);
     }
@@ -63,7 +63,7 @@ export function calculateShelfPricing(shelf: Shelf, prices: PriceData): ShelfPri
 
   // Count plates by SKU name
   shelf.plates.forEach((plate) => {
-    const plateSKU = AVAILABLE_PLATES.find(p => p.sku_id === plate.sku_id);
+    const plateSKU = getPlateSKU(plate.sku_id);
     if (plateSKU) {
       plateCounts.set(plateSKU.name, (plateCounts.get(plateSKU.name) || 0) + 1);
     }
