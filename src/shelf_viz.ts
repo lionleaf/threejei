@@ -533,11 +533,15 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
 function updateSKUList(shelf: Shelf, container: HTMLDivElement): void {
   let html = '<div style="font-weight: bold; margin-bottom: 10px; font-size: 14px; color: #333;">Parts List</div>';
 
-  // Add debug checkbox
+  // Add debug and wall checkboxes
   html += '<div style="margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid #ddd;">';
-  html += '<label style="display: flex; align-items: center; cursor: pointer; font-size: 11px; color: #666;">';
+  html += '<label style="display: flex; align-items: center; cursor: pointer; font-size: 11px; color: #666; margin-bottom: 6px;">';
   html += `<input type="checkbox" id="debugCheckbox" ${DEBUG_SHOW_COLLIDERS ? 'checked' : ''} style="margin-right: 6px;">`;
   html += 'Debug Mode';
+  html += '</label>';
+  html += '<label style="display: flex; align-items: center; cursor: pointer; font-size: 11px; color: #666;">';
+  html += `<input type="checkbox" id="wallCheckbox" ${DRAW_WALL ? 'checked' : ''} style="margin-right: 6px;">`;
+  html += 'Show Wall';
   html += '</label>';
   html += '</div>';
 
@@ -1013,14 +1017,23 @@ function visualizeShelf(shelf: Shelf): void {
     updateUndoRedoButtons();
   };
 
-  // Setup debug checkbox event listener
+  // Setup debug and wall checkbox event listeners
   const setupDebugCheckbox = () => {
-    const checkbox = document.getElementById('debugCheckbox') as HTMLInputElement;
-    if (checkbox) {
-      checkbox.addEventListener('change', (e) => {
+    const debugCheckbox = document.getElementById('debugCheckbox') as HTMLInputElement;
+    if (debugCheckbox) {
+      debugCheckbox.addEventListener('change', (e) => {
         DEBUG_SHOW_COLLIDERS = (e.target as HTMLInputElement).checked;
         rebuildShelfGeometry(shelf, scene, skuListContainer);
-        setupDebugCheckbox(); // Re-attach after rebuild recreates checkbox
+        setupDebugCheckbox(); // Re-attach after rebuild recreates checkboxes
+      });
+    }
+
+    const wallCheckbox = document.getElementById('wallCheckbox') as HTMLInputElement;
+    if (wallCheckbox) {
+      wallCheckbox.addEventListener('change', (e) => {
+        DRAW_WALL = (e.target as HTMLInputElement).checked;
+        rebuildShelfGeometry(shelf, scene, skuListContainer);
+        setupDebugCheckbox(); // Re-attach after rebuild recreates checkboxes
       });
     }
   };
