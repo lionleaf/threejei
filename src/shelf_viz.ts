@@ -541,7 +541,8 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
     // so real rods are visible and interactable when overlapping
     const ghostRodRadius = 12;
     const rodDistance = 200; // Distance between inner and outer rods
-    const zPositions = [0, rodDistance]; // Z positions for the two cylinders
+    // Match Z positions of real rods: inner at rodRadius, outer at rodDistance + rodRadius
+    const zPositions = [ghostRodRadius, rodDistance + ghostRodRadius];
 
     for (const z of zPositions) {
       const ghostMesh = new THREE.Mesh(
