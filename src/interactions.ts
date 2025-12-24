@@ -1,4 +1,4 @@
-import { type Shelf, removePlate, removeSegmentFromPlate, removeRodSegment, addPlate, addRod, type Plate, type Rod, calculateAttachmentPositions, mergePlates, extendPlate, Direction, type PlateSegmentResult, GhostPlate, resolveRodConnections, extendRodUp, extendRodDown, mergeRods, getRodSKU, getPlateSKU } from './shelf-model.js';
+import { type Shelf, removePlate, removeSegmentFromPlate, removeRodSegment, addPlate, addRod, type Plate, type Rod, calculateAttachmentPositions, mergePlates, extendPlate, Direction, type PlateSegmentResult, GhostPlate, GhostRod, resolveRodConnections, extendRodUp, extendRodDown, mergeRods, getRodSKU, getPlateSKU } from './shelf-model.js';
 import { DEBUG_SHOW_COLLIDERS } from './shelf_viz.js';
 import { UndoManager } from './undo-manager.js';
 
@@ -204,6 +204,24 @@ export function setupInteractions(
     callbacks.rebuildGeometry();
   }
 
+  function onGhostRodClick(ghostRod: GhostRod) {
+    if (!ghostRod.legal) {
+      console.log('Cannot merge rods here - illegal placement');
+      return;
+    }
+
+    console.log(`Merging rods ${ghostRod.bottomRodId} and ${ghostRod.topRodId} into SKU ${ghostRod.newSkuId}`);
+
+    // Merge the rods
+    mergeRods(ghostRod.bottomRodId, ghostRod.topRodId, ghostRod.newSkuId, shelf);
+
+    // Save undo state
+    undoManager.saveState('mergeRods');
+
+    // Rebuild geometry
+    callbacks.rebuildGeometry();
+  }
+
   // Pointer event handling for raycasting
   function onPointerMove(event: PointerEvent) {
     const pointer = new THREE.Vector2();
@@ -333,6 +351,38 @@ export function setupInteractions(
           }
         }
         break;
+      } else if (userData?.type === 'ghostRod') {
+        const ghostRodIndex = userData.ghostRodIndex;
+        const ghostRod = shelf.ghostRods[ghostRodIndex];
+        const targetOpacity = ghostRod.legal ? 0.5 : 0.3;
+
+        // Update opacity for all ghost rod cylinders with the same index
+        scene.children.forEach((child: any) => {
+          if (child.userData?.type === 'ghostRod' &&
+              child.userData?.ghostRodIndex === ghostRodIndex) {
+            (child.material as any).opacity = targetOpacity;
+          }
+        });
+
+        // Show tooltip
+        if (tooltipContainer) {
+          tooltipContainer.style.display = 'block';
+          tooltipContainer.style.left = `${event.clientX + 20}px`;
+          tooltipContainer.style.top = `${event.clientY + 20}px`;
+
+          if (DEBUG_SHOW_COLLIDERS) {
+            // Debug mode: show full JSON
+            tooltipContainer.textContent = JSON.stringify(ghostRod, null, 2);
+          } else {
+            // Normal mode: show human-readable info
+            if (ghostRod.legal) {
+              tooltipContainer.textContent = 'Merge Rods';
+            } else {
+              tooltipContainer.textContent = 'Invalid';
+            }
+          }
+        }
+        break;
       }
     }
   }
@@ -355,6 +405,11 @@ export function setupInteractions(
         break; // Plates take priority
       } else if (userData?.type === 'ghost_plate') {
         onGhostPlateClick(userData.ghostPlate);
+        break;
+      } else if (userData?.type === 'ghostRod') {
+        const ghostRodIndex = userData.ghostRodIndex;
+        const ghostRod = shelf.ghostRods[ghostRodIndex];
+        onGhostRodClick(ghostRod);
         break;
       } else if (userData?.type === 'rod') {
         onRodClick(userData.rodId, hit.point);

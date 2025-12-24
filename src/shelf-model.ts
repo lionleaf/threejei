@@ -93,6 +93,16 @@ export interface GhostPlate {
   rodModifications?: RodModification[]; // All rod changes this ghost causes (validated, ready to apply)
 }
 
+export interface GhostRod {
+  bottomRodId: number;        // ID of bottom rod to merge
+  topRodId: number;           // ID of top rod to merge
+  newSkuId: number;           // Resulting merged SKU
+  position: Vec2f;            // Position for visual rendering
+  height: number;             // Total height for rendering
+  legal: boolean;             // Is this merge valid?
+  action: 'merge';            // Only merge action (no extend)
+}
+
 export interface ShelfMetadata {
   nextId: number;
 }
@@ -105,7 +115,8 @@ export enum Direction {
 export interface Shelf {
   rods: Map<number, Rod>; // id -> Rod
   plates: Map<number, Plate>; // id -> Plate
-  ghostPlates: Array<GhostPlate>
+  ghostPlates: Array<GhostPlate>;
+  ghostRods: Array<GhostRod>;
   metadata: ShelfMetadata;
 }
 
@@ -225,6 +236,7 @@ export function createEmptyShelf(): Shelf {
     rods: new Map(),
     plates: new Map(),
     ghostPlates: new Array(),
+    ghostRods: new Array(),
     metadata: { nextId: 1 }
   };
 }
@@ -419,7 +431,7 @@ export function validateRodCreation(position: Vec2f, shelf: Shelf): RodCreationP
  * Validates whether two rods can be merged with a new attachment point.
  * Returns a merge plan or null if not possible.
  */
-function validateMerge(
+export function validateMerge(
   bottomRodId: number,
   topRodId: number,
   newAttachmentY: number,
@@ -2274,6 +2286,72 @@ export function regenerateGhostPlates(shelf: Shelf): void {
   }
 
   shelf.ghostPlates = removeOverlappingIllegalGhosts(shelf.ghostPlates);
+}
+
+export function regenerateGhostRods(shelf: Shelf): void {
+  shelf.ghostRods.length = 0;
+
+  // Group rods by X position
+  const rodsByX = new Map<number, Array<[number, Rod]>>();
+
+  for (const [rodId, rod] of shelf.rods) {
+    const x = rod.position.x;
+    // Round X to nearest mm to group rods at same position
+    const roundedX = Math.round(x);
+
+    if (!rodsByX.has(roundedX)) {
+      rodsByX.set(roundedX, []);
+    }
+    rodsByX.get(roundedX)!.push([rodId, rod]);
+  }
+
+  // For each X position with multiple rods
+  for (const [x, rodsAtX] of rodsByX) {
+    if (rodsAtX.length < 2) continue;
+
+    // Sort by Y position (bottom to top)
+    rodsAtX.sort((a, b) => a[1].position.y - b[1].position.y);
+
+    // Try merging each consecutive pair
+    for (let i = 0; i < rodsAtX.length - 1; i++) {
+      const [bottomRodId, bottomRod] = rodsAtX[i];
+      const [topRodId, topRod] = rodsAtX[i + 1];
+
+      const bottomRodSKU = getRodSKU(bottomRod.sku_id);
+      const topRodSKU = getRodSKU(topRod.sku_id);
+      if (!bottomRodSKU || !topRodSKU) continue;
+
+      // Collect all attachment points from both rods (absolute Y coordinates)
+      const combinedAbsoluteYs = [
+        ...bottomRod.attachmentPoints.map(ap => bottomRod.position.y + ap.y),
+        ...topRod.attachmentPoints.map(ap => topRod.position.y + ap.y)
+      ].sort((a, b) => a - b);
+
+      // Calculate gaps between consecutive attachment points
+      const gaps: number[] = [];
+      for (let i = 0; i < combinedAbsoluteYs.length - 1; i++) {
+        gaps.push(combinedAbsoluteYs[i + 1] - combinedAbsoluteYs[i]);
+      }
+
+      // Search for a matching SKU with these exact gaps
+      const matchingSKU = AVAILABLE_RODS.find(sku => {
+        if (sku.spans.length !== gaps.length) return false;
+        return sku.spans.every((span, i) => Math.abs(span - gaps[i]) < POSITION_TOLERANCE_MM);
+      });
+
+      if (matchingSKU) {
+        shelf.ghostRods.push({
+          bottomRodId,
+          topRodId,
+          newSkuId: matchingSKU.sku_id,
+          position: { x: bottomRod.position.x, y: bottomRod.position.y },
+          height: getRodHeight(matchingSKU),
+          legal: true,
+          action: 'merge'
+        });
+      }
+    }
+  }
 }
 
 /**

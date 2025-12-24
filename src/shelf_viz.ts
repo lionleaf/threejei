@@ -5,6 +5,7 @@ import {
   addPlate,
   calculateAttachmentPositions,
   regenerateGhostPlates,
+  regenerateGhostRods,
   INNER_ROD_HEIGHT_PADDING,
   OUTER_ROD_HEIGHT_PADDING,
   getRodSKU,
@@ -368,6 +369,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
 
   // Generate ghost plate visualizations
   regenerateGhostPlates(shelf);
+  regenerateGhostRods(shelf);
 
   shelf.ghostPlates.forEach((ghostPlate, index) => {
     const segmentWidth = ghostPlate.width || 600;
@@ -521,6 +523,43 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
           });
         }
       }
+    }
+  });
+
+  // Render ghost rods
+  shelf.ghostRods.forEach((ghostRod, index) => {
+    const ghostColor = 0x90EE90;  // Same green as ghost plates
+    const ghostOpacity = 0.15;     // Same opacity as legal ghost plates
+
+    // Create ghost rod meshes (two cylinders like regular rods)
+    const rodRadius = 25;
+    const rodDistance = 200; // Distance between inner and outer rods
+    const zPositions = [0, rodDistance]; // Z positions for the two cylinders
+
+    for (const z of zPositions) {
+      const ghostMesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(rodRadius, rodRadius, ghostRod.height, 16),
+        new THREE.MeshBasicMaterial({
+          color: ghostColor,
+          transparent: true,
+          opacity: ghostOpacity,
+          depthWrite: false
+        })
+      );
+
+      // Position at the bottom rod's position
+      ghostMesh.position.set(
+        ghostRod.position.x,
+        ghostRod.position.y + ghostRod.height / 2,
+        z
+      );
+
+      // Tag for identification
+      ghostMesh.userData.type = 'ghostRod';
+      ghostMesh.userData.ghostRodIndex = index;
+      ghostMesh.userData.isLegal = ghostRod.legal;
+
+      scene.add(ghostMesh);
     }
   });
 
