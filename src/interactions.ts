@@ -397,25 +397,34 @@ export function setupInteractions(
     const intersects = raycaster.intersectObjects(scene.children, true);
 
     // Find first hit with userData.type (plate, ghost_plate, or rod)
+    // Priority order: plates > rods > ghost plates > ghost rods
     for (const hit of intersects) {
       const userData = hit.object.userData;
 
       if (userData?.type === 'plate') {
         onPlateClick(userData.plateId, hit.point);
-        break; // Plates take priority
-      } else if (userData?.type === 'ghost_plate') {
+        return; // Plates take priority
+      } else if (userData?.type === 'rod') {
+        onRodClick(userData.rodId, hit.point);
+        return; // Real rods take priority over ghosts
+      }
+    }
+
+    // If no plate or rod was hit, check for ghost elements
+    for (const hit of intersects) {
+      const userData = hit.object.userData;
+
+      if (userData?.type === 'ghost_plate') {
         onGhostPlateClick(userData.ghostPlate);
-        break;
+        return;
       } else if (userData?.type === 'ghostRod') {
         const ghostRodIndex = userData.ghostRodIndex;
         const ghostRod = shelf.ghostRods[ghostRodIndex];
         onGhostRodClick(ghostRod);
-        break;
-      } else if (userData?.type === 'rod') {
-        onRodClick(userData.rodId, hit.point);
-        break;
+        return;
       }
     }
+
   }
 
   // Keyboard shortcuts for undo/redo
