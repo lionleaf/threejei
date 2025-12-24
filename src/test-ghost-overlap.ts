@@ -1,4 +1,5 @@
 import { createEmptyShelf, addRod, regenerateGhostRods, getRodSKU } from './shelf-model.js';
+import { getRodHeight } from './shelf-utils.js';
 
 console.log('\n=== Testing Ghost Rod Overlap Behavior ===\n');
 
@@ -19,9 +20,9 @@ console.log(`  Rod ${rod2}: 1P at (0, 200)`);
 console.log(`\nGhost rods generated: ${shelf.ghostRods.length}`);
 if (shelf.ghostRods.length > 0) {
   const ghost = shelf.ghostRods[0];
-  const sku = getRodSKU(ghost.newSkuId);
+  const sku = getRodSKU(ghost.sku_id);
   console.log(`  Ghost rod: ${sku?.name} spanning from (0, 0) to (0, 200)`);
-  console.log(`  Height: ${ghost.height}mm`);
+  console.log(`  Height: ${getRodHeight(getRodSKU(ghost.sku_id)!)}mm`);
   console.log('');
   console.log('Visual behavior:');
   console.log('  - Ghost rod has radius 12mm (vs 14mm for real rods)');

@@ -53,10 +53,25 @@ const connectionRodGrooveDepth = 4
  * @param rod - The rod data from shelf model
  * @param isGhost - Whether to render as ghost (transparent green) or normal
  * @param ghostOpacity - Optional opacity for ghost rods (defaults to 0.15)
+ * @param isGhostRod - Whether this is a ghost rod (merge preview) vs ghost plate rod
+ * @param ghostRodIndex - Index of ghost rod for userData (only used if isGhostRod is true)
+ * @param rodId - ID of the rod for userData (only used if not a ghost)
  * @returns Array of THREE.Mesh objects to add to scene
  */
-function createRodMeshes(rod: Rod, isGhost: boolean, ghostOpacity: number = 0.15): any[] {
+function createRodMeshes(
+  rod: Rod,
+  isGhost: boolean,
+  ghostOpacity: number = 0.15,
+  isGhostRod: boolean = false,
+  ghostRodIndex?: number,
+  rodId?: number
+): any[] {
   const meshes: any[] = [];
+
+  // Ghost rods (merge preview) use smaller radius than ghost plate rods (extension preview)
+  const radiusDelta = isGhostRod ? -2 : (isGhost ? -2 : 0);
+  const radius = rodRadius + radiusDelta;
+  const poseOffset = isGhost && !isGhostRod ? 40 : 0;
 
   const rodSKU = getRodSKU(rod.sku_id);
   const height = rodSKU ? getRodHeight(rodSKU) : 0;
@@ -75,7 +90,7 @@ function createRodMeshes(rod: Rod, isGhost: boolean, ghostOpacity: number = 0.15
     });
 
   // [bool innerRod, radius]. The inner rod is the one attached to the wall
-  const zPositions = [[true, rodRadius], [false, rodDistance + rodRadius]];
+  const zPositions = [[true, radius + poseOffset], [false, rodDistance + radius + poseOffset]];
 
   // Create two rods - one at front, one at back
   zPositions.forEach(([innerRod, zPos]) => {
@@ -84,11 +99,24 @@ function createRodMeshes(rod: Rod, isGhost: boolean, ghostOpacity: number = 0.15
 
     // Main cylinder body
     const rodRadialSegments = 32;
-    const rodGeometry = new THREE.CylinderGeometry(rodRadius, rodRadius, rodHeight, rodRadialSegments, 1, false);
+    const rodGeometry = new THREE.CylinderGeometry(radius, radius, rodHeight, rodRadialSegments, 1, false);
     rodGeometry.computeVertexNormals();
     const rodMesh = new THREE.Mesh(rodGeometry, rodMaterial.clone());
     rodMesh.position.set(rod.position.x, rod.position.y + rodHeight / 2 - rodPadding - plateThickness / 2, zPos);
-    rodMesh.userData = { type: isGhost ? 'ghost_rod' : 'rod' };
+
+    // Set userData based on rod type
+    if (isGhostRod) {
+      rodMesh.userData = {
+        type: 'ghostRod',
+        ghostRodIndex: ghostRodIndex,
+        isLegal: true
+      };
+      rodMesh.renderOrder = -1; // Render behind real rods
+    } else if (isGhost) {
+      rodMesh.userData = { type: 'ghost_rod' };
+    } else {
+      rodMesh.userData = { type: 'rod', rodId: rodId };
+    }
 
     meshes.push(rodMesh);
   });
@@ -332,7 +360,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
 
   // Generate rod geometry (each logical rod is two physical rods)
   shelf.rods.forEach((rod, rodId) => {
-    const meshes = createRodMeshes(rod, false);
+    const meshes = createRodMeshes(rod, false, 0.15, false, undefined, rodId);
     meshes.forEach(mesh => {
       mesh.userData.rodId = rodId; // Ensure rodId is set for interactions
       scene.add(mesh);
@@ -438,10 +466,6 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
           const visualHeight = rodMod.visualHeight!;
           const visualY = rodMod.visualY!;
 
-          // Create a temporary rod object for the extension segment only
-          // We'll render cylinders manually for just the new segment
-          const ghostRodRadius = rodRadius - 1; // Slightly smaller to fit inside real rod
-
           // Create ghost material
           const ghostMaterial = new THREE.MeshBasicMaterial({
             color: 0x90EE90, // Light green
@@ -449,8 +473,14 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
             opacity: ghostPlate.legal ? (DEBUG_SHOW_COLLIDERS ? 0.3 : 0.15) : (DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0)
           });
 
+          const ghostRodRadiusReduction = 1; // Slightly smaller to fit inside real rod
+
+          // Create a temporary rod object for the extension segment only
+          // We'll render cylinders manually for just the new segment
+          const ghostRodRadius = rodRadius - ghostRodRadiusReduction; // Slightly smaller to fit inside real rod
+
           // Render inner and outer extension segments
-          const zPositions = [[true, ghostRodRadius], [false, rodDistance + ghostRodRadius]];
+          const zPositions = [[true, ghostRodRadius + ghostRodRadiusReduction], [false, rodDistance + rodRadius + ghostRodRadiusReduction]];
 
           zPositions.forEach(([innerRod, zPos]) => {
             const rodPadding = innerRod ? innerRodHeightPadding : outerRodHeightPadding;
@@ -531,48 +561,11 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
     }
   });
 
-  // Render ghost rods
+  // Render ghost rods using the unified createRodMeshes function
   shelf.ghostRods.forEach((ghostRod, index) => {
-    const ghostColor = 0x90EE90;  // Same green as ghost plates
-    const ghostOpacity = 0.15;     // Same opacity as legal ghost plates
-
-    // Create ghost rod meshes (two cylinders like regular rods)
-    // Make ghost rods slightly smaller than real rods (12mm vs 14mm radius)
-    // so real rods are visible and interactable when overlapping
-    const ghostRodRadius = 12;
-    const rodDistance = 200; // Distance between inner and outer rods
-    // Match Z positions of real rods: inner at rodRadius, outer at rodDistance + rodRadius
-    const zPositions = [ghostRodRadius, rodDistance + ghostRodRadius];
-
-    for (const z of zPositions) {
-      const ghostMesh = new THREE.Mesh(
-        new THREE.CylinderGeometry(ghostRodRadius, ghostRodRadius, ghostRod.height, 16),
-        new THREE.MeshBasicMaterial({
-          color: ghostColor,
-          transparent: true,
-          opacity: ghostOpacity,
-          depthWrite: false
-        })
-      );
-
-      // Position at the bottom rod's position
-      ghostMesh.position.set(
-        ghostRod.position.x,
-        ghostRod.position.y + ghostRod.height / 2,
-        z
-      );
-
-      // Tag for identification
-      ghostMesh.userData.type = 'ghostRod';
-      ghostMesh.userData.ghostRodIndex = index;
-      ghostMesh.userData.isLegal = ghostRod.legal;
-
-      // Set renderOrder low so ghost rods render before (behind) real rods
-      // This combined with smaller radius ensures real rods are visible and clickable
-      ghostMesh.renderOrder = -1;
-
-      scene.add(ghostMesh);
-    }
+    const ghostOpacity = 0.15;
+    const meshes = createRodMeshes(ghostRod as any as Rod, true, ghostOpacity, true, index);
+    meshes.forEach(mesh => scene.add(mesh));
   });
 
   // Update URL with current shelf state

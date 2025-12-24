@@ -1,4 +1,5 @@
 import { createEmptyShelf, addRod, addPlate, regenerateGhostRods, getRodSKU, regenerateGhostPlates } from './shelf-model.js';
+import { getRodHeight } from './shelf-utils.js';
 
 console.log('\n=== Testing Ghost Rod Issue ===\n');
 
@@ -43,7 +44,7 @@ regenerateGhostRods(shelf);
 
 console.log(`\nFound ${shelf.ghostRods.length} ghost rods:`);
 shelf.ghostRods.forEach((ghost, i) => {
-  const sku = getRodSKU(ghost.newSkuId);
+  const sku = getRodSKU(ghost.sku_id);
   const bottomRod = shelf.rods.get(ghost.bottomRodId);
   const topRod = shelf.rods.get(ghost.topRodId);
   const bottomSKU = bottomRod ? getRodSKU(bottomRod.sku_id) : null;
@@ -53,7 +54,7 @@ shelf.ghostRods.forEach((ghost, i) => {
   console.log(`  Merging: Rod ${ghost.bottomRodId} (${bottomSKU?.name}) + Rod ${ghost.topRodId} (${topSKU?.name})`);
   console.log(`  Result: ${sku?.name} with spans [${sku?.spans}]`);
   console.log(`  Position: (${ghost.position.x}, ${ghost.position.y})`);
-  console.log(`  Height: ${ghost.height}mm`);
+  console.log(`  Height: ${getRodHeight(getRodSKU(ghost.sku_id)!)}mm`);
   console.log(`  Legal: ${ghost.legal}`);
 
   if (bottomRod && topRod) {

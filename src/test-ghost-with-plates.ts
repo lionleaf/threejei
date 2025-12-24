@@ -30,7 +30,7 @@ regenerateGhostRods(shelf);
 
 console.log(`\nFound ${shelf.ghostRods.length} ghost rods:`);
 shelf.ghostRods.forEach((ghost, i) => {
-  const sku = getRodSKU(ghost.newSkuId);
+  const sku = getRodSKU(ghost.sku_id);
   const bottomRod = shelf.rods.get(ghost.bottomRodId)!;
   const topRod = shelf.rods.get(ghost.topRodId)!;
   const bottomSKU = getRodSKU(bottomRod.sku_id)!;
@@ -65,7 +65,7 @@ if (shelf.ghostRods.length > 0) {
   console.log(`  Rods: ${Array.from(shelf.rods.keys())}`);
   console.log(`  Plates: ${Array.from(shelf.plates.keys())}`);
 
-  mergeRods(ghost.bottomRodId, ghost.topRodId, ghost.newSkuId, shelf);
+  mergeRods(ghost.bottomRodId, ghost.topRodId, ghost.sku_id, shelf);
 
   console.log('\nAfter merge:');
   console.log(`  Rods: ${Array.from(shelf.rods.keys())}`);

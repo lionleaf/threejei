@@ -210,10 +210,10 @@ export function setupInteractions(
       return;
     }
 
-    console.log(`Merging rods ${ghostRod.bottomRodId} and ${ghostRod.topRodId} into SKU ${ghostRod.newSkuId}`);
+    console.log(`Merging rods ${ghostRod.bottomRodId} and ${ghostRod.topRodId} into SKU ${ghostRod.sku_id}`);
 
     // Merge the rods
-    mergeRods(ghostRod.bottomRodId, ghostRod.topRodId, ghostRod.newSkuId, shelf);
+    mergeRods(ghostRod.bottomRodId, ghostRod.topRodId, ghostRod.sku_id, shelf);
 
     // Save undo state
     undoManager.saveState('mergeRods');

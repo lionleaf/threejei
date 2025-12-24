@@ -96,9 +96,9 @@ export interface GhostPlate {
 export interface GhostRod {
   bottomRodId: number;        // ID of bottom rod to merge
   topRodId: number;           // ID of top rod to merge
-  newSkuId: number;           // Resulting merged SKU
+  sku_id: number;             // Resulting merged SKU (renamed from newSkuId for compatibility with Rod)
   position: Vec2f;            // Position for visual rendering
-  height: number;             // Total height for rendering
+  attachmentPoints: AttachmentPoint[]; // Attachment points for the merged rod
   legal: boolean;             // Is this merge valid?
   action: 'merge';            // Only merge action (no extend)
 }
@@ -2361,12 +2361,17 @@ export function regenerateGhostRods(shelf: Shelf): void {
       });
 
       if (matchingSKU) {
+        // Calculate attachment points for the merged rod (relative to position.y)
+        const mergedAttachmentPoints: AttachmentPoint[] = combinedAbsoluteYs.map(absY => ({
+          y: absY - bottomRod.position.y
+        }));
+
         shelf.ghostRods.push({
           bottomRodId,
           topRodId,
-          newSkuId: matchingSKU.sku_id,
+          sku_id: matchingSKU.sku_id,
           position: { x: bottomRod.position.x, y: bottomRod.position.y },
-          height: getRodHeight(matchingSKU),
+          attachmentPoints: mergedAttachmentPoints,
           legal: true,
           action: 'merge'
         });

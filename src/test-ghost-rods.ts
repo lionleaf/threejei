@@ -16,7 +16,7 @@ console.log(`  Ghost rods generated: ${shelf1.ghostRods.length}`);
 
 if (shelf1.ghostRods.length > 0) {
   const ghost = shelf1.ghostRods[0];
-  console.log(`  Ghost rod SKU: ${getRodSKU(ghost.newSkuId)!.name}`);
+  console.log(`  Ghost rod SKU: ${getRodSKU(ghost.sku_id)!.name}`);
   console.log(`  Bottom rod ID: ${ghost.bottomRodId}, Top rod ID: ${ghost.topRodId}`);
   console.log(`  Legal: ${ghost.legal}`);
   console.log(`  Expected: Should merge into 2P_2 (one 200mm span)`);
@@ -37,7 +37,7 @@ console.log(`  Ghost rods generated: ${shelf2.ghostRods.length}`);
 
 if (shelf2.ghostRods.length > 0) {
   const ghost = shelf2.ghostRods[0];
-  console.log(`  Ghost rod SKU: ${getRodSKU(ghost.newSkuId)!.name}`);
+  console.log(`  Ghost rod SKU: ${getRodSKU(ghost.sku_id)!.name}`);
   console.log(`  Bottom rod ID: ${ghost.bottomRodId}, Top rod ID: ${ghost.topRodId}`);
   console.log(`  Legal: ${ghost.legal}`);
   console.log(`  Expected: Should merge into 2P_3 (one 300mm span)`);
@@ -75,7 +75,7 @@ console.log(`  Expected: 2 ghost rods (one for each consecutive pair)`);
 
 if (shelf4.ghostRods.length > 0) {
   shelf4.ghostRods.forEach((ghost, i) => {
-    console.log(`  Ghost ${i}: ${getRodSKU(ghost.newSkuId)!.name} (rods ${ghost.bottomRodId} + ${ghost.topRodId})`);
+    console.log(`  Ghost ${i}: ${getRodSKU(ghost.sku_id)!.name} (rods ${ghost.bottomRodId} + ${ghost.topRodId})`);
   });
 }
 console.log('');
