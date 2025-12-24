@@ -2049,7 +2049,7 @@ function tryAddRodExtensionGhost(
   rightRodId: number,
   rightRod: Rod,
   direction: 'up' | 'down',
-  boundaryY: number,
+  _boundaryY: number,
   defaultPlateSku: PlateSKU,
   shelf: Shelf
 ): void {
