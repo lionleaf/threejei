@@ -1,5 +1,5 @@
 import { type Shelf, removePlate, removeSegmentFromPlate, removeRodSegment, addPlate, addRod, type Plate, type Rod, calculateAttachmentPositions, mergePlates, extendPlate, Direction, type PlateSegmentResult, GhostPlate, GhostRod, resolveRodConnections, extendRodUp, extendRodDown, mergeRods, getRodSKU, getPlateSKU } from './shelf-model.js';
-import { DEBUG_SHOW_COLLIDERS } from './shelf_viz.js';
+import { getDebugMode } from './shelf_viz.js';
 import { UndoManager } from './undo-manager.js';
 
 // Declare THREE as global (loaded via CDN)
@@ -245,7 +245,7 @@ export function setupInteractions(
         const isLegal = ghostPlate?.legal;
         // Legal ghosts: 0.15 normally, 0.3 in debug mode
         // Illegal ghosts: 0.0 normally, 0.3 in debug mode
-        child.material.opacity = isLegal ? (DEBUG_SHOW_COLLIDERS ? 0.3 : 0.15) : (DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0);
+        child.material.opacity = isLegal ? (getDebugMode() ? 0.3 : 0.15) : (getDebugMode() ? 0.3 : 0.0);
       }
       // Also reset ghost rod opacity
       if ((child.userData?.type === 'ghost_rod' || child.userData?.type === 'ghost_connection_rod') && child.material) {
@@ -253,7 +253,7 @@ export function setupInteractions(
         const ghostPlateIndex = child.userData.ghostPlateIndex;
         const ghostPlate = shelf.ghostPlates[ghostPlateIndex];
         const isLegal = ghostPlate?.legal;
-        child.material.opacity = isLegal ? (DEBUG_SHOW_COLLIDERS ? 0.3 : 0.15) : (DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0);
+        child.material.opacity = isLegal ? (getDebugMode() ? 0.3 : 0.15) : (getDebugMode() ? 0.3 : 0.0);
       }
     });
 
@@ -277,7 +277,7 @@ export function setupInteractions(
           tooltipContainer.style.left = `${event.clientX + 20}px`;
           tooltipContainer.style.top = `${event.clientY + 20}px`;
 
-          if (DEBUG_SHOW_COLLIDERS) {
+          if (getDebugMode()) {
             // Debug mode: show full JSON
             tooltipContainer.textContent = `Plate ${plateId}\n` + JSON.stringify(plate, null, 2);
           } else {
@@ -298,7 +298,7 @@ export function setupInteractions(
           tooltipContainer.style.left = `${event.clientX + 20}px`;
           tooltipContainer.style.top = `${event.clientY + 20}px`;
 
-          if (DEBUG_SHOW_COLLIDERS) {
+          if (getDebugMode()) {
             // Debug mode: show full JSON
             tooltipContainer.textContent = `Rod ${rodId}\n` + JSON.stringify(rod, null, 2);
           } else {
@@ -334,7 +334,7 @@ export function setupInteractions(
           tooltipContainer.style.left = `${event.clientX + 20}px`;
           tooltipContainer.style.top = `${event.clientY + 20}px`;
 
-          if (DEBUG_SHOW_COLLIDERS) {
+          if (getDebugMode()) {
             // Debug mode: show full JSON
             tooltipContainer.textContent = JSON.stringify(ghostPlate, null, 2);
           } else {
@@ -370,7 +370,7 @@ export function setupInteractions(
           tooltipContainer.style.left = `${event.clientX + 20}px`;
           tooltipContainer.style.top = `${event.clientY + 20}px`;
 
-          if (DEBUG_SHOW_COLLIDERS) {
+          if (getDebugMode()) {
             // Debug mode: show full JSON
             tooltipContainer.textContent = JSON.stringify(ghostRod, null, 2);
           } else {

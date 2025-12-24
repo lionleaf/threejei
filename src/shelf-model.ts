@@ -2056,12 +2056,33 @@ function tryAddRodExtensionGhost(
   const extension = findCommonExtension([rodId, rightRodId], direction, shelf);
   if (!extension) return;
 
-  const spanToAdd = extension.get(rodId)!.spanToAdd;
-  const directionMultiplier = direction === 'up' ? 1 : -1;
-  const newY = boundaryY + (directionMultiplier * spanToAdd);
   const centerX = (rod.position.x + rightRod.position.x) / 2;
 
   const rodModifications = createExtensionRodModifications(extension, direction, shelf);
+
+  // Calculate the plate Y position from the rod modifications
+  // Each rod's extension might have a different span, so we need to calculate where they meet
+  const leftMod = rodModifications.find(mod => mod.affectedRodIds?.includes(rodId));
+  const rightMod = rodModifications.find(mod => mod.affectedRodIds?.includes(rightRodId));
+
+  if (!leftMod || !rightMod) return;
+
+  // Calculate where each rod's extension reaches
+  const leftExtensionY = direction === 'up'
+    ? (leftMod.visualY ?? 0) + (leftMod.visualHeight ?? 0)
+    : (leftMod.visualY ?? 0);
+
+  const rightExtensionY = direction === 'up'
+    ? (rightMod.visualY ?? 0) + (rightMod.visualHeight ?? 0)
+    : (rightMod.visualY ?? 0);
+
+  // Validate that both rods extend to the same Y position
+  // If they don't align, we can't create a valid plate between them
+  if (Math.abs(leftExtensionY - rightExtensionY) > POSITION_TOLERANCE_MM) {
+    return; // Extensions don't align, skip this ghost
+  }
+
+  const newY = leftExtensionY; // Use either one since they're equal
 
   // Check if rod modifications would cause collisions
   const hasCollision = rodModificationsHaveCollision(rodModifications, shelf);

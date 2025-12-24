@@ -26,6 +26,11 @@ declare const THREE: any;
 // Debug state to make colliders visible
 export let DEBUG_SHOW_COLLIDERS = false;
 
+// Getter function to access current debug state (for modules that import it)
+export function getDebugMode(): boolean {
+  return DEBUG_SHOW_COLLIDERS;
+}
+
 // Flag to enable/disable wall drawing
 export let DRAW_WALL = false;
 
@@ -532,13 +537,15 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
     const ghostOpacity = 0.15;     // Same opacity as legal ghost plates
 
     // Create ghost rod meshes (two cylinders like regular rods)
-    const rodRadius = 25;
+    // Make ghost rods slightly smaller than real rods (12mm vs 14mm radius)
+    // so real rods are visible and interactable when overlapping
+    const ghostRodRadius = 12;
     const rodDistance = 200; // Distance between inner and outer rods
     const zPositions = [0, rodDistance]; // Z positions for the two cylinders
 
     for (const z of zPositions) {
       const ghostMesh = new THREE.Mesh(
-        new THREE.CylinderGeometry(rodRadius, rodRadius, ghostRod.height, 16),
+        new THREE.CylinderGeometry(ghostRodRadius, ghostRodRadius, ghostRod.height, 16),
         new THREE.MeshBasicMaterial({
           color: ghostColor,
           transparent: true,
@@ -558,6 +565,10 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
       ghostMesh.userData.type = 'ghostRod';
       ghostMesh.userData.ghostRodIndex = index;
       ghostMesh.userData.isLegal = ghostRod.legal;
+
+      // Set renderOrder low so ghost rods render before (behind) real rods
+      // This combined with smaller radius ensures real rods are visible and clickable
+      ghostMesh.renderOrder = -1;
 
       scene.add(ghostMesh);
     }
