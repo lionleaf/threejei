@@ -67,7 +67,7 @@ function createRodMeshes(
   const meshes: any[] = [];
 
   // Ghost rods (merge preview) use smaller radius than ghost plate rods (extension preview)
-  const radiusDelta = isGhost ? -3 : 0;
+  const radiusDelta = isGhost ? -0.5 : 0;
   const radius = rodRadius + radiusDelta;
 
   const rodSKU = getRodSKU(rod.sku_id);
@@ -134,8 +134,8 @@ function createRodMeshes(
         metalness: 0.0
       });
 
-    let length = 202 + (isGhost ? -5 : 0); // Slightly shorter for ghost rods to avoid z-fighting
-    let radius = connectionRodRadius + (isGhost ? -2 : 0); // Slightly smaller for ghost rods
+    let length = 202 + (isGhost ? -1 : 0); // Slightly shorter for ghost rods to avoid z-fighting
+    let radius = connectionRodRadius + (isGhost ? -0.3 : 0); // Slightly smaller for ghost rods
 
     // Horizontal cylinder connecting front (Z=0) to back (Z=200)
     const connectionRodGeometry = new THREE.CylinderGeometry(radius, radius, length, 16);
@@ -146,7 +146,7 @@ function createRodMeshes(
     connectionRod.rotation.x = Math.PI / 2;
 
     // Position at the attachment point, centered in Z
-    connectionRod.position.set(rod.position.x, attachmentY + (isGhost ? 1 : 0), length / 2 + (isGhost ? 2.5 : 0));
+    connectionRod.position.set(rod.position.x, attachmentY + (isGhost ? 1 : 0), length / 2 + (isGhost ? 0.5 : 0));
     connectionRod.userData = { type: isGhost ? 'ghost_connection_rod' : 'connection_rod' };
 
     meshes.push(connectionRod);
@@ -416,7 +416,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
     }
 
     const ghostMesh = new THREE.Mesh(
-      new THREE.BoxGeometry(width, plateThickness - 6, 200 - 15),
+      new THREE.BoxGeometry(width, plateThickness - 1, 200 - 1),
       new THREE.MeshBasicMaterial({
         color: ghostColor,
         transparent: true,
