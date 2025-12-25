@@ -57,6 +57,22 @@ const connectionRodGrooveDepth = 4
  * @param rodId - ID of the rod for userData (only used if not a ghost)
  * @returns Array of THREE.Mesh objects to add to scene
  */
+function createRodMaterial(isGhost: boolean, ghostOpacity: number = 0.15, color?: number): THREE.Material {
+  if (isGhost) {
+    return new THREE.MeshBasicMaterial({
+      color: color ?? 0x90EE90, // Light green
+      transparent: true,
+      opacity: ghostOpacity
+    });
+  } else {
+    return new THREE.MeshStandardMaterial({
+      color: color ?? 0x76685e,
+      roughness: 0.7,
+      metalness: 0.0
+    });
+  }
+}
+
 function createRodMeshes(
   rod: Rod,
   isGhost: boolean,
@@ -74,18 +90,7 @@ function createRodMeshes(
   let height = rodSKU ? getRodHeight(rodSKU) : 0;
   height += isGhost ? -4 : 0; // Slightly shorter for ghost rods to avoid z-fighting (2mm on each end)
 
-  // Determine material based on ghost/normal mode
-  const rodMaterial = isGhost
-    ? new THREE.MeshBasicMaterial({
-      color: 0x90EE90, // Light green
-      transparent: true,
-      opacity: ghostOpacity // Will be set to 0.5 on hover
-    })
-    : new THREE.MeshStandardMaterial({
-      color: 0x76685e,
-      roughness: 0.7,
-      metalness: 0.0
-    });
+  const rodMaterial = createRodMaterial(isGhost, ghostOpacity);
 
   // [bool innerRod, radius]. The inner rod is the one attached to the wall
   const zPositions = [[true, radius - radiusDelta], [false, rodDistance + radius - radiusDelta]];
@@ -121,18 +126,7 @@ function createRodMeshes(
   rod.attachmentPoints.forEach(ap => {
     const attachmentY = rod.position.y + ap.y - plateThickness / 2 - connectionRodRadius + connectionRodGrooveDepth;
 
-    // Connection rod material
-    const connectionRodMaterial = isGhost
-      ? new THREE.MeshBasicMaterial({
-        color: 0x90EE90, // Light green
-        transparent: true,
-        opacity: ghostOpacity // Will be set to 0.5 on hover
-      })
-      : new THREE.MeshStandardMaterial({
-        color: 0x76685e,
-        roughness: 0.7,
-        metalness: 0.0
-      });
+    const connectionRodMaterial = createRodMaterial(isGhost, ghostOpacity);
 
     let length = 202 + (isGhost ? -1 : 0); // Slightly shorter for ghost rods to avoid z-fighting
     let radius = connectionRodRadius + (isGhost ? -0.3 : 0); // Slightly smaller for ghost rods

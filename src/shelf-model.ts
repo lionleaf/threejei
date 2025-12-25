@@ -27,7 +27,6 @@ export interface Vec3f {
 export interface AttachmentPoint {
   y: number;
   plateId?: number;
-  ghostPlateIds?: Array<number>
 }
 
 export interface Rod {
@@ -45,11 +44,6 @@ export interface Plate {
 // A GhostPlate is a UX element of a plate that is not part of the shelf yet
 // but provides information about potential shelf modifications,
 // and includes the information to allow the user to add this plate (or information why it's illegal)
-export interface RodExtension {
-  rodId: number;
-  newSkuId: number;
-}
-
 // Rod creation plan - result of validation
 export interface RodCreationPlan {
   action: 'create' | 'extend' | 'merge';
@@ -87,9 +81,6 @@ export interface GhostPlate {
   existingPlateId?: number; // For extend/merge actions, which plate to modify
   targetPlateId?: number; // For merge actions, the second plate to merge with
   width?: number;
-  newRodPosition?: Vec2f; // DEPRECATED - use rodModifications instead
-  rodExtensions?: RodExtension[]; // DEPRECATED - use rodModifications instead
-  extensionDirection?: 'up' | 'down'; // DEPRECATED - use rodModifications instead
   rodModifications?: RodModification[]; // All rod changes this ghost causes (validated, ready to apply)
 }
 
@@ -258,15 +249,6 @@ export function findClosestAttachment(cursorY: number, attachmentPoints: Attachm
   return closestIndex;
 }
 
-export function intersectRay(ray: { origin: Vec3f, dir: Vec3f }, shelf: Shelf): any {
-  // Basic raycasting implementation - find closest rod or plate intersection
-  const intersections: { type: 'rod' | 'plate', id: number, distance: number }[] = [];
-
-  // For now, return undefined as this requires more complex 3D geometry calculations
-  // that would need specific bounding box/mesh intersection logic
-  return undefined;
-}
-
 export function calculateAttachmentPositions(pattern: RodSKU): number[] {
   const positions = [];
   let currentPosition = 0;
@@ -278,6 +260,14 @@ export function calculateAttachmentPositions(pattern: RodSKU): number[] {
   }
 
   return positions;
+}
+
+function getRodBounds(rod: Rod, rodSKU: RodSKU): { top: number, bottom: number } {
+  const attachmentPositions = calculateAttachmentPositions(rodSKU);
+  return {
+    top: rod.position.y + attachmentPositions[attachmentPositions.length - 1],
+    bottom: rod.position.y + attachmentPositions[0]
+  };
 }
 
 function findClosestRod(shelf: Shelf, fromRodId: number, direction: Direction, yLevel: number): number | undefined {
@@ -376,19 +366,17 @@ export function validateRodCreation(position: Vec2f, shelf: Shelf): RodCreationP
     }
 
     // Get current rod bounds
-    const attachmentPositions = calculateAttachmentPositions(rodSKU);
-    const absoluteTop = rod.position.y + attachmentPositions[attachmentPositions.length - 1];
-    const absoluteBottom = rod.position.y + attachmentPositions[0];
+    const bounds = getRodBounds(rod, rodSKU);
 
     // Check if position overlaps with existing rod (illegal)
-    if (position.y > absoluteBottom + POSITION_TOLERANCE_MM && position.y < absoluteTop - POSITION_TOLERANCE_MM) {
+    if (position.y > bounds.bottom + POSITION_TOLERANCE_MM && position.y < bounds.top - POSITION_TOLERANCE_MM) {
       continue; // Skip this rod - overlap is illegal
     }
 
     // Categorize as upward or downward extension candidate
-    if (position.y > absoluteTop + POSITION_TOLERANCE_MM) {
+    if (position.y > bounds.top + POSITION_TOLERANCE_MM) {
       upwardCandidates.push([rodId, rod]);
-    } else if (position.y < absoluteBottom - POSITION_TOLERANCE_MM) {
+    } else if (position.y < bounds.bottom - POSITION_TOLERANCE_MM) {
       downwardCandidates.push([rodId, rod]);
     }
   }
@@ -491,22 +479,20 @@ function validateExtension(
   if (!rodSKU) return null;
 
   // Calculate attachment positions for this rod
-  const attachmentPositions = calculateAttachmentPositions(rodSKU);
-  const absoluteTop = rod.position.y + attachmentPositions[attachmentPositions.length - 1];
-  const absoluteBottom = rod.position.y + attachmentPositions[0];
+  const bounds = getRodBounds(rod, rodSKU);
 
   // VALIDATE: newY must be beyond the rod in the specified direction
-  if (direction === 'up' && newY <= absoluteTop + POSITION_TOLERANCE_MM) {
+  if (direction === 'up' && newY <= bounds.top + POSITION_TOLERANCE_MM) {
     return null; // newY is not above the rod
   }
-  if (direction === 'down' && newY >= absoluteBottom - POSITION_TOLERANCE_MM) {
+  if (direction === 'down' && newY >= bounds.bottom - POSITION_TOLERANCE_MM) {
     return null; // newY is not below the rod
   }
 
   // Calculate gap from the appropriate end
   const gap = direction === 'up'
-    ? newY - absoluteTop
-    : absoluteBottom - newY;
+    ? newY - bounds.top
+    : bounds.bottom - newY;
 
   // Try standard spans (200mm and 300mm)
   for (const span of [200, 300]) {
@@ -1697,23 +1683,22 @@ export function extendRodToHeight(rodId: number, targetY: number, shelf: Shelf):
   if (!rodSKU) return false;
 
   // Calculate current rod top and bottom in world space
+  const bounds = getRodBounds(rod, rodSKU);
   const attachmentPositions = calculateAttachmentPositions(rodSKU);
-  const currentBottom = rod.position.y + attachmentPositions[0];
-  const currentTop = rod.position.y + attachmentPositions[attachmentPositions.length - 1];
 
-  console.log(`extendRodToHeight: Current rod Y range: ${currentBottom} to ${currentTop}, target: ${targetY}`);
+  console.log(`extendRodToHeight: Current rod Y range: ${bounds.bottom} to ${bounds.top}, target: ${targetY}`);
 
   // Check if target is already covered
-  if (targetY >= currentBottom && targetY <= currentTop) {
+  if (targetY >= bounds.bottom && targetY <= bounds.top) {
     // Check if there's an attachment point exactly at targetY
     const hasAttachment = attachmentPositions.some(pos => rod.position.y + pos === targetY);
     return hasAttachment; // Already has attachment at this height
   }
 
   // Determine if we need to extend up or down
-  if (targetY > currentTop) {
+  if (targetY > bounds.top) {
     // Extend upward
-    const gap = targetY - currentTop;
+    const gap = targetY - bounds.top;
     console.log(`extendRodToHeight: Need to extend upward by ${gap}mm`);
 
     // Try 200mm span first, then 300mm
@@ -1741,7 +1726,7 @@ export function extendRodToHeight(rodId: number, targetY: number, shelf: Shelf):
     }
   } else {
     // Extend downward
-    const gap = currentBottom - targetY;
+    const gap = bounds.bottom - targetY;
     console.log(`extendRodToHeight: Need to extend downward by ${gap}mm`);
 
     // Try 200mm span first, then 300mm
@@ -2019,11 +2004,9 @@ function createExtensionRodModifications(
     if (!extRodSKU) continue;
 
     const visualHeight = ext.spanToAdd;
+    const bounds = getRodBounds(extRod, extRodSKU);
     const visualY = direction === 'up'
-      ? (() => {
-        const attachmentPositions = calculateAttachmentPositions(extRodSKU);
-        return extRod.position.y + attachmentPositions[attachmentPositions.length - 1];
-      })()
+      ? bounds.top
       : extRod.position.y - ext.spanToAdd;
 
     // Calculate rod position: for down extensions, keep top fixed by moving position down
