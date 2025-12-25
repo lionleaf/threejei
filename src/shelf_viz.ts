@@ -146,7 +146,7 @@ function createRodMeshes(
     connectionRod.rotation.x = Math.PI / 2;
 
     // Position at the attachment point, centered in Z
-    connectionRod.position.set(rod.position.x, attachmentY + (isGhost ? 1 : 0), length / 2);
+    connectionRod.position.set(rod.position.x, attachmentY + (isGhost ? 1 : 0), length / 2 + (isGhost ? 2.5 : 0));
     connectionRod.userData = { type: isGhost ? 'ghost_connection_rod' : 'connection_rod' };
 
     meshes.push(connectionRod);
