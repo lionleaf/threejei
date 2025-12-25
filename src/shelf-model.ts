@@ -2026,9 +2026,14 @@ function createExtensionRodModifications(
       })()
       : extRod.position.y - ext.spanToAdd;
 
+    // Calculate rod position: for down extensions, keep top fixed by moving position down
+    const rodPosition = direction === 'down'
+      ? { x: extRod.position.x, y: extRod.position.y - ext.spanToAdd }
+      : extRod.position;
+
     rodModifications.push({
       type: 'extend',
-      position: extRod.position,
+      position: rodPosition,
       newSkuId: ext.newSKU_id,
       affectedRodIds: [extRodId],
       visualHeight,

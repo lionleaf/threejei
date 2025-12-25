@@ -53,7 +53,6 @@ const connectionRodGrooveDepth = 4
  * @param rod - The rod data from shelf model
  * @param isGhost - Whether to render as ghost (transparent green) or normal
  * @param ghostOpacity - Optional opacity for ghost rods (defaults to 0.15)
- * @param isGhostRod - Whether this is a ghost rod (merge preview) vs ghost plate rod
  * @param ghostRodIndex - Index of ghost rod for userData (only used if isGhostRod is true)
  * @param rodId - ID of the rod for userData (only used if not a ghost)
  * @returns Array of THREE.Mesh objects to add to scene
@@ -62,19 +61,18 @@ function createRodMeshes(
   rod: Rod,
   isGhost: boolean,
   ghostOpacity: number = 0.15,
-  isGhostRod: boolean = false,
   ghostRodIndex?: number,
   rodId?: number
 ): any[] {
   const meshes: any[] = [];
 
   // Ghost rods (merge preview) use smaller radius than ghost plate rods (extension preview)
-  const radiusDelta = isGhostRod ? -2 : (isGhost ? -2 : 0);
+  const radiusDelta = isGhost ? -3 : 0;
   const radius = rodRadius + radiusDelta;
-  const poseOffset = isGhost && !isGhostRod ? 40 : 0;
 
   const rodSKU = getRodSKU(rod.sku_id);
-  const height = rodSKU ? getRodHeight(rodSKU) : 0;
+  let height = rodSKU ? getRodHeight(rodSKU) : 0;
+  height += isGhost ? -4 : 0; // Slightly shorter for ghost rods to avoid z-fighting (2mm on each end)
 
   // Determine material based on ghost/normal mode
   const rodMaterial = isGhost
@@ -90,7 +88,7 @@ function createRodMeshes(
     });
 
   // [bool innerRod, radius]. The inner rod is the one attached to the wall
-  const zPositions = [[true, radius + poseOffset], [false, rodDistance + radius + poseOffset]];
+  const zPositions = [[true, radius - radiusDelta], [false, rodDistance + radius - radiusDelta]];
 
   // Create two rods - one at front, one at back
   zPositions.forEach(([innerRod, zPos]) => {
@@ -105,15 +103,13 @@ function createRodMeshes(
     rodMesh.position.set(rod.position.x, rod.position.y + rodHeight / 2 - rodPadding - plateThickness / 2, zPos);
 
     // Set userData based on rod type
-    if (isGhostRod) {
+    if (isGhost) {
       rodMesh.userData = {
         type: 'ghostRod',
         ghostRodIndex: ghostRodIndex,
         isLegal: true
       };
       rodMesh.renderOrder = -1; // Render behind real rods
-    } else if (isGhost) {
-      rodMesh.userData = { type: 'ghost_rod' };
     } else {
       rodMesh.userData = { type: 'rod', rodId: rodId };
     }
@@ -138,10 +134,11 @@ function createRodMeshes(
         metalness: 0.0
       });
 
-    let connectionRodLength = 202;
+    let length = 202 + (isGhost ? -5 : 0); // Slightly shorter for ghost rods to avoid z-fighting
+    let radius = connectionRodRadius + (isGhost ? -2 : 0); // Slightly smaller for ghost rods
 
     // Horizontal cylinder connecting front (Z=0) to back (Z=200)
-    const connectionRodGeometry = new THREE.CylinderGeometry(connectionRodRadius, connectionRodRadius, connectionRodLength, 16);
+    const connectionRodGeometry = new THREE.CylinderGeometry(radius, radius, length, 16);
     connectionRodGeometry.computeVertexNormals();
     const connectionRod = new THREE.Mesh(connectionRodGeometry, connectionRodMaterial);
 
@@ -149,7 +146,7 @@ function createRodMeshes(
     connectionRod.rotation.x = Math.PI / 2;
 
     // Position at the attachment point, centered in Z
-    connectionRod.position.set(rod.position.x, attachmentY, connectionRodLength / 2);
+    connectionRod.position.set(rod.position.x, attachmentY + (isGhost ? 1 : 0), length / 2);
     connectionRod.userData = { type: isGhost ? 'ghost_connection_rod' : 'connection_rod' };
 
     meshes.push(connectionRod);
@@ -360,7 +357,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
 
   // Generate rod geometry (each logical rod is two physical rods)
   shelf.rods.forEach((rod, rodId) => {
-    const meshes = createRodMeshes(rod, false, 0.15, false, undefined, rodId);
+    const meshes = createRodMeshes(rod, false, 0.15, undefined, rodId);
     meshes.forEach(mesh => {
       mesh.userData.rodId = rodId; // Ensure rodId is set for interactions
       scene.add(mesh);
@@ -405,7 +402,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
   regenerateGhostRods(shelf);
 
   shelf.ghostPlates.forEach((ghostPlate, index) => {
-    const segmentWidth = ghostPlate.width || 600;
+    const width = ghostPlate.width || 600;
     const centerX = ghostPlate.midpointPosition.x;
 
     let ghostColor = 0x90EE90; // Light green for legal
@@ -419,7 +416,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
     }
 
     const ghostMesh = new THREE.Mesh(
-      new THREE.BoxGeometry(segmentWidth, 30, 200),
+      new THREE.BoxGeometry(width, plateThickness - 6, 200 - 15),
       new THREE.MeshBasicMaterial({
         color: ghostColor,
         transparent: true,
@@ -440,131 +437,29 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
     // Render ghost rods for this ghost plate
     if (ghostPlate.rodModifications) {
       for (const rodMod of ghostPlate.rodModifications) {
-        if (rodMod.type === 'create') {
-          // Render complete new rod
-          const rodSKU = getRodSKU(rodMod.newSkuId!);
-          if (!rodSKU) continue;
+        // Render complete new rod
+        const rodSKU = getRodSKU(rodMod.newSkuId!);
+        if (!rodSKU) continue;
 
-          const ghostRod: Rod = {
-            sku_id: rodMod.newSkuId!,
-            position: rodMod.position,
-            attachmentPoints: calculateAttachmentPositions(rodSKU).map(y => ({ y }))
-          };
+        const ghostRod: Rod = {
+          sku_id: rodMod.newSkuId!,
+          position: rodMod.position,
+          attachmentPoints: calculateAttachmentPositions(rodSKU).map(y => ({ y }))
+        };
 
-          const meshes = createRodMeshes(ghostRod, true, ghostOpacity);
-          meshes.forEach(mesh => {
-            mesh.userData.type = 'ghost_rod';
-            mesh.userData.ghostPlateIndex = index;
-            scene.add(mesh);
-          });
-
-        } else if (rodMod.type === 'extend') {
-          // Render only the extension segment
-          const rodSKU = getRodSKU(rodMod.newSkuId!);
-          if (!rodSKU) continue;
-
-          const visualHeight = rodMod.visualHeight!;
-          const visualY = rodMod.visualY!;
-
-          // Create ghost material
-          const ghostMaterial = new THREE.MeshBasicMaterial({
-            color: 0x90EE90, // Light green
-            transparent: true,
-            opacity: ghostPlate.legal ? (DEBUG_SHOW_COLLIDERS ? 0.3 : 0.15) : (DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0)
-          });
-
-          const ghostRodRadiusReduction = 1; // Slightly smaller to fit inside real rod
-
-          // Create a temporary rod object for the extension segment only
-          // We'll render cylinders manually for just the new segment
-          const ghostRodRadius = rodRadius - ghostRodRadiusReduction; // Slightly smaller to fit inside real rod
-
-          // Render inner and outer extension segments
-          const zPositions = [[true, ghostRodRadius + ghostRodRadiusReduction], [false, rodDistance + rodRadius + ghostRodRadiusReduction]];
-
-          zPositions.forEach(([innerRod, zPos]) => {
-            const rodPadding = innerRod ? innerRodHeightPadding : outerRodHeightPadding;
-            const segmentHeight = visualHeight + (innerRod ? rodPadding * 2 : rodPadding * 2) + plateThickness;
-
-            const rodGeometry = new THREE.CylinderGeometry(ghostRodRadius, ghostRodRadius, segmentHeight, 32);
-            rodGeometry.computeVertexNormals();
-            const rodMesh = new THREE.Mesh(rodGeometry, ghostMaterial.clone());
-
-            // Position the segment at the visualY location
-            rodMesh.position.set(
-              rodMod.position.x,
-              visualY + segmentHeight / 2 - rodPadding - plateThickness / 2,
-              zPos
-            );
-
-            rodMesh.userData = {
-              type: 'ghost_rod',
-              ghostPlateIndex: index,
-              rodModType: 'extend'
-            };
-
-            scene.add(rodMesh);
-          });
-
-          // Add connection rod at the new attachment point (if extending upward)
-          // For simplicity, we'll add it at the visualY position
-          const connectionMaterial = new THREE.MeshBasicMaterial({
-            color: 0x90EE90,
-            transparent: true,
-            opacity: ghostPlate.legal ? (DEBUG_SHOW_COLLIDERS ? 0.3 : 0.15) : (DEBUG_SHOW_COLLIDERS ? 0.3 : 0.0)
-          });
-
-          const connectionRodLength = 202;
-          const connectionGeometry = new THREE.CylinderGeometry(
-            connectionRodRadius,
-            connectionRodRadius,
-            connectionRodLength,
-            16
-          );
-          connectionGeometry.computeVertexNormals();
-          const connectionRod = new THREE.Mesh(connectionGeometry, connectionMaterial);
-          connectionRod.rotation.x = Math.PI / 2;
-          connectionRod.position.set(
-            rodMod.position.x,
-            visualY - plateThickness / 2 - connectionRodRadius + connectionRodGrooveDepth,
-            connectionRodLength / 2
-          );
-          connectionRod.userData = {
-            type: 'ghost_connection_rod',
-            ghostPlateIndex: index
-          };
-          scene.add(connectionRod);
-
-        } else if (rodMod.type === 'merge') {
-          // For merge, render the complete merged rod
-          const rodSKU = getRodSKU(rodMod.newSkuId!);
-          if (!rodSKU) continue;
-
-          // We need to figure out the position of the merged rod
-          // It will be at the same X as the existing rods, but we need the Y position
-          // For now, we'll use the position from the modification
-          const ghostRod: Rod = {
-            sku_id: rodMod.newSkuId!,
-            position: rodMod.position,
-            attachmentPoints: calculateAttachmentPositions(rodSKU).map(y => ({ y }))
-          };
-
-          const meshes = createRodMeshes(ghostRod, true, ghostOpacity);
-          meshes.forEach(mesh => {
-            mesh.userData.type = 'ghost_rod';
-            mesh.userData.ghostPlateIndex = index;
-            mesh.userData.rodModType = 'merge';
-            scene.add(mesh);
-          });
-        }
+        const meshes = createRodMeshes(ghostRod, true, ghostOpacity);
+        meshes.forEach(mesh => {
+          mesh.userData.type = 'ghost_rod';
+          mesh.userData.ghostPlateIndex = index;
+          scene.add(mesh);
+        });
       }
     }
   });
 
-  // Render ghost rods using the unified createRodMeshes function
   shelf.ghostRods.forEach((ghostRod, index) => {
     const ghostOpacity = 0.15;
-    const meshes = createRodMeshes(ghostRod as any as Rod, true, ghostOpacity, true, index);
+    const meshes = createRodMeshes(ghostRod as any as Rod, true, ghostOpacity, index);
     meshes.forEach(mesh => scene.add(mesh));
   });
 
