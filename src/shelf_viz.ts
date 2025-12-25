@@ -585,7 +585,7 @@ function updateSKUList(shelf: Shelf, container: HTMLDivElement): void {
 // General shelf visualizer
 function visualizeShelf(shelf: Shelf): void {
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
+  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 50, 50000);
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setClearColor(0xf5f5f5);
