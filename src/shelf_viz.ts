@@ -61,8 +61,11 @@ function createRodMaterial(isGhost: boolean, ghostOpacity: number = 0.15, color?
   if (isGhost) {
     return new THREE.MeshBasicMaterial({
       color: color ?? 0x90EE90, // Light green
-      transparent: true,
-      opacity: ghostOpacity
+      transparent: isGhost,
+      opacity: ghostOpacity,
+      depthWrite: !isGhost,      // Don't write to depth buffer - prevents bleeding
+      depthTest: true,        // Test against depth buffer - respects solid geometry
+      side: THREE.FrontSide   // Explicit front-face rendering
     });
   } else {
     return new THREE.MeshStandardMaterial({
@@ -114,7 +117,7 @@ function createRodMeshes(
         ghostRodIndex: ghostRodIndex,
         isLegal: true
       };
-      rodMesh.renderOrder = -1; // Render behind real rods
+      rodMesh.renderOrder = 1; // Render after solid geometry for correct transparency
     } else {
       rodMesh.userData = { type: 'rod', rodId: rodId };
     }
@@ -280,12 +283,15 @@ function createWallGrid(scene: any, shelf: Shelf): void {
       map: texture,
       transparent: true,
       opacity: 0.7,
-      side: THREE.DoubleSide
+      side: THREE.DoubleSide,
+      depthWrite: false,  // Don't interfere with depth buffer
+      depthTest: true     // Respect depth from other objects
     });
 
     const labelGeometry = new THREE.PlaneGeometry(120, 50);
     const labelMesh = new THREE.Mesh(labelGeometry, labelMaterial);
     labelMesh.position.set(x, labelY, wallZ + 1);
+    labelMesh.renderOrder = 0; // Render before solid geometry (background layer)
     labelMesh.userData = { type: 'wall_label' };
     scene.add(labelMesh);
   }
@@ -295,12 +301,15 @@ function createWallGrid(scene: any, shelf: Shelf): void {
   const wallMaterial = new THREE.MeshBasicMaterial({
     map: gridTexture,
     side: THREE.DoubleSide,
-    transparent: true,
-    opacity: 1.0
+    transparent: false,
+    opacity: 1.0,
+    depthWrite: true,  // Wall is background, don't write depth
+    depthTest: true    // Always render behind everything
   });
 
   const wallMesh = new THREE.Mesh(wallGeometry, wallMaterial);
   wallMesh.position.set((minX + maxX) / 2, (minY + maxY) / 2, wallZ);
+  wallMesh.renderOrder = 0; // Render before solid geometry (background layer)
   wallMesh.userData = { type: 'wall_background' };
   scene.add(wallMesh);
 }
@@ -379,6 +388,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
         metalness: 0.0
       })
     );
+    plateMesh.renderOrder = 0;
     plateMesh.position.set(centerX, plate.y, plateSKU.depth / 2);
 
     // Store plate data for raycasting
@@ -415,11 +425,15 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
         color: ghostColor,
         transparent: true,
         opacity: ghostOpacity,
-        wireframe: !ghostPlate.legal
+        wireframe: !ghostPlate.legal,
+        depthWrite: false,      // Don't write to depth buffer - prevents bleeding
+        depthTest: true,        // Test against depth buffer - respects solid geometry
+        side: THREE.FrontSide   // Explicit front-face rendering
       })
     );
 
     ghostMesh.position.set(centerX, ghostPlate.midpointPosition.y, 200 / 2);
+    ghostMesh.renderOrder = 1; // Render after solid geometry for correct transparency
     ghostMesh.userData = {
       type: 'ghost_plate',
       ghostPlateIndex: index,
@@ -428,8 +442,8 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
 
     scene.add(ghostMesh);
 
-    // Render ghost rods for this ghost plate
-    if (ghostPlate.rodModifications) {
+    // Render ghost rods for this ghost plate (only if legal)
+    if (ghostPlate.legal && ghostPlate.rodModifications) {
       for (const rodMod of ghostPlate.rodModifications) {
         // Render complete new rod
         const rodSKU = getRodSKU(rodMod.newSkuId!);
@@ -445,6 +459,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
         meshes.forEach(mesh => {
           mesh.userData.type = 'ghost_rod';
           mesh.userData.ghostPlateIndex = index;
+          mesh.renderOrder = 1; // Render after solid geometry for correct transparency
           scene.add(mesh);
         });
       }
@@ -454,7 +469,10 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
   shelf.ghostRods.forEach((ghostRod, index) => {
     const ghostOpacity = 0.15;
     const meshes = createRodMeshes(ghostRod as any as Rod, true, ghostOpacity, index);
-    meshes.forEach(mesh => scene.add(mesh));
+    meshes.forEach(mesh => {
+      mesh.renderOrder = 1; // Render after solid geometry for correct transparency
+      scene.add(mesh);
+    });
   });
 
   // Update URL with current shelf state
