@@ -893,10 +893,13 @@ export function mergePlates(
   const leftPlate = shelf.plates.get(leftPlateId);
   if (!leftPlate) return -1;
 
-  removePlate(rightPlateId, shelf);
+  // Update the left plate's SKU and connections BEFORE removing the right plate
+  // This ensures that when removePlate calls shortenRodFromEnd, it sees that
+  // the attachment points are still in use by the merged plate
   leftPlate.sku_id = newSkuId;
   leftPlate.connections = newConnections;
 
+  // Update all rod attachment points to reference the merged plate
   for (const rodId of newConnections) {
     const rod = shelf.rods.get(rodId);
     if (!rod) continue;
@@ -906,6 +909,10 @@ export function mergePlates(
       attachment.plateId = leftPlateId;
     }
   }
+
+  // Now remove the right plate - rods won't be incorrectly shortened because
+  // their attachment points are already claimed by the merged plate
+  removePlate(rightPlateId, shelf);
 
   return leftPlateId;
 }
