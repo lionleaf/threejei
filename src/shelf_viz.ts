@@ -156,7 +156,7 @@ function createRodMeshes(
  * Creates a wall behind the shelf with a grid pattern.
  * Grid lines every 20cm, with thicker lines every 60cm (3 × 20cm).
  */
-function createWallGrid(scene: any, shelf: Shelf): void {
+function createWallGrid(scene: any, cssScene: any, shelf: Shelf): void {
   const rods = Array.from(shelf.rods.values());
 
   // Calculate leftmost rod position for label alignment (0 reference)
@@ -178,11 +178,10 @@ function createWallGrid(scene: any, shelf: Shelf): void {
 
   // Grid spacing constants
   const smallGridSpacing = 200; // 20cm in mm
-  const largeGridSpacing = 600; // 60cm in mm
 
-  // Create grid texture
+  // Create grid texture (no labels)
   const textureWidth = 2048;
-  const textureHeight = 260 * 2;
+  const textureHeight = 2048;
   const canvas = document.createElement('canvas');
   canvas.width = textureWidth;
   canvas.height = textureHeight;
@@ -244,58 +243,6 @@ function createWallGrid(scene: any, shelf: Shelf): void {
   gridTexture.minFilter = THREE.LinearFilter;
   gridTexture.magFilter = THREE.LinearFilter;
 
-  // Calculate bottom of shelf for label positioning
-  let shelfBottomY = 0;
-  if (rods.length > 0) {
-    const yPositions = rods.map(rod => rod.position.y);
-    shelfBottomY = Math.min(...yPositions);
-  }
-
-  // Find the closest 60cm grid line that is at least 20cm below the shelf bottom
-  const minLabelY = shelfBottomY - 200; // At least 200mm (20cm) below shelf
-  const labelY = Math.floor(minLabelY / largeGridSpacing) * largeGridSpacing;
-  for (let x = Math.floor(minX / largeGridSpacing) * largeGridSpacing; x <= maxX; x += largeGridSpacing) {
-    // Calculate label value relative to leftmost rod (0 at leftmost)
-    const labelValueCm = Math.round((x - leftmostX) / 10); // Convert mm to cm
-
-    const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d')!;
-    canvas.width = 256;
-    canvas.height = 96;
-
-    context.fillStyle = '#666666';
-    context.textAlign = 'center';
-    context.textBaseline = 'alphabetic';
-
-    // Draw the main number
-    context.font = 'bold 60px Arial';
-    context.fillText(`${labelValueCm}`, 128, 60);
-
-    // Draw "cm" subscript
-    context.font = 'bold 30px Arial';
-    context.fillText('cm', 190, 60);
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.minFilter = THREE.LinearFilter;
-    texture.magFilter = THREE.LinearFilter;
-
-    const labelMaterial = new THREE.MeshBasicMaterial({
-      map: texture,
-      transparent: true,
-      opacity: 0.7,
-      side: THREE.DoubleSide,
-      depthWrite: false,  // Don't interfere with depth buffer
-      depthTest: true     // Respect depth from other objects
-    });
-
-    const labelGeometry = new THREE.PlaneGeometry(120, 50);
-    const labelMesh = new THREE.Mesh(labelGeometry, labelMaterial);
-    labelMesh.position.set(x, labelY, wallZ + 1);
-    labelMesh.renderOrder = 0; // Render before solid geometry (background layer)
-    labelMesh.userData = { type: 'wall_label' };
-    scene.add(labelMesh);
-  }
-
   // Add wall background plane with grid texture
   const wallGeometry = new THREE.PlaneGeometry(wallWidth, wallHeight);
   const wallMaterial = new THREE.MeshBasicMaterial({
@@ -303,8 +250,8 @@ function createWallGrid(scene: any, shelf: Shelf): void {
     side: THREE.DoubleSide,
     transparent: false,
     opacity: 1.0,
-    depthWrite: true,  // Wall is background, don't write depth
-    depthTest: true    // Always render behind everything
+    depthWrite: true,
+    depthTest: true
   });
 
   const wallMesh = new THREE.Mesh(wallGeometry, wallMaterial);
@@ -312,12 +259,110 @@ function createWallGrid(scene: any, shelf: Shelf): void {
   wallMesh.renderOrder = 0; // Render before solid geometry (background layer)
   wallMesh.userData = { type: 'wall_background' };
   scene.add(wallMesh);
+
+  // Create horizontal ruler (bottom)
+  createHorizontalRuler(cssScene, shelf, leftmostX, minX, maxX, wallZ);
+
+  // Create vertical ruler (right side)
+  createVerticalRuler(cssScene, shelf, minY, maxY, wallZ);
+}
+
+/**
+ * Creates a horizontal ruler at the bottom of the shelf with distance labels using CSS3D.
+ * This ruler can be repositioned without redrawing textures.
+ */
+function createHorizontalRuler(cssScene: any, shelf: Shelf, leftmostX: number, minX: number, maxX: number, wallZ: number): void {
+  const rods = Array.from(shelf.rods.values());
+
+  // Calculate bottom of shelf for ruler positioning
+  let shelfBottomY = 0;
+  if (rods.length > 0) {
+    const yPositions = rods.map(rod => rod.position.y);
+    shelfBottomY = Math.min(...yPositions);
+  }
+
+  const largeGridSpacing = 600; // 60cm in mm
+
+  // Find the closest 60cm grid line that is at least 20cm below the shelf bottom
+  const minLabelY = shelfBottomY - 200; // At least 200mm (20cm) below shelf
+  const rulerY = Math.floor(minLabelY / largeGridSpacing) * largeGridSpacing;
+
+  // Create labels at every 60cm mark
+  for (let x = Math.floor(minX / largeGridSpacing) * largeGridSpacing; x <= maxX; x += largeGridSpacing) {
+    // Calculate label value relative to leftmost rod (0 at leftmost)
+    const labelValueCm = Math.round((x - leftmostX) / 10); // Convert mm to cm
+
+    // Create HTML element for label
+    const labelDiv = document.createElement('div');
+    labelDiv.style.width = '120px';
+    labelDiv.style.height = '50px';
+    labelDiv.style.textAlign = 'center';
+    labelDiv.style.color = '#666666';
+    labelDiv.style.fontFamily = 'Arial, sans-serif';
+    labelDiv.style.fontWeight = 'bold';
+    labelDiv.style.opacity = '0.7';
+    labelDiv.style.pointerEvents = 'none';
+    labelDiv.style.userSelect = 'none';
+    labelDiv.innerHTML = `<span style="font-size: 30px;">${labelValueCm}</span><span style="font-size: 15px;">cm</span>`;
+
+    // Create CSS3D object
+    const cssObject = new THREE.CSS3DObject(labelDiv);
+    cssObject.position.set(x, rulerY, wallZ + 1);
+    cssObject.userData = { type: 'horizontal_ruler_label', rulerX: x };
+    cssScene.add(cssObject);
+  }
+}
+
+/**
+ * Creates a vertical ruler on the right side of the shelf with height labels using CSS3D.
+ * This ruler can be repositioned without redrawing textures.
+ */
+function createVerticalRuler(cssScene: any, shelf: Shelf, minY: number, maxY: number, wallZ: number): void {
+  const rods = Array.from(shelf.rods.values());
+
+  // Calculate rightmost rod position for ruler positioning
+  let shelfRightX = 0;
+  if (rods.length > 0) {
+    const xPositions = rods.map(rod => rod.position.x);
+    shelfRightX = Math.max(...xPositions);
+  }
+
+  const largeGridSpacing = 600; // 60cm in mm
+
+  // Position ruler 20cm to the right of the rightmost rod
+  const rulerX = shelfRightX + 200;
+
+  // Create labels at every 60cm mark
+  for (let y = Math.floor(minY / largeGridSpacing) * largeGridSpacing; y <= maxY; y += largeGridSpacing) {
+    // Calculate label value in cm from bottom (y=0)
+    const labelValueCm = Math.round(y / 10); // Convert mm to cm
+
+    // Create HTML element for label
+    const labelDiv = document.createElement('div');
+    labelDiv.style.width = '120px';
+    labelDiv.style.height = '50px';
+    labelDiv.style.textAlign = 'center';
+    labelDiv.style.color = '#666666';
+    labelDiv.style.fontFamily = 'Arial, sans-serif';
+    labelDiv.style.fontWeight = 'bold';
+    labelDiv.style.opacity = '0.7';
+    labelDiv.style.pointerEvents = 'none';
+    labelDiv.style.userSelect = 'none';
+    labelDiv.innerHTML = `<span style="font-size: 30px;">${labelValueCm}</span><span style="font-size: 15px;">cm</span>`;
+
+    // Create CSS3D object
+    const cssObject = new THREE.CSS3DObject(labelDiv);
+    cssObject.position.set(rulerX, y, wallZ + 1);
+    cssObject.userData = { type: 'vertical_ruler_label', rulerY: y };
+    cssScene.add(cssObject);
+  }
 }
 
 // Rebuild all shelf geometry (rods, plates, gap colliders)
-function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLDivElement): void {
+function rebuildShelfGeometry(shelf: Shelf, scene: any, cssScene: any, skuListContainer?: HTMLDivElement): void {
   // Remove all children from scene
   scene.clear();
+  cssScene.clear();
 
   // Re-add lighting (cleared by scene.clear())
   const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -333,7 +378,7 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, skuListContainer?: HTMLD
 
   // Add wall with grid pattern
   if (DRAW_WALL) {
-    createWallGrid(scene, shelf);
+    createWallGrid(scene, cssScene, shelf);
   }
 
   // Create gradient map for toon/cell shading with more steps for smoother transitions
@@ -597,11 +642,24 @@ function updateSKUList(shelf: Shelf, container: HTMLDivElement): void {
 // General shelf visualizer
 function visualizeShelf(shelf: Shelf): void {
   const scene = new THREE.Scene();
+  const cssScene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 50, 50000);
+
+  // WebGL renderer
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setClearColor(0xf5f5f5);
   document.body.appendChild(renderer.domElement);
+
+  // CSS3D renderer for rulers
+  const cssRenderer = new THREE.CSS3DRenderer();
+  cssRenderer.setSize(window.innerWidth, window.innerHeight);
+  cssRenderer.domElement.style.position = 'absolute';
+  cssRenderer.domElement.style.top = '0';
+  cssRenderer.domElement.style.left = '0';
+  cssRenderer.domElement.style.pointerEvents = 'none'; // Let clicks pass through to WebGL
+  cssRenderer.domElement.style.zIndex = '10'; // Above WebGL canvas but below UI
+  document.body.appendChild(cssRenderer.domElement);
 
   // Create SKU list container
   const skuListContainer = document.createElement('div');
@@ -943,7 +1001,7 @@ function visualizeShelf(shelf: Shelf): void {
 
   importButton.onclick = () => {
     showImportModal(shelf, () => {
-      rebuildShelfGeometry(shelf, scene, skuListContainer);
+      rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer);
     });
   };
 
@@ -963,7 +1021,7 @@ function visualizeShelf(shelf: Shelf): void {
     shelf.ghostPlates = defaultShelf.ghostPlates;
 
     // Rebuild visualization
-    rebuildShelfGeometry(shelf, scene, skuListContainer);
+    rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer);
     setupDebugCheckbox();
     updateUndoRedoButtons();
   };
@@ -974,7 +1032,7 @@ function visualizeShelf(shelf: Shelf): void {
     if (debugCheckbox) {
       debugCheckbox.addEventListener('change', (e) => {
         DEBUG_SHOW_COLLIDERS = (e.target as HTMLInputElement).checked;
-        rebuildShelfGeometry(shelf, scene, skuListContainer);
+        rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer);
         setupDebugCheckbox(); // Re-attach after rebuild recreates checkboxes
       });
     }
@@ -983,14 +1041,14 @@ function visualizeShelf(shelf: Shelf): void {
     if (wallCheckbox) {
       wallCheckbox.addEventListener('change', (e) => {
         DRAW_WALL = (e.target as HTMLInputElement).checked;
-        rebuildShelfGeometry(shelf, scene, skuListContainer);
+        rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer);
         setupDebugCheckbox(); // Re-attach after rebuild recreates checkboxes
       });
     }
   };
 
   // Initial geometry rendering (this calls updateSKUList which creates the checkbox)
-  rebuildShelfGeometry(shelf, scene, skuListContainer);
+  rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer);
   setupDebugCheckbox();
 
   // Calculate shelf center for camera target
@@ -1031,7 +1089,7 @@ function visualizeShelf(shelf: Shelf): void {
     renderer,
     {
       rebuildGeometry: () => {
-        rebuildShelfGeometry(shelf, scene, skuListContainer);
+        rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer);
         setupDebugCheckbox();
         updateUndoRedoButtons();
       }
@@ -1087,6 +1145,7 @@ function visualizeShelf(shelf: Shelf): void {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    cssRenderer.setSize(window.innerWidth, window.innerHeight);
   }
   window.addEventListener('resize', onWindowResize);
 
@@ -1095,6 +1154,7 @@ function visualizeShelf(shelf: Shelf): void {
     requestAnimationFrame(animate);
     controls.update();
     renderer.render(scene, camera);
+    cssRenderer.render(cssScene, camera);
   }
   animate();
 }

@@ -506,9 +506,14 @@ function validateExtension(
       const matchingSKU = findRodSKUBySpans(expectedSpans);
 
       if (matchingSKU) {
+        // Calculate rod position: for down extensions, keep top fixed by moving position down
+        const extendedPosition = direction === 'down'
+          ? { x: rod.position.x, y: rod.position.y - span }
+          : rod.position;
+
         return {
           action: 'extend',
-          position: rod.position,
+          position: extendedPosition,
           targetRodId: rodId,
           direction,
           extendedSkuId: matchingSKU.sku_id

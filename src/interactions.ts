@@ -255,6 +255,10 @@ export function setupInteractions(
         const isLegal = ghostPlate?.legal;
         child.material.opacity = isLegal ? (getDebugMode() ? 0.3 : 0.15) : (getDebugMode() ? 0.3 : 0.0);
       }
+      // Reset plate hover color
+      if (child.userData?.type === 'plate' && child.material) {
+        child.material.color.setHex(0x76685e); // Original color
+      }
     });
 
     // Hide tooltip by default
@@ -272,6 +276,9 @@ export function setupInteractions(
         if (plate && tooltipContainer) {
           (plate as any).isHovered = true;
 
+          // Change plate color to slightly red to indicate deletion
+          (hit.object.material as any).color.setHex(0xa85e5e); // Reddish tint
+
           // Show tooltip
           tooltipContainer.style.display = 'block';
           tooltipContainer.style.left = `${event.clientX + 20}px`;
@@ -279,12 +286,12 @@ export function setupInteractions(
 
           if (getDebugMode()) {
             // Debug mode: show full JSON
-            tooltipContainer.textContent = `Plate ${plateId}\n` + JSON.stringify(plate, null, 2);
+            tooltipContainer.textContent = `Plate ${plateId} (click to delete)\n` + JSON.stringify(plate, null, 2);
           } else {
             // Normal mode: show human-readable info
             const plateSKU = getPlateSKU(plate.sku_id);
             if (plateSKU) {
-              tooltipContainer.textContent = plateSKU.name;
+              tooltipContainer.textContent = `${plateSKU.name}\nClick to delete`;
             }
           }
         }
