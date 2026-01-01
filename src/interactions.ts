@@ -345,6 +345,33 @@ export function setupInteractions(
         const rodId = userData.rodId;
         const rod = shelf.rods.get(rodId);
         if (rod && tooltipContainer) {
+          // Calculate which segment is being hovered
+          const segmentIndex = calculateRodSegmentIndex(rodId, hit.point.y);
+          const rodSKU = getRodSKU(rod.sku_id);
+
+          if (rodSKU) {
+            const attachmentPositions = calculateAttachmentPositions(rodSKU);
+
+            if (segmentIndex < attachmentPositions.length - 1) {
+              // Show red overlay on the specific segment
+              const bottomY = rod.position.y + attachmentPositions[segmentIndex];
+              const topY = rod.position.y + attachmentPositions[segmentIndex + 1];
+              const segmentCenterY = (bottomY + topY) / 2;
+              const segmentHeight = topY - bottomY;
+
+              const indicator = createHoverIndicator();
+              const indicatorPadding = 2; // Extra padding to avoid z-fighting
+              const rodRadius = 20;
+              const diameter = rodRadius * 2 + indicatorPadding;
+              const rodDistance = 153; // Distance between front and back rods (from shelf_viz.ts)
+              const zCenter = rodRadius + rodDistance / 2; // Center between the two rods
+
+              indicator.visible = true;
+              indicator.scale.set(diameter, segmentHeight, rodDistance + diameter);
+              indicator.position.set(rod.position.x, segmentCenterY, zCenter);
+            }
+          }
+
           // Show tooltip
           tooltipContainer.style.display = 'block';
           tooltipContainer.style.left = `${event.clientX + 20}px`;
@@ -352,12 +379,12 @@ export function setupInteractions(
 
           if (getDebugMode()) {
             // Debug mode: show full JSON
-            tooltipContainer.textContent = `Rod ${rodId}\n` + JSON.stringify(rod, null, 2);
+            tooltipContainer.textContent = `Rod ${rodId} segment ${segmentIndex} (click to delete)\n` + JSON.stringify(rod, null, 2);
           } else {
             // Normal mode: show human-readable info
             const rodSKU = getRodSKU(rod.sku_id);
             if (rodSKU) {
-              tooltipContainer.textContent = rodSKU.name;
+              tooltipContainer.textContent = `${rodSKU.name}\nClick to delete segment`;
             }
           }
         }
