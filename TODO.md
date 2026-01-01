@@ -12,11 +12,11 @@
 
 # Backlog (DO NOT IMPLEMENT yet)
 - [ ] Mobile support
-- [ ] Show ghost plates to users outside debug mode
-- [ ] Add rod segment that was removed
+- [x] Show ghost plates to users outside debug mode
+- [x] Add rod segment that was removed
 - [ ] Add measurements
 - [x] Tooltips with information about the plates
-- [ ] Fix ghost plate colors leaking through existing shelf (make objects centered and smaller?!)
+- [x] Fix ghost plate colors leaking through existing shelf (make objects centered and smaller?!)
 - [x] Add a price list
 
 

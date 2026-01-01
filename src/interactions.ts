@@ -1,6 +1,7 @@
 import { type Shelf, removePlate, removeSegmentFromPlate, removeRodSegment, addPlate, addRod, type Plate, type Rod, calculateAttachmentPositions, mergePlates, extendPlate, Direction, type PlateSegmentResult, GhostPlate, GhostRod, resolveRodConnections, extendRodUp, extendRodDown, mergeRods, getRodSKU, getPlateSKU } from './shelf-model.js';
 import { getDebugMode } from './shelf_viz.js';
 import { UndoManager } from './undo-manager.js';
+import { isTouchDevice } from './mobile-utils.js';
 
 // Declare THREE as global (loaded via CDN)
 declare const THREE: any;
@@ -25,11 +26,24 @@ export function setupInteractions(
   // Raycasting setup
   const raycaster = new THREE.Raycaster();
 
+  // Increase hit radius on touch devices for easier selection
+  const raycastRadius = isTouchDevice ? 0.05 : 0.01;
+  raycaster.params.Line = raycaster.params.Line || {};
+  raycaster.params.Line.threshold = raycastRadius;
+  raycaster.params.Points = raycaster.params.Points || {};
+  raycaster.params.Points.threshold = raycastRadius;
+
   // Initialize undo manager
   const undoManager = new UndoManager(shelf, callbacks.rebuildGeometry);
 
   // Save initial state
   undoManager.saveState('initial');
+
+  // Tap vs drag detection for touch devices
+  let touchStartPos = { x: 0, y: 0 };
+  let touchStartTime = 0;
+  const TAP_THRESHOLD = 10; // pixels
+  const TAP_TIME_THRESHOLD = 300; // ms
 
   // Create a hover indicator mesh (reused for highlighting segments)
   let hoverIndicator: any = null;
@@ -466,7 +480,26 @@ export function setupInteractions(
     }
   }
 
+  // Track pointerdown for tap detection
+  function onPointerDown(event: PointerEvent) {
+    touchStartPos = { x: event.clientX, y: event.clientY };
+    touchStartTime = Date.now();
+  }
+
   function onPointerClick(event: PointerEvent) {
+    // On touch devices, check if this is a tap or a drag
+    if (isTouchDevice) {
+      const dx = event.clientX - touchStartPos.x;
+      const dy = event.clientY - touchStartPos.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      const duration = Date.now() - touchStartTime;
+
+      // If user dragged or held too long, don't treat as tap
+      if (distance > TAP_THRESHOLD || duration > TAP_TIME_THRESHOLD) {
+        return;
+      }
+    }
+
     const pointer = new THREE.Vector2();
     // Convert to normalized device coordinates
     pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
@@ -534,14 +567,16 @@ export function setupInteractions(
 
   // Bind events
   renderer.domElement.addEventListener('pointermove', onPointerMove);
-  renderer.domElement.addEventListener('pointerdown', onPointerClick);
+  renderer.domElement.addEventListener('pointerdown', onPointerDown);
+  renderer.domElement.addEventListener('pointerup', onPointerClick);
   window.addEventListener('keydown', onKeyDown);
 
   // Return cleanup function
   return {
     dispose() {
       renderer.domElement.removeEventListener('pointermove', onPointerMove);
-      renderer.domElement.removeEventListener('pointerdown', onPointerClick);
+      renderer.domElement.removeEventListener('pointerdown', onPointerDown);
+      renderer.domElement.removeEventListener('pointerup', onPointerClick);
       window.removeEventListener('keydown', onKeyDown);
     },
     undoManager

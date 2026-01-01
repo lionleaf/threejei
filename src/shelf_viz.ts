@@ -19,6 +19,8 @@ import { getTotalSpanLength, getRodHeight } from './shelf-utils.js';
 import { setupInteractions } from './interactions.js';
 import { loadPrices, calculateShelfPricing, formatPrice, type PriceData } from './pricing.js';
 import { encodeShelfToJSON, decodeShelfFromJSON, encodeShelf, decodeShelf } from './shelf-encoding.js';
+import { isMobile, isMobileViewport, getDevicePixelRatio, shouldUseReducedQuality } from './mobile-utils.js';
+import { CameraAssistant } from './camera-assistant.js';
 
 // Declare THREE as global (loaded via CDN)
 declare const THREE: any;
@@ -646,8 +648,11 @@ function visualizeShelf(shelf: Shelf): void {
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 50, 50000);
 
   // WebGL renderer
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  const renderer = new THREE.WebGLRenderer({
+    antialias: !shouldUseReducedQuality()
+  });
   renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(getDevicePixelRatio());
   renderer.setClearColor(0xf5f5f5);
   document.body.appendChild(renderer.domElement);
 
@@ -663,16 +668,17 @@ function visualizeShelf(shelf: Shelf): void {
 
   // Create SKU list container
   const skuListContainer = document.createElement('div');
-  skuListContainer.style.position = 'absolute';
-  skuListContainer.style.top = '10px';
+  skuListContainer.style.position = isMobileViewport() ? 'fixed' : 'absolute';
+  skuListContainer.style.top = isMobileViewport() ? 'max(env(safe-area-inset-top), 10px)' : '10px';
   skuListContainer.style.left = '10px';
   skuListContainer.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
   skuListContainer.style.padding = '12px';
   skuListContainer.style.borderRadius = '6px';
   skuListContainer.style.fontFamily = 'monospace';
-  skuListContainer.style.fontSize = '12px';
+  skuListContainer.style.fontSize = isMobileViewport() ? '14px' : '12px';
   skuListContainer.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.2)';
-  skuListContainer.style.minWidth = '150px';
+  skuListContainer.style.minWidth = isMobileViewport() ? '120px' : '150px';
+  skuListContainer.style.maxWidth = isMobileViewport() ? 'calc(100vw - 120px)' : 'none';
   skuListContainer.style.zIndex = '1000';
   document.body.appendChild(skuListContainer);
 
@@ -681,15 +687,16 @@ function visualizeShelf(shelf: Shelf): void {
   tooltipContainer.style.position = 'absolute';
   tooltipContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.9)';
   tooltipContainer.style.color = '#fff';
-  tooltipContainer.style.padding = '8px';
-  tooltipContainer.style.borderRadius = '4px';
+  tooltipContainer.style.padding = isMobileViewport() ? '12px 16px' : '8px';
+  tooltipContainer.style.borderRadius = isMobileViewport() ? '8px' : '4px';
   tooltipContainer.style.fontFamily = 'monospace';
-  tooltipContainer.style.fontSize = '10px';
+  tooltipContainer.style.fontSize = isMobileViewport() ? '14px' : '10px';
   tooltipContainer.style.pointerEvents = 'none';
   tooltipContainer.style.display = 'none';
   tooltipContainer.style.zIndex = '2000';
-  tooltipContainer.style.maxWidth = '400px';
+  tooltipContainer.style.maxWidth = isMobileViewport() ? 'min(300px, 90vw)' : '400px';
   tooltipContainer.style.whiteSpace = 'pre-wrap';
+  tooltipContainer.style.wordWrap = 'break-word';
   document.body.appendChild(tooltipContainer);
 
   // Modal helper functions
@@ -915,84 +922,74 @@ function visualizeShelf(shelf: Shelf): void {
 
   // Create undo/redo button container
   const undoRedoContainer = document.createElement('div');
-  undoRedoContainer.style.position = 'absolute';
-  undoRedoContainer.style.bottom = '10px';
-  undoRedoContainer.style.left = '10px';
-  undoRedoContainer.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
-  undoRedoContainer.style.padding = '8px';
-  undoRedoContainer.style.borderRadius = '6px';
+  const isMobileView = isMobileViewport();
+  undoRedoContainer.style.position = 'fixed';
+  if (isMobileView) {
+    undoRedoContainer.style.bottom = '0';
+    undoRedoContainer.style.left = '0';
+    undoRedoContainer.style.right = '0';
+    undoRedoContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+    undoRedoContainer.style.backdropFilter = 'blur(10px)';
+    undoRedoContainer.style.padding = 'max(env(safe-area-inset-bottom), 16px) 16px 16px';
+  } else {
+    undoRedoContainer.style.bottom = '10px';
+    undoRedoContainer.style.left = '10px';
+    undoRedoContainer.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
+    undoRedoContainer.style.padding = '8px';
+  }
+  undoRedoContainer.style.borderRadius = isMobileView ? '0' : '6px';
   undoRedoContainer.style.fontFamily = 'monospace';
-  undoRedoContainer.style.fontSize = '12px';
+  undoRedoContainer.style.fontSize = isMobileView ? '16px' : '12px';
   undoRedoContainer.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.2)';
   undoRedoContainer.style.display = 'flex';
-  undoRedoContainer.style.gap = '8px';
+  undoRedoContainer.style.flexDirection = isMobileView ? 'column' : 'row';
+  undoRedoContainer.style.gap = isMobileView ? '12px' : '8px';
   undoRedoContainer.style.zIndex = '1000';
   document.body.appendChild(undoRedoContainer);
 
+  // Helper function to create mobile-responsive button
+  function createResponsiveButton(text: string, title: string): HTMLButtonElement {
+    const button = document.createElement('button');
+    button.textContent = text;
+    button.style.minWidth = isMobileView ? '100%' : 'auto';
+    button.style.minHeight = '48px';
+    button.style.padding = isMobileView ? '12px 16px' : '6px 12px';
+    button.style.border = isMobileView ? 'none' : '1px solid #ccc';
+    button.style.borderRadius = isMobileView ? '12px' : '4px';
+    button.style.backgroundColor = isMobileView ? 'rgba(255, 255, 255, 0.2)' : '#fff';
+    button.style.color = isMobileView ? '#fff' : '#000';
+    button.style.cursor = 'pointer';
+    button.style.fontFamily = 'monospace';
+    button.style.fontSize = '16px';
+    button.style.fontWeight = '500';
+    button.style.touchAction = 'manipulation';
+    button.title = title;
+    return button;
+  }
+
   // Create undo button
-  const undoButton = document.createElement('button');
-  undoButton.textContent = '↶ Undo';
-  undoButton.style.padding = '6px 12px';
-  undoButton.style.border = '1px solid #ccc';
-  undoButton.style.borderRadius = '4px';
-  undoButton.style.backgroundColor = '#fff';
-  undoButton.style.cursor = 'pointer';
-  undoButton.style.fontFamily = 'monospace';
-  undoButton.style.fontSize = '11px';
-  undoButton.title = 'Undo (Ctrl+Z)';
+  const undoButton = createResponsiveButton('↶ Undo', 'Undo (Ctrl+Z)');
   undoRedoContainer.appendChild(undoButton);
 
   // Create redo button
-  const redoButton = document.createElement('button');
-  redoButton.textContent = '↷ Redo';
-  redoButton.style.padding = '6px 12px';
-  redoButton.style.border = '1px solid #ccc';
-  redoButton.style.borderRadius = '4px';
-  redoButton.style.backgroundColor = '#fff';
-  redoButton.style.cursor = 'pointer';
-  redoButton.style.fontFamily = 'monospace';
-  redoButton.style.fontSize = '11px';
-  redoButton.title = 'Redo (Ctrl+Shift+Z)';
+  const redoButton = createResponsiveButton('↷ Redo', 'Redo (Ctrl+Shift+Z)');
   undoRedoContainer.appendChild(redoButton);
 
   // Create export button
-  const exportButton = document.createElement('button');
-  exportButton.textContent = '💾 Export';
-  exportButton.style.padding = '6px 12px';
-  exportButton.style.border = '1px solid #ccc';
-  exportButton.style.borderRadius = '4px';
-  exportButton.style.backgroundColor = '#fff';
-  exportButton.style.cursor = 'pointer';
-  exportButton.style.fontFamily = 'monospace';
-  exportButton.style.fontSize = '11px';
-  exportButton.title = 'Export shelf configuration';
+  const exportButton = createResponsiveButton('💾 Export', 'Export shelf configuration');
   undoRedoContainer.appendChild(exportButton);
 
   // Create import button
-  const importButton = document.createElement('button');
-  importButton.textContent = '📥 Import';
-  importButton.style.padding = '6px 12px';
-  importButton.style.border = '1px solid #ccc';
-  importButton.style.borderRadius = '4px';
-  importButton.style.backgroundColor = '#fff';
-  importButton.style.cursor = 'pointer';
-  importButton.style.fontFamily = 'monospace';
-  importButton.style.fontSize = '11px';
-  importButton.title = 'Import shelf configuration';
+  const importButton = createResponsiveButton('📥 Import', 'Import shelf configuration');
   undoRedoContainer.appendChild(importButton);
 
   // Create reset button
-  const resetButton = document.createElement('button');
-  resetButton.textContent = '🔄 Reset';
-  resetButton.style.padding = '6px 12px';
-  resetButton.style.border = '1px solid #ccc';
-  resetButton.style.borderRadius = '4px';
-  resetButton.style.backgroundColor = '#fff';
-  resetButton.style.cursor = 'pointer';
-  resetButton.style.fontFamily = 'monospace';
-  resetButton.style.fontSize = '11px';
-  resetButton.title = 'Reset to default shelf';
+  const resetButton = createResponsiveButton('🔄 Reset', 'Reset to default shelf');
   undoRedoContainer.appendChild(resetButton);
+
+  // Create fit view button
+  const fitViewButton = createResponsiveButton('📷 Fit View', 'Frame all shelves in view');
+  undoRedoContainer.appendChild(fitViewButton);
 
   // Wire up export/import button handlers
   exportButton.onclick = () => {
@@ -1025,6 +1022,9 @@ function visualizeShelf(shelf: Shelf): void {
     setupDebugCheckbox();
     updateUndoRedoButtons();
   };
+
+  // Wire up fit view button (needs to be defined after cameraAssistant is created)
+  // Will be set up below after cameraAssistant initialization
 
   // Setup debug and wall checkbox event listeners
   const setupDebugCheckbox = () => {
@@ -1065,10 +1065,25 @@ function visualizeShelf(shelf: Shelf): void {
   // Set up OrbitControls
   const controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
-  controls.dampingFactor = 0.1;
+  controls.dampingFactor = isMobile ? 0.15 : 0.1;
   controls.enableZoom = true;
   controls.enablePan = true;
   controls.enableRotate = true;
+
+  // Mobile-optimized control sensitivity
+  if (isMobile) {
+    controls.rotateSpeed = 0.5;
+    controls.zoomSpeed = 0.8;
+    controls.panSpeed = 0.5;
+
+    // Prevent over-rotation on mobile
+    controls.minPolarAngle = Math.PI / 6;
+    controls.maxPolarAngle = Math.PI / 2 + Math.PI / 6;
+
+    // Zoom limits
+    controls.minDistance = 500;
+    controls.maxDistance = 3000;
+  }
 
   // Set camera target to shelf center
   controls.target.set(centerX, centerY, 100);
@@ -1080,6 +1095,14 @@ function visualizeShelf(shelf: Shelf): void {
   const cameraDistance = Math.max(shelfWidth, shelfHeight) * 0.8 + 800;
   camera.position.set(centerX, centerY + 400, cameraDistance);
   controls.update();
+
+  // Initialize camera assistant for automatic framing
+  const cameraAssistant = new CameraAssistant(camera, controls, scene);
+
+  // Wire up fit view button
+  fitViewButton.onclick = () => {
+    cameraAssistant.frameAll(true, 1000);
+  };
 
   // Setup interactions with regeneration callback
   const interactions = setupInteractions(
