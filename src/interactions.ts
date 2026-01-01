@@ -31,6 +31,32 @@ export function setupInteractions(
   // Save initial state
   undoManager.saveState('initial');
 
+  // Create a hover indicator mesh (reused for highlighting segments)
+  let hoverIndicator: any = null;
+  function createHoverIndicator(): any {
+    if (hoverIndicator) {
+      scene.remove(hoverIndicator);
+    }
+    const geometry = new THREE.BoxGeometry(1, 1, 1); // Will be scaled to fit
+    const material = new THREE.MeshBasicMaterial({
+      color: 0xff4444,
+      transparent: true,
+      opacity: 0.4,
+      depthTest: true,
+      depthWrite: false
+    });
+    hoverIndicator = new THREE.Mesh(geometry, material);
+    hoverIndicator.renderOrder = 2; // Render on top
+    scene.add(hoverIndicator);
+    return hoverIndicator;
+  }
+
+  function hideHoverIndicator(): void {
+    if (hoverIndicator) {
+      hoverIndicator.visible = false;
+    }
+  }
+
   function calculatePlateSegmentIndex(plate: Plate, hitX: number): number {
     const rods = plate.connections.map(id => shelf.rods.get(id)).filter(r => r !== undefined);
 
@@ -156,9 +182,9 @@ export function setupInteractions(
     if (action === 'merge') {
       console.log('Executing merge action');
       if (ghostPlate.existingPlateId !== undefined &&
-          ghostPlate.targetPlateId !== undefined &&
-          ghostPlate.sku_id !== undefined &&
-          ghostPlate.connections) {
+        ghostPlate.targetPlateId !== undefined &&
+        ghostPlate.sku_id !== undefined &&
+        ghostPlate.connections) {
         const mergedPlateId = mergePlates(
           ghostPlate.existingPlateId,
           ghostPlate.targetPlateId,
@@ -255,11 +281,10 @@ export function setupInteractions(
         const isLegal = ghostPlate?.legal;
         child.material.opacity = isLegal ? (getDebugMode() ? 0.3 : 0.15) : (getDebugMode() ? 0.3 : 0.0);
       }
-      // Reset plate hover color
-      if (child.userData?.type === 'plate' && child.material) {
-        child.material.color.setHex(0x76685e); // Original color
-      }
     });
+
+    // Hide hover indicator by default
+    hideHoverIndicator();
 
     // Hide tooltip by default
     if (tooltipContainer) {
@@ -276,8 +301,28 @@ export function setupInteractions(
         if (plate && tooltipContainer) {
           (plate as any).isHovered = true;
 
-          // Change plate color to slightly red to indicate deletion
-          (hit.object.material as any).color.setHex(0xa85e5e); // Reddish tint
+          // Calculate which segment is being hovered
+          const segmentIndex = calculatePlateSegmentIndex(plate, hit.point.x);
+          const rods = plate.connections.map(id => shelf.rods.get(id)).filter(r => r !== undefined);
+
+          if (segmentIndex < rods.length - 1) {
+            // Show red overlay on the specific segment
+            const leftRod = rods[segmentIndex]!;
+            const rightRod = rods[segmentIndex + 1]!;
+            const segmentCenterX = (leftRod.position.x + rightRod.position.x) / 2;
+            const segmentWidth = rightRod.position.x - leftRod.position.x;
+
+            const indicatorPadding = 2; // Extra padding to avoid z-fighting
+            const plateSKU = getPlateSKU(plate.sku_id);
+            if (plateSKU) {
+              const indicator = createHoverIndicator();
+              const depth = plateSKU.depth + indicatorPadding;
+              const height = 20 + indicatorPadding;
+              indicator.visible = true;
+              indicator.scale.set(segmentWidth, height, depth); // Match plate dimensions
+              indicator.position.set(segmentCenterX, plate.y, depth / 2);
+            }
+          }
 
           // Show tooltip
           tooltipContainer.style.display = 'block';
@@ -286,12 +331,12 @@ export function setupInteractions(
 
           if (getDebugMode()) {
             // Debug mode: show full JSON
-            tooltipContainer.textContent = `Plate ${plateId} (click to delete)\n` + JSON.stringify(plate, null, 2);
+            tooltipContainer.textContent = `Plate ${plateId} segment ${segmentIndex} (click to delete)\n` + JSON.stringify(plate, null, 2);
           } else {
             // Normal mode: show human-readable info
             const plateSKU = getPlateSKU(plate.sku_id);
             if (plateSKU) {
-              tooltipContainer.textContent = `${plateSKU.name}\nClick to delete`;
+              tooltipContainer.textContent = `${plateSKU.name}\nClick to delete segment`;
             }
           }
         }
@@ -329,7 +374,7 @@ export function setupInteractions(
         scene.children.forEach((child: any) => {
           if (child.userData?.ghostPlateIndex === ghostPlateIndex) {
             if (child.userData?.type === 'ghost_rod' ||
-                child.userData?.type === 'ghost_connection_rod') {
+              child.userData?.type === 'ghost_connection_rod') {
               (child.material as any).opacity = targetOpacity;
             }
           }
@@ -349,8 +394,8 @@ export function setupInteractions(
             const plateSKU = getPlateSKU(ghostPlate.sku_id);
             if (plateSKU && ghostPlate.legal) {
               const actionText = ghostPlate.action === 'create' ? 'Add' :
-                                ghostPlate.action === 'extend' ? 'Extend' :
-                                ghostPlate.action === 'merge' ? 'Merge' : '';
+                ghostPlate.action === 'extend' ? 'Extend' :
+                  ghostPlate.action === 'merge' ? 'Merge' : '';
               tooltipContainer.textContent = `${actionText} ${plateSKU.name}`;
             } else if (!ghostPlate.legal) {
               tooltipContainer.textContent = 'Invalid';
@@ -366,7 +411,7 @@ export function setupInteractions(
         // Update opacity for all ghost rod cylinders with the same index
         scene.children.forEach((child: any) => {
           if (child.userData?.type === 'ghostRod' &&
-              child.userData?.ghostRodIndex === ghostRodIndex) {
+            child.userData?.ghostRodIndex === ghostRodIndex) {
             (child.material as any).opacity = targetOpacity;
           }
         });
