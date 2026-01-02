@@ -361,7 +361,18 @@ function createVerticalRuler(cssScene: any, shelf: Shelf, minY: number, maxY: nu
 }
 
 // Rebuild all shelf geometry (rods, plates, gap colliders)
-function rebuildShelfGeometry(shelf: Shelf, scene: any, cssScene: any, skuListContainer?: HTMLDivElement): void {
+function rebuildShelfGeometry(
+  shelf: Shelf,
+  scene: any,
+  cssScene: any,
+  skuListContainer?: HTMLDivElement,
+  rebuildState?: { isRebuilding: boolean }
+): void {
+  // Set rebuilding flag to prevent rendering during scene reconstruction
+  if (rebuildState) {
+    rebuildState.isRebuilding = true;
+  }
+
   // Remove all children from scene
   scene.clear();
   cssScene.clear();
@@ -524,6 +535,11 @@ function rebuildShelfGeometry(shelf: Shelf, scene: any, cssScene: any, skuListCo
 
   // Update URL with current shelf state
   updateURLWithShelf(shelf);
+
+  // Clear rebuilding flag - scene is now ready to render
+  if (rebuildState) {
+    rebuildState.isRebuilding = false;
+  }
 }
 
 
@@ -645,6 +661,9 @@ function updateSKUList(shelf: Shelf, container: HTMLDivElement): void {
 function visualizeShelf(shelf: Shelf): void {
   const scene = new THREE.Scene();
   const cssScene = new THREE.Scene();
+
+  // State object to prevent rendering during scene rebuild
+  const rebuildState = { isRebuilding: false };
 
   // Helper function to calculate canvas dimensions
   const MIN_SKU_LIST_WIDTH = 220; // Minimum width of parts list on desktop
@@ -1113,11 +1132,11 @@ function visualizeShelf(shelf: Shelf): void {
   undoRedoContainer.appendChild(redoButton);
 
   // Create export button
-  const exportButton = createResponsiveButton('💾 Export', 'Export shelf configuration');
+  const exportButton = createResponsiveButton('Export', 'Export shelf configuration');
   undoRedoContainer.appendChild(exportButton);
 
   // Create import button
-  const importButton = createResponsiveButton('📥 Import', 'Import shelf configuration');
+  const importButton = createResponsiveButton('Import', 'Import shelf configuration');
   undoRedoContainer.appendChild(importButton);
 
   // Create reset button
@@ -1131,7 +1150,7 @@ function visualizeShelf(shelf: Shelf): void {
 
   importButton.onclick = () => {
     showImportModal(shelf, () => {
-      rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer);
+      rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer, rebuildState);
     });
   };
 
@@ -1151,7 +1170,7 @@ function visualizeShelf(shelf: Shelf): void {
     shelf.ghostPlates = defaultShelf.ghostPlates;
 
     // Rebuild visualization
-    rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer);
+    rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer, rebuildState);
     setupDebugCheckbox();
     updateUndoRedoButtons();
   };
@@ -1165,7 +1184,7 @@ function visualizeShelf(shelf: Shelf): void {
     if (debugCheckbox) {
       debugCheckbox.addEventListener('change', (e) => {
         DEBUG_SHOW_COLLIDERS = (e.target as HTMLInputElement).checked;
-        rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer);
+        rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer, rebuildState);
         setupDebugCheckbox(); // Re-attach after rebuild recreates checkboxes
       });
     }
@@ -1174,14 +1193,14 @@ function visualizeShelf(shelf: Shelf): void {
     if (wallCheckbox) {
       wallCheckbox.addEventListener('change', (e) => {
         DRAW_WALL = (e.target as HTMLInputElement).checked;
-        rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer);
+        rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer, rebuildState);
         setupDebugCheckbox(); // Re-attach after rebuild recreates checkboxes
       });
     }
   };
 
   // Initial geometry rendering (this calls updateSKUList which creates the checkbox)
-  rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer);
+  rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer, rebuildState);
   setupDebugCheckbox();
 
   // Set up OrbitControls
@@ -1222,10 +1241,10 @@ function visualizeShelf(shelf: Shelf): void {
     renderer,
     {
       rebuildGeometry: () => {
-        rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer);
+        rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer, rebuildState);
         setupDebugCheckbox();
         updateUndoRedoButtons();
-        // Notify camera assistant of shelf change
+        // Notify camera assistant after rebuild completes for smoother transition
         cameraAssistant.onShelfChange();
       }
     },
@@ -1352,12 +1371,12 @@ function visualizeShelf(shelf: Shelf): void {
         z-index: 1000;
       `;
 
-      // Update all buttons for mobile: icon-only
+      // Update all buttons for mobile: icon-only for undo/redo/reset, text for export/import
       [undoButton, redoButton, exportButton, importButton, resetButton].forEach(btn => {
         if (btn.title.includes('Undo')) btn.textContent = '↶';
         else if (btn.title.includes('Redo')) btn.textContent = '↷';
-        else if (btn.title.includes('Export')) btn.textContent = '💾';
-        else if (btn.title.includes('Import')) btn.textContent = '📥';
+        else if (btn.title.includes('Export')) btn.textContent = 'Export';
+        else if (btn.title.includes('Import')) btn.textContent = 'Import';
         else if (btn.title.includes('Reset')) btn.textContent = '🔄';
 
         btn.style.cssText = `
@@ -1431,8 +1450,8 @@ function visualizeShelf(shelf: Shelf): void {
       // Update all buttons for desktop: text labels
       undoButton.textContent = '↶ Undo';
       redoButton.textContent = '↷ Redo';
-      exportButton.textContent = '💾 Export';
-      importButton.textContent = '📥 Import';
+      exportButton.textContent = 'Export';
+      importButton.textContent = 'Import';
       resetButton.textContent = '🔄 Reset';
 
       [undoButton, redoButton, exportButton, importButton, resetButton].forEach(btn => {
@@ -1488,8 +1507,11 @@ function visualizeShelf(shelf: Shelf): void {
     // Update automatic camera framing
     cameraAssistant.updateAutoFrame();
 
-    renderer.render(scene, camera);
-    cssRenderer.render(cssScene, camera);
+    // Only render if not currently rebuilding the scene
+    if (!rebuildState.isRebuilding) {
+      renderer.render(scene, camera);
+      cssRenderer.render(cssScene, camera);
+    }
   }
   animate();
 }
