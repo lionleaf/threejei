@@ -265,9 +265,13 @@ export function setupInteractions(
   // Pointer event handling for raycasting
   function onPointerMove(event: PointerEvent) {
     const pointer = new THREE.Vector2();
-    // Convert to normalized device coordinates (-1 to +1)
-    pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
-    pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    // Get canvas bounds to account for canvas offset (sidebar on desktop)
+    const canvas = renderer.domElement;
+    const rect = canvas.getBoundingClientRect();
+
+    // Convert to normalized device coordinates (-1 to +1) relative to canvas
+    pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
     // Update raycaster
     raycaster.setFromCamera(pointer, camera);
@@ -501,9 +505,13 @@ export function setupInteractions(
     }
 
     const pointer = new THREE.Vector2();
-    // Convert to normalized device coordinates
-    pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
-    pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    // Get canvas bounds to account for canvas offset (sidebar on desktop)
+    const canvas = renderer.domElement;
+    const rect = canvas.getBoundingClientRect();
+
+    // Convert to normalized device coordinates (-1 to +1) relative to canvas
+    pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
     raycaster.setFromCamera(pointer, camera);
     const intersects = raycaster.intersectObjects(scene.children, true);

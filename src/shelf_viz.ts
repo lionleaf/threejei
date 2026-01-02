@@ -645,42 +645,163 @@ function updateSKUList(shelf: Shelf, container: HTMLDivElement): void {
 function visualizeShelf(shelf: Shelf): void {
   const scene = new THREE.Scene();
   const cssScene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 50, 50000);
+
+  // Helper function to calculate canvas dimensions
+  const MIN_SKU_LIST_WIDTH = 220; // Minimum width of parts list on desktop
+  const MAX_SKU_LIST_WIDTH = 350; // Maximum width to prevent sidebar from being too wide
+
+  // Initialize with minimum sidebar width, will update after sidebar is created
+  const initialWidth = isMobileViewport() ? window.innerWidth : window.innerWidth - MIN_SKU_LIST_WIDTH;
+  const camera = new THREE.PerspectiveCamera(75, initialWidth / window.innerHeight, 50, 50000);
 
   // WebGL renderer
   const renderer = new THREE.WebGLRenderer({
     antialias: !shouldUseReducedQuality()
   });
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(initialWidth, window.innerHeight);
   renderer.setPixelRatio(getDevicePixelRatio());
   renderer.setClearColor(0xf5f5f5);
+  renderer.domElement.style.position = 'absolute';
+  renderer.domElement.style.top = '0';
+  renderer.domElement.style.right = '0';
   document.body.appendChild(renderer.domElement);
 
   // CSS3D renderer for rulers
   const cssRenderer = new THREE.CSS3DRenderer();
-  cssRenderer.setSize(window.innerWidth, window.innerHeight);
+  cssRenderer.setSize(initialWidth, window.innerHeight);
   cssRenderer.domElement.style.position = 'absolute';
   cssRenderer.domElement.style.top = '0';
-  cssRenderer.domElement.style.left = '0';
+  cssRenderer.domElement.style.right = '0';
   cssRenderer.domElement.style.pointerEvents = 'none'; // Let clicks pass through to WebGL
   cssRenderer.domElement.style.zIndex = '10'; // Above WebGL canvas but below UI
   document.body.appendChild(cssRenderer.domElement);
 
-  // Create SKU list container
+  // Create SKU list sidebar - full height on desktop, collapsible on mobile
+  const skuListWrapper = document.createElement('div');
+  const isMobileSidebar = isMobileViewport();
+
+  if (isMobileSidebar) {
+    // Mobile: floating overlay
+    skuListWrapper.style.cssText = `
+      position: fixed;
+      top: max(env(safe-area-inset-top), 10px);
+      left: 10px;
+      z-index: 1000;
+      max-width: calc(100vw - 20px);
+    `;
+  } else {
+    // Desktop: full-height sidebar with dynamic width
+    skuListWrapper.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      min-width: ${MIN_SKU_LIST_WIDTH}px;
+      max-width: ${MAX_SKU_LIST_WIDTH}px;
+      width: max-content;
+      height: 100vh;
+      background: linear-gradient(180deg, #ffffff 0%, #f8f9fa 100%);
+      border-right: 1px solid #e0e0e0;
+      box-shadow: 2px 0 8px rgba(0, 0, 0, 0.05);
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    `;
+  }
+
+  // Create toggle button for mobile
+  const skuToggleButton = document.createElement('button');
+  skuToggleButton.textContent = '📋';
+  skuToggleButton.style.cssText = `
+    width: 44px;
+    height: 44px;
+    background-color: rgba(255, 255, 255, 0.9);
+    border: none;
+    border-radius: 6px;
+    font-size: 24px;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    display: ${isMobileSidebar ? 'block' : 'none'};
+    margin-bottom: 8px;
+    touch-action: manipulation;
+  `;
+  skuToggleButton.title = 'Toggle parts list';
+
+  // Create header for desktop sidebar
+  const sidebarHeader = document.createElement('div');
+  if (!isMobileSidebar) {
+    sidebarHeader.style.cssText = `
+      padding: 20px 16px;
+      border-bottom: 1px solid #e0e0e0;
+      background: white;
+    `;
+
+    const headerTitle = document.createElement('h2');
+    headerTitle.textContent = 'Parts List';
+    headerTitle.style.cssText = `
+      margin: 0;
+      font-size: 16px;
+      font-weight: 600;
+      color: #2c3e50;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    `;
+
+    sidebarHeader.appendChild(headerTitle);
+  }
+
+  // Create the actual SKU list container
   const skuListContainer = document.createElement('div');
-  skuListContainer.style.position = isMobileViewport() ? 'fixed' : 'absolute';
-  skuListContainer.style.top = isMobileViewport() ? 'max(env(safe-area-inset-top), 10px)' : '10px';
-  skuListContainer.style.left = '10px';
-  skuListContainer.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
-  skuListContainer.style.padding = '12px';
-  skuListContainer.style.borderRadius = '6px';
-  skuListContainer.style.fontFamily = 'monospace';
-  skuListContainer.style.fontSize = isMobileViewport() ? '14px' : '12px';
-  skuListContainer.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.2)';
-  skuListContainer.style.minWidth = isMobileViewport() ? '120px' : '150px';
-  skuListContainer.style.maxWidth = isMobileViewport() ? 'calc(100vw - 120px)' : 'none';
-  skuListContainer.style.zIndex = '1000';
-  document.body.appendChild(skuListContainer);
+
+  if (isMobileSidebar) {
+    // Mobile: compact overlay style
+    skuListContainer.style.cssText = `
+      background-color: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(10px);
+      padding: 12px;
+      border-radius: 6px;
+      font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
+      font-size: 14px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+      min-width: 200px;
+      max-height: calc(100vh - 200px);
+      overflow-y: auto;
+      transition: all 0.3s ease;
+      display: none;
+    `;
+  } else {
+    // Desktop: full sidebar content area
+    skuListContainer.style.cssText = `
+      flex: 1;
+      padding: 16px;
+      font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
+      font-size: 13px;
+      overflow-y: auto;
+      color: #2c3e50;
+      line-height: 1.6;
+    `;
+  }
+
+  // Start collapsed on mobile, expanded on desktop
+  let isExpanded = !isMobileSidebar;
+
+  // Toggle functionality
+  skuToggleButton.addEventListener('click', () => {
+    isExpanded = !isExpanded;
+    if (isExpanded) {
+      skuListContainer.style.display = 'block';
+      skuToggleButton.textContent = '✕';
+    } else {
+      skuListContainer.style.display = 'none';
+      skuToggleButton.textContent = '📋';
+    }
+  });
+
+  skuListWrapper.appendChild(skuToggleButton);
+  if (!isMobileSidebar) {
+    skuListWrapper.appendChild(sidebarHeader);
+  }
+  skuListWrapper.appendChild(skuListContainer);
+  document.body.appendChild(skuListWrapper);
 
   // Create tooltip container
   const tooltipContainer = document.createElement('div');
@@ -930,7 +1051,9 @@ function visualizeShelf(shelf: Shelf): void {
     undoRedoContainer.style.right = '0';
     undoRedoContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
     undoRedoContainer.style.backdropFilter = 'blur(10px)';
-    undoRedoContainer.style.padding = 'max(env(safe-area-inset-bottom), 16px) 16px 16px';
+    undoRedoContainer.style.padding = '8px';
+    undoRedoContainer.style.paddingBottom = 'max(env(safe-area-inset-bottom), 8px)';
+    undoRedoContainer.style.justifyContent = 'space-around';
   } else {
     undoRedoContainer.style.bottom = '10px';
     undoRedoContainer.style.left = '10px';
@@ -939,30 +1062,44 @@ function visualizeShelf(shelf: Shelf): void {
   }
   undoRedoContainer.style.borderRadius = isMobileView ? '0' : '6px';
   undoRedoContainer.style.fontFamily = 'monospace';
-  undoRedoContainer.style.fontSize = isMobileView ? '16px' : '12px';
+  undoRedoContainer.style.fontSize = isMobileView ? '24px' : '12px';
   undoRedoContainer.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.2)';
   undoRedoContainer.style.display = 'flex';
-  undoRedoContainer.style.flexDirection = isMobileView ? 'column' : 'row';
-  undoRedoContainer.style.gap = isMobileView ? '12px' : '8px';
+  undoRedoContainer.style.flexDirection = 'row';
+  undoRedoContainer.style.gap = isMobileView ? '4px' : '8px';
   undoRedoContainer.style.zIndex = '1000';
   document.body.appendChild(undoRedoContainer);
 
   // Helper function to create mobile-responsive button
-  function createResponsiveButton(text: string, title: string): HTMLButtonElement {
+  function createResponsiveButton(text: string, title: string, iconOnly?: string): HTMLButtonElement {
     const button = document.createElement('button');
-    button.textContent = text;
-    button.style.minWidth = isMobileView ? '100%' : 'auto';
+    // On mobile, show only icon if provided, otherwise extract emoji from text
+    if (isMobileView && iconOnly) {
+      button.textContent = iconOnly;
+    } else if (isMobileView) {
+      // Extract emoji (first character) from text like "↶ Undo"
+      button.textContent = text.split(' ')[0];
+    } else {
+      button.textContent = text;
+    }
+    button.style.minWidth = isMobileView ? '48px' : 'auto';
+    button.style.width = isMobileView ? '48px' : 'auto';
     button.style.minHeight = '48px';
-    button.style.padding = isMobileView ? '12px 16px' : '6px 12px';
+    button.style.height = '48px';
+    button.style.padding = isMobileView ? '0' : '6px 12px';
     button.style.border = isMobileView ? 'none' : '1px solid #ccc';
-    button.style.borderRadius = isMobileView ? '12px' : '4px';
-    button.style.backgroundColor = isMobileView ? 'rgba(255, 255, 255, 0.2)' : '#fff';
+    button.style.borderRadius = isMobileView ? '8px' : '4px';
+    button.style.backgroundColor = isMobileView ? 'rgba(255, 255, 255, 0.15)' : '#fff';
     button.style.color = isMobileView ? '#fff' : '#000';
     button.style.cursor = 'pointer';
     button.style.fontFamily = 'monospace';
-    button.style.fontSize = '16px';
+    button.style.fontSize = isMobileView ? '24px' : '16px';
     button.style.fontWeight = '500';
     button.style.touchAction = 'manipulation';
+    button.style.display = 'flex';
+    button.style.alignItems = 'center';
+    button.style.justifyContent = 'center';
+    button.style.flexShrink = '0';
     button.title = title;
     return button;
   }
@@ -1051,17 +1188,6 @@ function visualizeShelf(shelf: Shelf): void {
   rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer);
   setupDebugCheckbox();
 
-  // Calculate shelf center for camera target
-  const rods = Array.from(shelf.rods.values());
-  const xPositions = rods.map(rod => rod.position.x);
-  const yPositions = rods.map(rod => rod.position.y);
-  const minX = Math.min(...xPositions);
-  const maxX = Math.max(...xPositions);
-  const minY = Math.min(...yPositions);
-  const maxY = Math.max(...yPositions);
-  const centerX = (minX + maxX) / 2;
-  const centerY = (minY + maxY) / 2 + 150; // Add typical shelf height
-
   // Set up OrbitControls
   const controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
@@ -1080,21 +1206,14 @@ function visualizeShelf(shelf: Shelf): void {
     controls.minPolarAngle = Math.PI / 6;
     controls.maxPolarAngle = Math.PI / 2 + Math.PI / 6;
 
-    // Zoom limits
-    controls.minDistance = 500;
-    controls.maxDistance = 3000;
+    // Zoom limits - allow much further zoom out for large shelves
+    controls.minDistance = 300;
+    controls.maxDistance = 15000;  // Increased from 3000 to allow very large shelves
+  } else {
+    // Desktop zoom limits
+    controls.minDistance = 300;
+    controls.maxDistance = 20000;
   }
-
-  // Set camera target to shelf center
-  controls.target.set(centerX, centerY, 100);
-
-  // Position camera for wall-mounted shelf view (looking at XY plane from positive Z)
-  // Camera is higher and further back, looking down at the shelf
-  const shelfWidth = maxX - minX;
-  const shelfHeight = maxY - minY + 300; // Add rod height
-  const cameraDistance = Math.max(shelfWidth, shelfHeight) * 0.8 + 800;
-  camera.position.set(centerX, centerY + 400, cameraDistance);
-  controls.update();
 
   // Initialize camera assistant for automatic framing
   const cameraAssistant = new CameraAssistant(camera, controls, scene);
@@ -1115,6 +1234,8 @@ function visualizeShelf(shelf: Shelf): void {
         rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer);
         setupDebugCheckbox();
         updateUndoRedoButtons();
+        // Notify camera assistant of shelf change
+        cameraAssistant.onShelfChange();
       }
     },
     tooltipContainer
@@ -1165,17 +1286,219 @@ function visualizeShelf(shelf: Shelf): void {
 
   // Handle window resize
   function onWindowResize() {
-    camera.aspect = window.innerWidth / window.innerHeight;
+    const isMobileNow = isMobileViewport();
+
+    // Calculate canvas dimensions based on viewport and sidebar
+    let canvasWidth: number;
+    if (isMobileNow) {
+      canvasWidth = window.innerWidth;
+    } else {
+      // On desktop, use actual sidebar width
+      const sidebarWidth = skuListWrapper.offsetWidth || MIN_SKU_LIST_WIDTH;
+      canvasWidth = window.innerWidth - sidebarWidth;
+    }
+
+    // Update canvas dimensions
+    camera.aspect = canvasWidth / window.innerHeight;
     camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    cssRenderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setSize(canvasWidth, window.innerHeight);
+    cssRenderer.setSize(canvasWidth, window.innerHeight);
+
+    // Update sidebar layout based on viewport size
+    if (isMobileNow) {
+      // Mobile: floating overlay, start collapsed
+      skuListWrapper.style.cssText = `
+        position: fixed;
+        top: max(env(safe-area-inset-top), 10px);
+        left: 10px;
+        z-index: 1000;
+        max-width: calc(100vw - 20px);
+      `;
+
+      skuToggleButton.style.display = 'block';
+
+      // Collapse when transitioning to mobile
+      isExpanded = false;
+      skuToggleButton.textContent = '📋';
+
+      skuListContainer.style.cssText = `
+        background-color: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(10px);
+        padding: 12px;
+        border-radius: 6px;
+        font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
+        font-size: 14px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        min-width: 200px;
+        max-height: calc(100vh - 200px);
+        overflow-y: auto;
+        transition: all 0.3s ease;
+        display: none;
+      `;
+
+      // Hide desktop header on mobile
+      if (sidebarHeader.parentNode) {
+        sidebarHeader.remove();
+      }
+
+      // Update button bar for mobile: full-width bottom bar
+      undoRedoContainer.style.cssText = `
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background-color: rgba(0, 0, 0, 0.8);
+        backdrop-filter: blur(10px);
+        padding: 8px;
+        padding-bottom: max(env(safe-area-inset-bottom), 8px);
+        justify-content: space-around;
+        border-radius: 0;
+        font-size: 24px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        display: flex;
+        flex-direction: row;
+        gap: 4px;
+        z-index: 1000;
+      `;
+
+      // Update all buttons for mobile: icon-only
+      [undoButton, redoButton, exportButton, importButton, resetButton, fitViewButton].forEach(btn => {
+        if (btn.title.includes('Undo')) btn.textContent = '↶';
+        else if (btn.title.includes('Redo')) btn.textContent = '↷';
+        else if (btn.title.includes('Export')) btn.textContent = '💾';
+        else if (btn.title.includes('Import')) btn.textContent = '📥';
+        else if (btn.title.includes('Reset')) btn.textContent = '🔄';
+        else if (btn.title.includes('Fit')) btn.textContent = '📷';
+
+        btn.style.cssText = `
+          flex: 1;
+          padding: 12px 8px;
+          border: none;
+          border-radius: 8px;
+          background: rgba(255, 255, 255, 0.1);
+          color: white;
+          font-size: 24px;
+          cursor: pointer;
+          touch-action: manipulation;
+          min-width: 48px;
+          min-height: 48px;
+        `;
+      });
+    } else {
+      // Desktop: full-height sidebar with dynamic width
+      skuListWrapper.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        min-width: ${MIN_SKU_LIST_WIDTH}px;
+        max-width: ${MAX_SKU_LIST_WIDTH}px;
+        width: max-content;
+        height: 100vh;
+        background: linear-gradient(180deg, #ffffff 0%, #f8f9fa 100%);
+        border-right: 1px solid #e0e0e0;
+        box-shadow: 2px 0 8px rgba(0, 0, 0, 0.05);
+        z-index: 1000;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      `;
+
+      skuToggleButton.style.display = 'none';
+
+      skuListContainer.style.cssText = `
+        flex: 1;
+        padding: 16px;
+        font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
+        font-size: 13px;
+        overflow-y: auto;
+        color: #2c3e50;
+        line-height: 1.6;
+      `;
+
+      // Add desktop header if not present
+      if (!sidebarHeader.parentNode && skuListWrapper.firstChild) {
+        skuListWrapper.insertBefore(sidebarHeader, skuListWrapper.firstChild.nextSibling);
+      }
+
+      isExpanded = true; // Always expanded on desktop
+
+      // Update button bar for desktop: compact bottom-left
+      undoRedoContainer.style.cssText = `
+        position: fixed;
+        bottom: 10px;
+        left: 10px;
+        background-color: rgba(255, 255, 255, 0.9);
+        padding: 8px;
+        border-radius: 6px;
+        font-size: 12px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        display: flex;
+        flex-direction: row;
+        gap: 8px;
+        z-index: 1000;
+      `;
+
+      // Update all buttons for desktop: text labels
+      undoButton.textContent = '↶ Undo';
+      redoButton.textContent = '↷ Redo';
+      exportButton.textContent = '💾 Export';
+      importButton.textContent = '📥 Import';
+      resetButton.textContent = '🔄 Reset';
+      fitViewButton.textContent = '📷 Fit View';
+
+      [undoButton, redoButton, exportButton, importButton, resetButton, fitViewButton].forEach(btn => {
+        btn.style.cssText = `
+          padding: 6px 12px;
+          border: 1px solid #ccc;
+          border-radius: 4px;
+          background: white;
+          color: #333;
+          font-size: 12px;
+          cursor: pointer;
+          white-space: nowrap;
+          min-height: auto;
+        `;
+      });
+    }
   }
   window.addEventListener('resize', onWindowResize);
 
+  // Watch for sidebar width changes and adjust canvas accordingly
+  const sidebarResizeObserver = new ResizeObserver(() => {
+    if (!isMobileViewport()) {
+      onWindowResize();
+    }
+  });
+  sidebarResizeObserver.observe(skuListWrapper);
+
   // Animation loop
+  // Track user interaction with camera controls
+  let controlsChangeTimeout: any = null;
+  const isMobileDevice = isMobile;
+
+  controls.addEventListener('start', () => {
+    cameraAssistant.setUserInteracting(true);
+  });
+
+  controls.addEventListener('end', () => {
+    // On mobile: resume quickly (500ms), on desktop: wait longer (1500ms)
+    const resumeDelay = isMobileDevice ? 500 : 1500;
+    clearTimeout(controlsChangeTimeout);
+    controlsChangeTimeout = setTimeout(() => {
+      cameraAssistant.setUserInteracting(false);
+    }, resumeDelay);
+  });
+
+  // Set initial camera position without animation
+  cameraAssistant.frameAll(false, 0);
+
   function animate() {
     requestAnimationFrame(animate);
     controls.update();
+
+    // Update automatic camera framing
+    cameraAssistant.updateAutoFrame();
+
     renderer.render(scene, camera);
     cssRenderer.render(cssScene, camera);
   }
