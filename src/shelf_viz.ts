@@ -1124,10 +1124,6 @@ function visualizeShelf(shelf: Shelf): void {
   const resetButton = createResponsiveButton('🔄 Reset', 'Reset to default shelf');
   undoRedoContainer.appendChild(resetButton);
 
-  // Create fit view button
-  const fitViewButton = createResponsiveButton('📷 Fit View', 'Frame all shelves in view');
-  undoRedoContainer.appendChild(fitViewButton);
-
   // Wire up export/import button handlers
   exportButton.onclick = () => {
     showExportModal(shelf);
@@ -1217,11 +1213,6 @@ function visualizeShelf(shelf: Shelf): void {
 
   // Initialize camera assistant for automatic framing
   const cameraAssistant = new CameraAssistant(camera, controls, scene);
-
-  // Wire up fit view button
-  fitViewButton.onclick = () => {
-    cameraAssistant.frameAll(true, 1000);
-  };
 
   // Setup interactions with regeneration callback
   const interactions = setupInteractions(
@@ -1362,13 +1353,12 @@ function visualizeShelf(shelf: Shelf): void {
       `;
 
       // Update all buttons for mobile: icon-only
-      [undoButton, redoButton, exportButton, importButton, resetButton, fitViewButton].forEach(btn => {
+      [undoButton, redoButton, exportButton, importButton, resetButton].forEach(btn => {
         if (btn.title.includes('Undo')) btn.textContent = '↶';
         else if (btn.title.includes('Redo')) btn.textContent = '↷';
         else if (btn.title.includes('Export')) btn.textContent = '💾';
         else if (btn.title.includes('Import')) btn.textContent = '📥';
         else if (btn.title.includes('Reset')) btn.textContent = '🔄';
-        else if (btn.title.includes('Fit')) btn.textContent = '📷';
 
         btn.style.cssText = `
           flex: 1;
@@ -1444,9 +1434,8 @@ function visualizeShelf(shelf: Shelf): void {
       exportButton.textContent = '💾 Export';
       importButton.textContent = '📥 Import';
       resetButton.textContent = '🔄 Reset';
-      fitViewButton.textContent = '📷 Fit View';
 
-      [undoButton, redoButton, exportButton, importButton, resetButton, fitViewButton].forEach(btn => {
+      [undoButton, redoButton, exportButton, importButton, resetButton].forEach(btn => {
         btn.style.cssText = `
           padding: 6px 12px;
           border: 1px solid #ccc;
