@@ -841,9 +841,9 @@ function visualizeShelf(shelf: Shelf): void {
   // Get sidebar width from CSS (in em units for font-size scaling)
   const getSidebarWidth = () => {
     if (isMobileViewport()) return 0;
-    // Sidebar is 30em in CSS, compute in pixels based on root font size
+    // Sidebar is 15em in CSS, compute in pixels based on root font size
     const rootFontSize = parseFloat(getComputedStyle(document.documentElement).fontSize);
-    return 30 * rootFontSize;
+    return 15 * rootFontSize;
   };
 
   // Initialize canvas width
@@ -891,7 +891,7 @@ function visualizeShelf(shelf: Shelf): void {
       position: fixed;
       top: 0;
       left: 0;
-      width: 30em;
+      width: 15em;
       height: 100vh;
       background: linear-gradient(180deg, #ffffff 0%, #f8f9fa 100%);
       border-right: 1px solid #e0e0e0;
@@ -1573,7 +1573,7 @@ function visualizeShelf(shelf: Shelf): void {
         position: fixed;
         top: 0;
         left: 0;
-        width: 30em;
+        width: 15em;
         height: 100vh;
         background: linear-gradient(180deg, #ffffff 0%, #f8f9fa 100%);
         border-right: 1px solid #e0e0e0;
