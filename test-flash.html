@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Flash Debug Test</title>
+</head>
+<body>
+  <div id="shelf-view"></div>
+  <script>
+    // Load the specific configuration that causes the flash
+    const testConfig = '{"v":2,"r":[[-600,1],[0,4],[600,4]],"p":[[200,1,[1,2]],[400,1,[1,2]],[0,3,[0,1,2]]]}';
+    console.log('Test configuration:', testConfig);
+    
+    // Instructions
+    console.log('To test: Click on the middle segment of the 1270mm plate to delete it');
+    console.log('Watch for black flash during the operation');
+  </script>
+  <script type="module" src="./dist/shelf_viz.js"></script>
+</body>
+</html>

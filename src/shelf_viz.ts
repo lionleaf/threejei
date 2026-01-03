@@ -1679,7 +1679,8 @@ function visualizeShelf(shelf: Shelf): void {
 
   // Watch for sidebar width changes and adjust canvas accordingly
   const sidebarResizeObserver = new ResizeObserver(() => {
-    if (!isMobileViewport()) {
+    // Don't trigger resize during scene rebuild to prevent flash
+    if (!isMobileViewport() && !rebuildState.isRebuilding) {
       onWindowResize();
     }
   });
