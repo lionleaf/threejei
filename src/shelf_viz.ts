@@ -838,8 +838,8 @@ function visualizeShelf(shelf: Shelf): void {
   const scene = new THREE.Scene();
   const cssScene = new THREE.Scene();
 
-  // Fixed sidebar width for consistent canvas size
-  const SIDEBAR_WIDTH = 380; // Fixed width, wide enough for large prices
+  // Fixed sidebar width for consistent canvas size (in pixels, equivalent to ~30em)
+  const SIDEBAR_WIDTH = 480; // 30em at 16px base = 480px
 
   // Initialize canvas width
   const initialWidth = isMobileViewport() ? window.innerWidth : window.innerWidth - SIDEBAR_WIDTH;
