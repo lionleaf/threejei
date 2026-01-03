@@ -267,6 +267,9 @@ function createWallGrid(scene: any, cssScene: any, shelf: Shelf): void {
 
   // Create vertical ruler (right side)
   createVerticalRuler(cssScene, shelf, minY, maxY, wallZ);
+
+  // Create dimension bars (top and left)
+  createDimensionBars(cssScene, shelf, wallZ);
 }
 
 /**
@@ -358,6 +361,190 @@ function createVerticalRuler(cssScene: any, shelf: Shelf, minY: number, maxY: nu
     cssObject.userData = { type: 'vertical_ruler_label', rulerY: y };
     cssScene.add(cssObject);
   }
+}
+
+/**
+ * Creates dimension bars showing total shelf width (top) and height (left) using CSS3D.
+ * Displays dimension lines with end caps and centered labels in centimeters.
+ */
+function createDimensionBars(cssScene: any, shelf: Shelf, wallZ: number): void {
+  const rods = Array.from(shelf.rods.values());
+
+  if (rods.length === 0) {
+    return; // No rods, no dimensions to show
+  }
+
+  // Calculate shelf bounds
+  const xPositions = rods.map(rod => rod.position.x);
+  const minX = Math.min(...xPositions);
+  const maxX = Math.max(...xPositions);
+
+  // Calculate total width (includes rod distance between front and back rods)
+  const rodDistance = 153; // mm - distance between inner and outer rod center lines
+  const totalWidthMm = (maxX - minX) + rodDistance;
+  const totalWidthCm = Math.round(totalWidthMm / 10);
+
+  // Calculate total height (find tallest rod)
+  let maxHeightMm = 0;
+  rods.forEach(rod => {
+    const rodSKU = getRodSKU(rod.sku_id);
+    if (rodSKU) {
+      const rodHeight = getRodHeight(rodSKU);
+      maxHeightMm = Math.max(maxHeightMm, rodHeight);
+    }
+  });
+  const totalHeightCm = Math.round(maxHeightMm / 10);
+
+  // Find tallest rod top position (for positioning horizontal bar above it)
+  let maxRodTop = 0;
+  rods.forEach(rod => {
+    const rodSKU = getRodSKU(rod.sku_id);
+    if (rodSKU) {
+      const rodHeight = getRodHeight(rodSKU);
+      const rodTop = rod.position.y + rodHeight;
+      maxRodTop = Math.max(maxRodTop, rodTop);
+    }
+  });
+
+  // === HORIZONTAL DIMENSION BAR (Top - showing width) ===
+
+  const horizontalBarY = maxRodTop + 300; // 30cm above tallest point
+  const horizontalBarCenterX = (minX + maxX) / 2;
+
+  // Create container
+  const hContainer = document.createElement('div');
+  hContainer.style.position = 'relative';
+  hContainer.style.width = `${totalWidthMm}px`;
+  hContainer.style.height = '0px';
+  hContainer.style.pointerEvents = 'none';
+  hContainer.style.userSelect = 'none';
+
+  // Create horizontal line
+  const hLine = document.createElement('div');
+  hLine.style.borderTop = '3px solid #333333';
+  hLine.style.width = '100%';
+  hLine.style.height = '0px';
+  hLine.style.opacity = '0.7';
+  hLine.style.position = 'absolute';
+  hLine.style.left = '0';
+  hLine.style.top = '0';
+  hContainer.appendChild(hLine);
+
+  // Create left end cap
+  const hLeftCap = document.createElement('div');
+  hLeftCap.style.borderLeft = '3px solid #333333';
+  hLeftCap.style.height = '30px';
+  hLeftCap.style.width = '0px';
+  hLeftCap.style.opacity = '0.7';
+  hLeftCap.style.position = 'absolute';
+  hLeftCap.style.left = '0px';
+  hLeftCap.style.top = '-15px';
+  hContainer.appendChild(hLeftCap);
+
+  // Create right end cap
+  const hRightCap = document.createElement('div');
+  hRightCap.style.borderRight = '3px solid #333333';
+  hRightCap.style.height = '30px';
+  hRightCap.style.width = '0px';
+  hRightCap.style.opacity = '0.7';
+  hRightCap.style.position = 'absolute';
+  hRightCap.style.right = '0px';
+  hRightCap.style.top = '-15px';
+  hContainer.appendChild(hRightCap);
+
+  // Create label
+  const hLabel = document.createElement('div');
+  hLabel.style.fontSize = '40px';
+  hLabel.style.color = '#333333';
+  hLabel.style.fontWeight = 'bold';
+  hLabel.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
+  hLabel.style.padding = '8px 16px';
+  hLabel.style.borderRadius = '6px';
+  hLabel.style.border = '2px solid #333333';
+  hLabel.style.position = 'absolute';
+  hLabel.style.left = '50%';
+  hLabel.style.top = '-60px';
+  hLabel.style.transform = 'translateX(-50%)';
+  hLabel.style.whiteSpace = 'nowrap';
+  hLabel.style.fontFamily = 'Arial, sans-serif';
+  hLabel.innerHTML = `<span style="font-size: 40px;">${totalWidthCm}</span><span style="font-size: 20px;">cm</span>`;
+  hContainer.appendChild(hLabel);
+
+  // Create CSS3D object for horizontal bar
+  const hCssObject = new THREE.CSS3DObject(hContainer);
+  hCssObject.position.set(horizontalBarCenterX, horizontalBarY, wallZ + 1);
+  hCssObject.userData = { type: 'horizontal_dimension_bar' };
+  cssScene.add(hCssObject);
+
+  // === VERTICAL DIMENSION BAR (Left - showing height) ===
+
+  const verticalBarX = minX - 300; // 30cm left of leftmost rod
+  const verticalBarCenterY = maxRodTop / 2; // Center of vertical span
+
+  // Create container
+  const vContainer = document.createElement('div');
+  vContainer.style.position = 'relative';
+  vContainer.style.width = '0px';
+  vContainer.style.height = `${maxHeightMm}px`;
+  vContainer.style.pointerEvents = 'none';
+  vContainer.style.userSelect = 'none';
+
+  // Create vertical line
+  const vLine = document.createElement('div');
+  vLine.style.borderLeft = '3px solid #333333';
+  vLine.style.width = '0px';
+  vLine.style.height = '100%';
+  vLine.style.opacity = '0.7';
+  vLine.style.position = 'absolute';
+  vLine.style.left = '0';
+  vLine.style.top = '0';
+  vContainer.appendChild(vLine);
+
+  // Create top end cap
+  const vTopCap = document.createElement('div');
+  vTopCap.style.borderTop = '3px solid #333333';
+  vTopCap.style.width = '30px';
+  vTopCap.style.height = '0px';
+  vTopCap.style.opacity = '0.7';
+  vTopCap.style.position = 'absolute';
+  vTopCap.style.left = '-15px';
+  vTopCap.style.top = '0px';
+  vContainer.appendChild(vTopCap);
+
+  // Create bottom end cap
+  const vBottomCap = document.createElement('div');
+  vBottomCap.style.borderBottom = '3px solid #333333';
+  vBottomCap.style.width = '30px';
+  vBottomCap.style.height = '0px';
+  vBottomCap.style.opacity = '0.7';
+  vBottomCap.style.position = 'absolute';
+  vBottomCap.style.left = '-15px';
+  vBottomCap.style.bottom = '0px';
+  vContainer.appendChild(vBottomCap);
+
+  // Create label
+  const vLabel = document.createElement('div');
+  vLabel.style.fontSize = '40px';
+  vLabel.style.color = '#333333';
+  vLabel.style.fontWeight = 'bold';
+  vLabel.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
+  vLabel.style.padding = '8px 16px';
+  vLabel.style.borderRadius = '6px';
+  vLabel.style.border = '2px solid #333333';
+  vLabel.style.position = 'absolute';
+  vLabel.style.left = '-80px';
+  vLabel.style.top = '50%';
+  vLabel.style.transform = 'translateY(-50%)';
+  vLabel.style.whiteSpace = 'nowrap';
+  vLabel.style.fontFamily = 'Arial, sans-serif';
+  vLabel.innerHTML = `<span style="font-size: 40px;">${totalHeightCm}</span><span style="font-size: 20px;">cm</span>`;
+  vContainer.appendChild(vLabel);
+
+  // Create CSS3D object for vertical bar
+  const vCssObject = new THREE.CSS3DObject(vContainer);
+  vCssObject.position.set(verticalBarX, verticalBarCenterY, wallZ + 1);
+  vCssObject.userData = { type: 'vertical_dimension_bar' };
+  cssScene.add(vCssObject);
 }
 
 // Rebuild all shelf geometry (rods, plates, gap colliders)
@@ -1294,28 +1481,46 @@ function visualizeShelf(shelf: Shelf): void {
   // Initial button state update
   updateUndoRedoButtons();
 
+  // Track pending resize to debounce rapid changes
+  let resizePending = false;
+  let resizeTimeout: any = null;
+
   // Handle window resize
   function onWindowResize() {
-    const isMobileNow = isMobileViewport();
-
-    // Calculate canvas dimensions based on viewport and sidebar
-    let canvasWidth: number;
-    if (isMobileNow) {
-      canvasWidth = window.innerWidth;
-    } else {
-      // On desktop, use actual sidebar width
-      const sidebarWidth = skuListWrapper.offsetWidth || MIN_SKU_LIST_WIDTH;
-      canvasWidth = window.innerWidth - sidebarWidth;
+    // Cancel any pending resize
+    if (resizeTimeout) {
+      cancelAnimationFrame(resizeTimeout);
     }
 
-    // Update canvas dimensions
-    camera.aspect = canvasWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(canvasWidth, window.innerHeight);
-    cssRenderer.setSize(canvasWidth, window.innerHeight);
+    // Mark resize as pending to skip rendering during resize
+    resizePending = true;
 
-    // Update sidebar layout based on viewport size
-    if (isMobileNow) {
+    // Schedule resize for next animation frame to prevent flash
+    resizeTimeout = requestAnimationFrame(() => {
+      const isMobileNow = isMobileViewport();
+
+      // Calculate canvas dimensions based on viewport and sidebar
+      let canvasWidth: number;
+      if (isMobileNow) {
+        canvasWidth = window.innerWidth;
+      } else {
+        // On desktop, use actual sidebar width
+        const sidebarWidth = skuListWrapper.offsetWidth || MIN_SKU_LIST_WIDTH;
+        canvasWidth = window.innerWidth - sidebarWidth;
+      }
+
+      // Update canvas dimensions
+      camera.aspect = canvasWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(canvasWidth, window.innerHeight);
+      cssRenderer.setSize(canvasWidth, window.innerHeight);
+
+      // Clear pending flag after resize completes
+      resizePending = false;
+      resizeTimeout = null;
+
+      // Update sidebar layout based on viewport size
+      if (isMobileNow) {
       // Mobile: floating overlay, start collapsed
       skuListWrapper.style.cssText = `
         position: fixed;
@@ -1468,6 +1673,7 @@ function visualizeShelf(shelf: Shelf): void {
         `;
       });
     }
+    });
   }
   window.addEventListener('resize', onWindowResize);
 
@@ -1507,8 +1713,8 @@ function visualizeShelf(shelf: Shelf): void {
     // Update automatic camera framing
     cameraAssistant.updateAutoFrame();
 
-    // Only render if not currently rebuilding the scene
-    if (!rebuildState.isRebuilding) {
+    // Only render if not currently rebuilding the scene or resizing
+    if (!rebuildState.isRebuilding && !resizePending) {
       renderer.render(scene, camera);
       cssRenderer.render(cssScene, camera);
     }
