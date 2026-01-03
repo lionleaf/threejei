@@ -552,14 +552,8 @@ function rebuildShelfGeometry(
   shelf: Shelf,
   scene: any,
   cssScene: any,
-  skuListContainer?: HTMLDivElement,
-  rebuildState?: { isRebuilding: boolean }
+  skuListContainer?: HTMLDivElement
 ): void {
-  // Set rebuilding flag to prevent rendering during scene reconstruction
-  if (rebuildState) {
-    rebuildState.isRebuilding = true;
-  }
-
   // Remove all children from scene
   scene.clear();
   cssScene.clear();
@@ -722,11 +716,6 @@ function rebuildShelfGeometry(
 
   // Update URL with current shelf state
   updateURLWithShelf(shelf);
-
-  // Clear rebuilding flag - scene is now ready to render
-  if (rebuildState) {
-    rebuildState.isRebuilding = false;
-  }
 }
 
 
@@ -849,15 +838,11 @@ function visualizeShelf(shelf: Shelf): void {
   const scene = new THREE.Scene();
   const cssScene = new THREE.Scene();
 
-  // State object to prevent rendering during scene rebuild
-  const rebuildState = { isRebuilding: false };
+  // Fixed sidebar width for consistent canvas size
+  const SIDEBAR_WIDTH = 380; // Fixed width, wide enough for large prices
 
-  // Helper function to calculate canvas dimensions
-  const MIN_SKU_LIST_WIDTH = 220; // Minimum width of parts list on desktop
-  const MAX_SKU_LIST_WIDTH = 350; // Maximum width to prevent sidebar from being too wide
-
-  // Initialize with minimum sidebar width, will update after sidebar is created
-  const initialWidth = isMobileViewport() ? window.innerWidth : window.innerWidth - MIN_SKU_LIST_WIDTH;
+  // Initialize canvas width
+  const initialWidth = isMobileViewport() ? window.innerWidth : window.innerWidth - SIDEBAR_WIDTH;
   const camera = new THREE.PerspectiveCamera(75, initialWidth / window.innerHeight, 50, 50000);
 
   // WebGL renderer
@@ -896,14 +881,12 @@ function visualizeShelf(shelf: Shelf): void {
       max-width: calc(100vw - 20px);
     `;
   } else {
-    // Desktop: full-height sidebar with dynamic width
+    // Desktop: full-height sidebar with fixed width
     skuListWrapper.style.cssText = `
       position: fixed;
       top: 0;
       left: 0;
-      min-width: ${MIN_SKU_LIST_WIDTH}px;
-      max-width: ${MAX_SKU_LIST_WIDTH}px;
-      width: max-content;
+      width: ${SIDEBAR_WIDTH}px;
       height: 100vh;
       background: linear-gradient(180deg, #ffffff 0%, #f8f9fa 100%);
       border-right: 1px solid #e0e0e0;
@@ -1337,7 +1320,7 @@ function visualizeShelf(shelf: Shelf): void {
 
   importButton.onclick = () => {
     showImportModal(shelf, () => {
-      rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer, rebuildState);
+      rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer);
     });
   };
 
@@ -1357,7 +1340,7 @@ function visualizeShelf(shelf: Shelf): void {
     shelf.ghostPlates = defaultShelf.ghostPlates;
 
     // Rebuild visualization
-    rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer, rebuildState);
+    rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer);
     setupDebugCheckbox();
     updateUndoRedoButtons();
   };
@@ -1371,7 +1354,7 @@ function visualizeShelf(shelf: Shelf): void {
     if (debugCheckbox) {
       debugCheckbox.addEventListener('change', (e) => {
         DEBUG_SHOW_COLLIDERS = (e.target as HTMLInputElement).checked;
-        rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer, rebuildState);
+        rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer);
         setupDebugCheckbox(); // Re-attach after rebuild recreates checkboxes
       });
     }
@@ -1380,14 +1363,14 @@ function visualizeShelf(shelf: Shelf): void {
     if (wallCheckbox) {
       wallCheckbox.addEventListener('change', (e) => {
         DRAW_WALL = (e.target as HTMLInputElement).checked;
-        rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer, rebuildState);
+        rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer);
         setupDebugCheckbox(); // Re-attach after rebuild recreates checkboxes
       });
     }
   };
 
   // Initial geometry rendering (this calls updateSKUList which creates the checkbox)
-  rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer, rebuildState);
+  rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer);
   setupDebugCheckbox();
 
   // Set up OrbitControls
@@ -1428,7 +1411,7 @@ function visualizeShelf(shelf: Shelf): void {
     renderer,
     {
       rebuildGeometry: () => {
-        rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer, rebuildState);
+        rebuildShelfGeometry(shelf, scene, cssScene, skuListContainer);
         setupDebugCheckbox();
         updateUndoRedoButtons();
         // Notify camera assistant after rebuild completes for smoother transition
@@ -1481,46 +1464,27 @@ function visualizeShelf(shelf: Shelf): void {
   // Initial button state update
   updateUndoRedoButtons();
 
-  // Track pending resize to debounce rapid changes
-  let resizePending = false;
-  let resizeTimeout: any = null;
-
   // Handle window resize
   function onWindowResize() {
-    // Cancel any pending resize
-    if (resizeTimeout) {
-      cancelAnimationFrame(resizeTimeout);
+    const isMobileNow = isMobileViewport();
+
+    // Calculate canvas dimensions based on viewport and fixed sidebar
+    let canvasWidth: number;
+    if (isMobileNow) {
+      canvasWidth = window.innerWidth;
+    } else {
+      // On desktop, use fixed sidebar width
+      canvasWidth = window.innerWidth - SIDEBAR_WIDTH;
     }
 
-    // Mark resize as pending to skip rendering during resize
-    resizePending = true;
+    // Update canvas dimensions
+    camera.aspect = canvasWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(canvasWidth, window.innerHeight);
+    cssRenderer.setSize(canvasWidth, window.innerHeight);
 
-    // Schedule resize for next animation frame to prevent flash
-    resizeTimeout = requestAnimationFrame(() => {
-      const isMobileNow = isMobileViewport();
-
-      // Calculate canvas dimensions based on viewport and sidebar
-      let canvasWidth: number;
-      if (isMobileNow) {
-        canvasWidth = window.innerWidth;
-      } else {
-        // On desktop, use actual sidebar width
-        const sidebarWidth = skuListWrapper.offsetWidth || MIN_SKU_LIST_WIDTH;
-        canvasWidth = window.innerWidth - sidebarWidth;
-      }
-
-      // Update canvas dimensions
-      camera.aspect = canvasWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(canvasWidth, window.innerHeight);
-      cssRenderer.setSize(canvasWidth, window.innerHeight);
-
-      // Clear pending flag after resize completes
-      resizePending = false;
-      resizeTimeout = null;
-
-      // Update sidebar layout based on viewport size
-      if (isMobileNow) {
+    // Update sidebar layout based on viewport size
+    if (isMobileNow) {
       // Mobile: floating overlay, start collapsed
       skuListWrapper.style.cssText = `
         position: fixed;
@@ -1599,14 +1563,12 @@ function visualizeShelf(shelf: Shelf): void {
         `;
       });
     } else {
-      // Desktop: full-height sidebar with dynamic width
+      // Desktop: full-height sidebar with fixed width
       skuListWrapper.style.cssText = `
         position: fixed;
         top: 0;
         left: 0;
-        min-width: ${MIN_SKU_LIST_WIDTH}px;
-        max-width: ${MAX_SKU_LIST_WIDTH}px;
-        width: max-content;
+        width: ${SIDEBAR_WIDTH}px;
         height: 100vh;
         background: linear-gradient(180deg, #ffffff 0%, #f8f9fa 100%);
         border-right: 1px solid #e0e0e0;
@@ -1673,18 +1635,8 @@ function visualizeShelf(shelf: Shelf): void {
         `;
       });
     }
-    });
   }
   window.addEventListener('resize', onWindowResize);
-
-  // Watch for sidebar width changes and adjust canvas accordingly
-  const sidebarResizeObserver = new ResizeObserver(() => {
-    // Don't trigger resize during scene rebuild to prevent flash
-    if (!isMobileViewport() && !rebuildState.isRebuilding) {
-      onWindowResize();
-    }
-  });
-  sidebarResizeObserver.observe(skuListWrapper);
 
   // Animation loop
   // Track user interaction with camera controls
@@ -1714,11 +1666,8 @@ function visualizeShelf(shelf: Shelf): void {
     // Update automatic camera framing
     cameraAssistant.updateAutoFrame();
 
-    // Only render if not currently rebuilding the scene or resizing
-    if (!rebuildState.isRebuilding && !resizePending) {
-      renderer.render(scene, camera);
-      cssRenderer.render(cssScene, camera);
-    }
+    renderer.render(scene, camera);
+    cssRenderer.render(cssScene, camera);
   }
   animate();
 }
