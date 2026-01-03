@@ -267,9 +267,6 @@ function createWallGrid(scene: any, cssScene: any, shelf: Shelf): void {
 
   // Create vertical ruler (right side)
   createVerticalRuler(cssScene, shelf, minY, maxY, wallZ);
-
-  // Create dimension bars (top and left)
-  createDimensionBars(cssScene, shelf, wallZ);
 }
 
 /**
@@ -574,6 +571,10 @@ function rebuildShelfGeometry(
   if (DRAW_WALL) {
     createWallGrid(scene, cssScene, shelf);
   }
+
+  // Always create dimension bars (independent of wall visibility)
+  const wallZ = -10; // Same z-position as wall
+  createDimensionBars(cssScene, shelf, wallZ);
 
   // Create gradient map for toon/cell shading with more steps for smoother transitions
   const gradientMap = new THREE.DataTexture(
