@@ -838,11 +838,16 @@ function visualizeShelf(shelf: Shelf): void {
   const scene = new THREE.Scene();
   const cssScene = new THREE.Scene();
 
-  // Fixed sidebar width for consistent canvas size (in pixels, equivalent to ~30em)
-  const SIDEBAR_WIDTH = 480; // 30em at 16px base = 480px
+  // Get sidebar width from CSS (in em units for font-size scaling)
+  const getSidebarWidth = () => {
+    if (isMobileViewport()) return 0;
+    // Sidebar is 30em in CSS, compute in pixels based on root font size
+    const rootFontSize = parseFloat(getComputedStyle(document.documentElement).fontSize);
+    return 30 * rootFontSize;
+  };
 
   // Initialize canvas width
-  const initialWidth = isMobileViewport() ? window.innerWidth : window.innerWidth - SIDEBAR_WIDTH;
+  const initialWidth = isMobileViewport() ? window.innerWidth : window.innerWidth - getSidebarWidth();
   const camera = new THREE.PerspectiveCamera(75, initialWidth / window.innerHeight, 50, 50000);
 
   // WebGL renderer
@@ -881,12 +886,12 @@ function visualizeShelf(shelf: Shelf): void {
       max-width: calc(100vw - 20px);
     `;
   } else {
-    // Desktop: full-height sidebar with fixed width
+    // Desktop: full-height sidebar with fixed width in em (scales with font size)
     skuListWrapper.style.cssText = `
       position: fixed;
       top: 0;
       left: 0;
-      width: ${SIDEBAR_WIDTH}px;
+      width: 30em;
       height: 100vh;
       background: linear-gradient(180deg, #ffffff 0%, #f8f9fa 100%);
       border-right: 1px solid #e0e0e0;
@@ -1468,13 +1473,13 @@ function visualizeShelf(shelf: Shelf): void {
   function onWindowResize() {
     const isMobileNow = isMobileViewport();
 
-    // Calculate canvas dimensions based on viewport and fixed sidebar
+    // Calculate canvas dimensions based on viewport and sidebar
     let canvasWidth: number;
     if (isMobileNow) {
       canvasWidth = window.innerWidth;
     } else {
-      // On desktop, use fixed sidebar width
-      canvasWidth = window.innerWidth - SIDEBAR_WIDTH;
+      // On desktop, calculate sidebar width from CSS em units
+      canvasWidth = window.innerWidth - getSidebarWidth();
     }
 
     // Update canvas dimensions
@@ -1563,12 +1568,12 @@ function visualizeShelf(shelf: Shelf): void {
         `;
       });
     } else {
-      // Desktop: full-height sidebar with fixed width
+      // Desktop: full-height sidebar with fixed width in em (scales with font size)
       skuListWrapper.style.cssText = `
         position: fixed;
         top: 0;
         left: 0;
-        width: ${SIDEBAR_WIDTH}px;
+        width: 30em;
         height: 100vh;
         background: linear-gradient(180deg, #ffffff 0%, #f8f9fa 100%);
         border-right: 1px solid #e0e0e0;
