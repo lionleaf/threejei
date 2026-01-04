@@ -392,13 +392,16 @@ function createDimensionBars(cssScene: any, shelf: Shelf, wallZ: number): void {
   });
   const totalHeightCm = Math.round(maxHeightMm / 10);
 
-  // Find tallest rod top position (for positioning horizontal bar above it)
-  let maxRodTop = 0;
+  // Find min and max Y positions across all rods
+  let minRodBottom = Infinity;
+  let maxRodTop = -Infinity;
   rods.forEach(rod => {
     const rodSKU = getRodSKU(rod.sku_id);
     if (rodSKU) {
       const rodHeight = getRodHeight(rodSKU);
+      const rodBottom = rod.position.y;
       const rodTop = rod.position.y + rodHeight;
+      minRodBottom = Math.min(minRodBottom, rodBottom);
       maxRodTop = Math.max(maxRodTop, rodTop);
     }
   });
@@ -476,13 +479,14 @@ function createDimensionBars(cssScene: any, shelf: Shelf, wallZ: number): void {
   // === VERTICAL DIMENSION BAR (Left - showing height) ===
 
   const verticalBarX = minX - 300; // 30cm left of leftmost rod
-  const verticalBarCenterY = maxRodTop / 2; // Center of vertical span
+  const verticalSpan = maxRodTop - minRodBottom; // Actual vertical span from bottom to top
+  const verticalBarCenterY = minRodBottom + (verticalSpan / 2); // Center between min and max Y
 
   // Create container
   const vContainer = document.createElement('div');
   vContainer.style.position = 'relative';
   vContainer.style.width = '0px';
-  vContainer.style.height = `${maxHeightMm}px`;
+  vContainer.style.height = `${verticalSpan}px`;
   vContainer.style.pointerEvents = 'none';
   vContainer.style.userSelect = 'none';
 
