@@ -1538,8 +1538,8 @@ export interface PlateSegmentResult {
   segmentWidth: number; // Width of the segment being added (distance between rods)
 }
 
-function findPlateForGap(gapDistance: number): PlateSKU | undefined {
-  return AVAILABLE_PLATES.find(p => p.spans.length === 3 && p.spans[1] === gapDistance);
+function plateWithGapExists(gapDistance: number): boolean {
+  return AVAILABLE_PLATES.some(p => p.spans.some(span => span === gapDistance));
 }
 
 function checkAttachmentExists(rodId: number, y: number, shelf: Shelf): boolean {
@@ -1555,30 +1555,6 @@ function getAttachmentPlateId(rodId: number, y: number, shelf: Shelf): number | 
   const attachmentY = y - rod.position.y;
   const attachment = rod.attachmentPoints.find(ap => ap.y === attachmentY);
   return attachment?.plateId;
-}
-
-function calculateGapPlate(leftRodId: number, rightRodId: number, height: number, shelf: Shelf): PlateConfig | undefined {
-  const leftRod = shelf.rods.get(leftRodId);
-  const rightRod = shelf.rods.get(rightRodId);
-  if (!leftRod || !rightRod) return undefined;
-
-  const leftAttachmentY = height - leftRod.position.y;
-  const rightAttachmentY = height - rightRod.position.y;
-  const leftAttachment = leftRod.attachmentPoints.find(ap => ap.y === leftAttachmentY);
-  const rightAttachment = rightRod.attachmentPoints.find(ap => ap.y === rightAttachmentY);
-
-  if (!leftAttachment || !rightAttachment) return undefined;
-  if (leftAttachment.plateId !== undefined || rightAttachment.plateId !== undefined) return undefined;
-
-  const gapDistance = rightRod.position.x - leftRod.position.x;
-  const plateSKU = findPlateForGap(gapDistance);
-  if (!plateSKU) return undefined;
-
-  return {
-    sku_id: plateSKU.sku_id,
-    rodIds: [leftRodId, rightRodId],
-    y: height
-  };
 }
 
 /**
@@ -1626,13 +1602,9 @@ export function canAddPlateSegment(rodId: number, y: number, direction: Directio
     const leftRod = shelf.rods.get(leftRodId)!;
     const rightRod = shelf.rods.get(rightRodId)!;
     const gapDistance = rightRod.position.x - leftRod.position.x;
-    const plateSKU = findPlateForGap(gapDistance);
-    
-    if (!plateSKU) {
-      // Can't reach target rod with available plate - treat as if no rod exists
-      // and fall through to rod creation logic below (implements TODO from line 1523-1525)
-      targetRodId = undefined;
-    } else {
+    const possiblePlateExists = plateWithGapExists(gapDistance);
+
+    if (possiblePlateExists) {
       // Existing merge/extend/create logic for when we CAN reach the target rod
 
       if (sourcePlateId !== undefined && targetPlateId !== undefined) {
@@ -1640,59 +1612,64 @@ export function canAddPlateSegment(rodId: number, y: number, direction: Directio
         const leftPlateId = direction === 'left' ? targetPlateId : sourcePlateId;
         const rightPlateId = direction === 'left' ? sourcePlateId : targetPlateId;
         const mergeParams = canMergePlates(leftPlateId, rightPlateId, shelf);
-        if (!mergeParams) return undefined;
-
-        return {
-          sku_id: mergeParams.sku_id,
-          rodIds: mergeParams.connections,
-          y: y,
-          action: 'merge',
-          existingPlateId: leftPlateId,
-          targetPlateId: rightPlateId,
-          segmentWidth: gapDistance
-        };
+        if (mergeParams) {
+          return {
+            sku_id: mergeParams.sku_id,
+            rodIds: mergeParams.connections,
+            y: y,
+            action: 'merge',
+            existingPlateId: leftPlateId,
+            targetPlateId: rightPlateId,
+            segmentWidth: gapDistance
+          };
+        } // else fall through
       }
 
       if (sourcePlateId !== undefined && targetPlateId === undefined) {
         const extendInfo = canExtendPlate(sourcePlateId, direction, shelf);
-        if (!extendInfo) return undefined;
-        const [sku_id, newConnections] = extendInfo;
-        // Extend the plate that exist on current rod
-        return {
-          existingPlateId: sourcePlateId,
-          sku_id: sku_id,
-          rodIds: newConnections,
-          y: y,
-          action: 'extend',
-          segmentWidth: gapDistance
-        };
+        if (extendInfo) {
+          const [sku_id, newConnections] = extendInfo;
+          // Extend the plate that exist on current rod
+          return {
+            existingPlateId: sourcePlateId,
+            sku_id: sku_id,
+            rodIds: newConnections,
+            y: y,
+            action: 'extend',
+            segmentWidth: gapDistance
+          };
+        }
       }
 
-      if (sourcePlateId === undefined && targetPlateId === undefined) {
+      if (sourcePlateId === undefined && targetPlateId !== undefined) {
         // Extend plate that exists on target rod (opposite direction)
         const oppositeDirection = direction === 'left' ? Direction.Right : Direction.Left;
         const extendInfo = canExtendPlate(targetPlateId, oppositeDirection, shelf);
-        if (!extendInfo) return undefined;
-        const [sku_id, newConnections] = extendInfo;
-        return {
-          sku_id: sku_id,
-          rodIds: newConnections,
-          y: y,
-          action: 'extend',
-          existingPlateId: targetPlateId,
-          segmentWidth: gapDistance
-        };
+        if (extendInfo) {
+          const [sku_id, newConnections] = extendInfo;
+          return {
+            sku_id: sku_id,
+            rodIds: newConnections,
+            y: y,
+            action: 'extend',
+            existingPlateId: targetPlateId,
+            segmentWidth: gapDistance
+          };
+        } // else fall through
       }
 
       if (sourcePlateId === undefined && targetPlateId === undefined) {
         // Create a new plate as both rods don't have a plate
-        return {
-          sku_id: plateSKU.sku_id,
-          rodIds: [leftRodId, rightRodId],
-          y: y,
-          action: 'create',
-          segmentWidth: gapDistance
-        };
+        const plateSKU = findPlateSKUBySpans([PLATE_PADDING_MM, gapDistance, PLATE_PADDING_MM]);
+        if (plateSKU) {
+          return {
+            sku_id: plateSKU.sku_id,
+            rodIds: [leftRodId, rightRodId],
+            y: y,
+            action: 'create',
+            segmentWidth: gapDistance
+          };
+        } // else fall through
       }
     }
   }
