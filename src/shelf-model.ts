@@ -221,6 +221,84 @@ function calculatePlateSpansForRods(rodIds: number[], shelf: Shelf): number[] {
   return newSpans;
 }
 
+/**
+ * Attempts to adjust a plate's SKU after removing a rod connection.
+ * Returns true if plate was adjusted successfully, false if plate needs deletion.
+ *
+ * @param plateId - The plate to adjust
+ * @param removedRodId - The rod being removed from the plate
+ * @param shelf - The shelf containing the plate and rods
+ * @returns true if plate was adjusted, false if plate should be removed entirely
+ */
+function tryAdjustPlateAfterRodRemoval(
+  plateId: number,
+  removedRodId: number,
+  shelf: Shelf
+): boolean {
+  const plate = shelf.plates.get(plateId);
+  if (!plate) {
+    console.log('tryAdjustPlateAfterRodRemoval: Plate not found');
+    return false;
+  }
+
+  // Find position of removed rod in connections
+  const removedIndex = plate.connections.indexOf(removedRodId);
+  if (removedIndex === -1) {
+    console.log('tryAdjustPlateAfterRodRemoval: Rod not found in plate connections');
+    return false;
+  }
+
+  // Calculate new connections (remove the rod)
+  const newConnections = plate.connections.filter(id => id !== removedRodId);
+
+  // Edge case: Only 1 rod remains - minimum 2 rods required for a plate
+  if (newConnections.length < 2) {
+    console.log('tryAdjustPlateAfterRodRemoval: Only 1 rod remains, plate needs deletion');
+    return false;
+  }
+
+  // Calculate new spans for remaining rods
+  const newSpans = calculatePlateSpansForRods(newConnections, shelf);
+
+  // Find matching SKU - try to find any matching configuration
+  const newSKU = findPlateSKUBySpans(newSpans);
+  if (!newSKU) {
+    console.log('tryAdjustPlateAfterRodRemoval: No matching SKU found for new configuration', { newSpans });
+    return false;
+  }
+
+  console.log('tryAdjustPlateAfterRodRemoval: Found matching SKU', {
+    plateId,
+    oldSKU: plate.sku_id,
+    newSKU: newSKU.sku_id,
+    oldConnections: plate.connections,
+    newConnections
+  });
+
+  // Update plate in-place
+  plate.sku_id = newSKU.sku_id;
+  plate.connections = newConnections;
+
+  // Clean up removed rod's attachment point
+  const removedRod = shelf.rods.get(removedRodId);
+  if (removedRod) {
+    const attachmentIndex = findAttachmentPointByY(removedRod, plate.y - removedRod.position.y);
+    if (attachmentIndex !== undefined) {
+      removedRod.attachmentPoints[attachmentIndex].plateId = undefined;
+
+      // Shorten rod if attachment was at top or bottom
+      const isTop = attachmentIndex === removedRod.attachmentPoints.length - 1;
+      const isBottom = attachmentIndex === 0;
+      if (isTop || isBottom) {
+        shortenRodFromEnd(removedRodId, isTop, shelf);
+      }
+    }
+  }
+
+  console.log('tryAdjustPlateAfterRodRemoval: Plate adjusted successfully');
+  return true;
+}
+
 // Core functions
 export function createEmptyShelf(): Shelf {
   return {
@@ -972,14 +1050,20 @@ export function removeRod(rodId: number, shelf: Shelf): boolean {
   const rod = shelf.rods.get(rodId);
   if (!rod) return false;
 
-  // Remove all plates connected to this rod
+  // Try to adjust plates connected to this rod, track which need removal
   const platesToRemove: number[] = [];
   shelf.plates.forEach((plate, plateId) => {
     if (plate.connections.includes(rodId)) {
-      platesToRemove.push(plateId);
+      // Try to adjust plate SKU after removing this rod
+      const adjusted = tryAdjustPlateAfterRodRemoval(plateId, rodId, shelf);
+      if (!adjusted) {
+        // No matching SKU found, mark for removal
+        platesToRemove.push(plateId);
+      }
     }
   });
 
+  // Remove plates that couldn't be adjusted
   platesToRemove.forEach(plateId => removePlate(plateId, shelf));
 
   // Remove the rod from the shelf
@@ -1515,7 +1599,7 @@ export function canAddPlateSegment(rodId: number, y: number, direction: Directio
   if (!checkAttachmentExists(rodId, y, shelf)) return undefined;
 
   const sourcePlateId = getAttachmentPlateId(rodId, y, shelf);
-  const targetRodId = findClosestRod(shelf, rodId, direction, y);
+  let targetRodId = findClosestRod(shelf, rodId, direction, y);
 
   // Check if there's a rod at the other end
   if (targetRodId !== undefined) {
@@ -1543,67 +1627,73 @@ export function canAddPlateSegment(rodId: number, y: number, direction: Directio
     const rightRod = shelf.rods.get(rightRodId)!;
     const gapDistance = rightRod.position.x - leftRod.position.x;
     const plateSKU = findPlateForGap(gapDistance);
-    if (!plateSKU) return undefined;
+    
+    if (!plateSKU) {
+      // Can't reach target rod with available plate - treat as if no rod exists
+      // and fall through to rod creation logic below (implements TODO from line 1523-1525)
+      targetRodId = undefined;
+    } else {
+      // Existing merge/extend/create logic for when we CAN reach the target rod
 
+      if (sourcePlateId !== undefined && targetPlateId !== undefined) {
+        // Plate on both ends - check if merge is possible
+        const leftPlateId = direction === 'left' ? targetPlateId : sourcePlateId;
+        const rightPlateId = direction === 'left' ? sourcePlateId : targetPlateId;
+        const mergeParams = canMergePlates(leftPlateId, rightPlateId, shelf);
+        if (!mergeParams) return undefined;
 
-    if (sourcePlateId !== undefined && targetPlateId !== undefined) {
-      // Plate on both ends - check if merge is possible
-      const leftPlateId = direction === 'left' ? targetPlateId : sourcePlateId;
-      const rightPlateId = direction === 'left' ? sourcePlateId : targetPlateId;
-      const mergeParams = canMergePlates(leftPlateId, rightPlateId, shelf);
-      if (!mergeParams) return undefined;
+        return {
+          sku_id: mergeParams.sku_id,
+          rodIds: mergeParams.connections,
+          y: y,
+          action: 'merge',
+          existingPlateId: leftPlateId,
+          targetPlateId: rightPlateId,
+          segmentWidth: gapDistance
+        };
+      }
 
-      return {
-        sku_id: mergeParams.sku_id,
-        rodIds: mergeParams.connections,
-        y: y,
-        action: 'merge',
-        existingPlateId: leftPlateId,
-        targetPlateId: rightPlateId,
-        segmentWidth: gapDistance
-      };
-    }
+      if (sourcePlateId !== undefined && targetPlateId === undefined) {
+        const extendInfo = canExtendPlate(sourcePlateId, direction, shelf);
+        if (!extendInfo) return undefined;
+        const [sku_id, newConnections] = extendInfo;
+        // Extend the plate that exist on current rod
+        return {
+          existingPlateId: sourcePlateId,
+          sku_id: sku_id,
+          rodIds: newConnections,
+          y: y,
+          action: 'extend',
+          segmentWidth: gapDistance
+        };
+      }
 
-    if (sourcePlateId !== undefined && targetPlateId === undefined) {
-      const extendInfo = canExtendPlate(sourcePlateId, direction, shelf);
-      if (!extendInfo) return undefined;
-      const [sku_id, newConnections] = extendInfo;
-      // Extend the plate that exist on current rod
-      return {
-        existingPlateId: sourcePlateId,
-        sku_id: sku_id,
-        rodIds: newConnections,
-        y: y,
-        action: 'extend',
-        segmentWidth: gapDistance
-      };
-    }
+      if (sourcePlateId === undefined && targetPlateId === undefined) {
+        // Extend plate that exists on target rod (opposite direction)
+        const oppositeDirection = direction === 'left' ? Direction.Right : Direction.Left;
+        const extendInfo = canExtendPlate(targetPlateId, oppositeDirection, shelf);
+        if (!extendInfo) return undefined;
+        const [sku_id, newConnections] = extendInfo;
+        return {
+          sku_id: sku_id,
+          rodIds: newConnections,
+          y: y,
+          action: 'extend',
+          existingPlateId: targetPlateId,
+          segmentWidth: gapDistance
+        };
+      }
 
-    if (sourcePlateId === undefined && targetPlateId !== undefined) {
-      // Extend plate that exists on target rod (opposite direction)
-      const oppositeDirection = direction === 'left' ? Direction.Right : Direction.Left;
-      const extendInfo = canExtendPlate(targetPlateId, oppositeDirection, shelf);
-      if (!extendInfo) return undefined;
-      const [sku_id, newConnections] = extendInfo;
-      return {
-        sku_id: sku_id,
-        rodIds: newConnections,
-        y: y,
-        action: 'extend',
-        existingPlateId: targetPlateId,
-        segmentWidth: gapDistance
-      };
-    }
-
-    if (sourcePlateId === undefined && targetPlateId === undefined) {
-      // Create a new plate as both rods don't have a plate
-      return {
-        sku_id: plateSKU.sku_id,
-        rodIds: [leftRodId, rightRodId],
-        y: y,
-        action: 'create',
-        segmentWidth: gapDistance
-      };
+      if (sourcePlateId === undefined && targetPlateId === undefined) {
+        // Create a new plate as both rods don't have a plate
+        return {
+          sku_id: plateSKU.sku_id,
+          rodIds: [leftRodId, rightRodId],
+          y: y,
+          action: 'create',
+          segmentWidth: gapDistance
+        };
+      }
     }
   }
 
