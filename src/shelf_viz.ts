@@ -11,7 +11,8 @@ import {
   getRodSKU,
   getPlateSKU,
   type Shelf,
-  type Rod
+  type Rod,
+  PLATE_PADDING_MM
 } from './shelf-model.js';
 
 import { getTotalSpanLength, getRodHeight } from './shelf-utils.js';
@@ -103,7 +104,7 @@ function createRodMeshes(
   // Create two rods - one at front, one at back
   zPositions.forEach(([innerRod, zPos]) => {
     const rodPadding = innerRod ? innerRodHeightPadding : outerRodHeightPadding;
-    const rodHeight = height + rodPadding * 2 + plateThickness;
+    const rodHeight = height + rodPadding * 2;
 
     // Main cylinder body
     const rodRadialSegments = 32;
@@ -377,20 +378,7 @@ function createDimensionBars(cssScene: any, shelf: Shelf, wallZ: number): void {
   const maxX = Math.max(...xPositions);
 
   // Calculate total width (includes rod distance between front and back rods)
-  const rodDistance = 153; // mm - distance between inner and outer rod center lines
-  const totalWidthMm = (maxX - minX) + rodDistance;
-  const totalWidthCm = Math.round(totalWidthMm / 10);
-
-  // Calculate total height (find tallest rod)
-  let maxHeightMm = 0;
-  rods.forEach(rod => {
-    const rodSKU = getRodSKU(rod.sku_id);
-    if (rodSKU) {
-      const rodHeight = getRodHeight(rodSKU);
-      maxHeightMm = Math.max(maxHeightMm, rodHeight);
-    }
-  });
-  const totalHeightCm = Math.round(maxHeightMm / 10);
+  const totalWidthMm = (maxX - minX) + 2 * PLATE_PADDING_MM;
 
   // Find min and max Y positions across all rods
   let minRodBottom = Infinity;
@@ -399,12 +387,14 @@ function createDimensionBars(cssScene: any, shelf: Shelf, wallZ: number): void {
     const rodSKU = getRodSKU(rod.sku_id);
     if (rodSKU) {
       const rodHeight = getRodHeight(rodSKU);
-      const rodBottom = rod.position.y;
-      const rodTop = rod.position.y + rodHeight;
+      const rodBottom = rod.position.y - INNER_ROD_HEIGHT_PADDING;
+      const rodTop = rod.position.y + rodHeight + INNER_ROD_HEIGHT_PADDING;
       minRodBottom = Math.min(minRodBottom, rodBottom);
       maxRodTop = Math.max(maxRodTop, rodTop);
     }
   });
+
+  const totalHeightMm = maxRodTop - minRodBottom;
 
   // === HORIZONTAL DIMENSION BAR (Top - showing width) ===
 
@@ -467,7 +457,7 @@ function createDimensionBars(cssScene: any, shelf: Shelf, wallZ: number): void {
   hLabel.style.transform = 'translateX(-50%)';
   hLabel.style.whiteSpace = 'nowrap';
   hLabel.style.fontFamily = 'Arial, sans-serif';
-  hLabel.innerHTML = `<span style="font-size: 40px;">${totalWidthCm}</span><span style="font-size: 20px;">cm</span>`;
+  hLabel.innerHTML = `<span style="font-size: 40px;">${totalWidthMm}</span><span style="font-size: 20px;">mm</span>`;
   hContainer.appendChild(hLabel);
 
   // Create CSS3D object for horizontal bar
@@ -538,7 +528,7 @@ function createDimensionBars(cssScene: any, shelf: Shelf, wallZ: number): void {
   vLabel.style.transform = 'translateY(-50%)';
   vLabel.style.whiteSpace = 'nowrap';
   vLabel.style.fontFamily = 'Arial, sans-serif';
-  vLabel.innerHTML = `<span style="font-size: 40px;">${totalHeightCm}</span><span style="font-size: 20px;">cm</span>`;
+  vLabel.innerHTML = `<span style="font-size: 40px;">${totalHeightMm}</span><span style="font-size: 20px;">mm</span>`;
   vContainer.appendChild(vLabel);
 
   // Create CSS3D object for vertical bar
