@@ -536,57 +536,16 @@ export function setupInteractions(
 
     raycaster.setFromCamera(pointer, camera);
 
-    // Raycast rods and plates separately to prioritize rods
-    const rodObjects = scene.children.filter((child: any) =>
-      child.userData?.type === 'rod' ||
-      child.userData?.type === 'connection_rod' ||
-      child.userData?.type === 'ghostRod'
-    );
-    const plateObjects = scene.children.filter((child: any) =>
-      child.userData?.type === 'plate'
-    );
-    const ghostPlateObjects = scene.children.filter((child: any) =>
-      child.userData?.type === 'ghost_plate' ||
-      child.userData?.type === 'ghost_rod' ||
-      child.userData?.type === 'ghost_connection_rod'
-    );
+    // Raycast all objects together - this gives us hits sorted by distance from camera
+    const allIntersects = raycaster.intersectObjects(scene.children, true);
 
-    const rodIntersects = raycaster.intersectObjects(rodObjects, true);
-    const plateIntersects = raycaster.intersectObjects(plateObjects, true);
-    const ghostPlateIntersects = raycaster.intersectObjects(ghostPlateObjects, true);
-
-    // Priority order: real rods > ghost rods > plates > ghost plates
-
-    // 1. Check real rods first (highest priority)
-    for (const hit of rodIntersects) {
+    // Process hits in order of distance (closest first)
+    // Priority within same distance: ghost rods > real rods > plates > ghost plates
+    for (const hit of allIntersects) {
       const userData = hit.object.userData;
 
-      if (userData?.type === 'rod' || userData?.type === 'connection_rod') {
-        console.log(`Click handler: detected ${userData.type} with rodId=${userData.rodId}`);
-        onRodClick(userData.rodId, hit.point);
-        return;
-      }
-    }
-
-    // 2. Check ghost rods (for rod merge operations and rod extensions)
-    for (const hit of rodIntersects) {
-      const userData = hit.object.userData;
-
-      if (userData?.type === 'ghostRod') {
-        const ghostRodIndex = userData.ghostRodIndex;
-        const ghostRod = shelf.ghostRods[ghostRodIndex];
-        onGhostRodClick(ghostRod);
-        return;
-      }
-    }
-
-    // Also check ghost_rod type (from rod modifications/extensions in ghost plates)
-    for (const hit of ghostPlateIntersects) {
-      const userData = hit.object.userData;
-
+      // Priority 1: Ghost rods (rod extensions/merges)
       if (userData?.type === 'ghost_rod' || userData?.type === 'ghost_connection_rod') {
-        // These ghost rods are part of ghost plates (rod extensions)
-        // Click the associated ghost plate instead
         console.log(`Click handler: detected ${userData.type} (ghost rod from plate), ghostPlateIndex=${userData.ghostPlateIndex}`);
         const ghostPlateIndex = userData.ghostPlateIndex;
         if (ghostPlateIndex !== undefined && shelf.ghostPlates[ghostPlateIndex]) {
@@ -594,23 +553,29 @@ export function setupInteractions(
           return;
         }
       }
-    }
 
-    // 3. Then check plates
-    for (const hit of plateIntersects) {
-      const userData = hit.object.userData;
+      if (userData?.type === 'ghostRod') {
+        const ghostRodIndex = userData.ghostRodIndex;
+        const ghostRod = shelf.ghostRods[ghostRodIndex];
+        onGhostRodClick(ghostRod);
+        return;
+      }
 
+      // Priority 2: Real rods
+      if (userData?.type === 'rod' || userData?.type === 'connection_rod') {
+        console.log(`Click handler: detected ${userData.type} with rodId=${userData.rodId}`);
+        onRodClick(userData.rodId, hit.point);
+        return;
+      }
+
+      // Priority 3: Plates
       if (userData?.type === 'plate') {
         console.log(`Click handler: detected plate with plateId=${userData.plateId}`);
         onPlateClick(userData.plateId, hit.point);
         return;
       }
-    }
 
-    // 4. Finally check ghost plates (lowest priority)
-    for (const hit of ghostPlateIntersects) {
-      const userData = hit.object.userData;
-
+      // Priority 4: Ghost plates
       if (userData?.type === 'ghost_plate') {
         onGhostPlateClick(userData.ghostPlate);
         return;
