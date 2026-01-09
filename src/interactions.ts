@@ -553,7 +553,9 @@ export function setupInteractions(
     const plateIntersects = raycaster.intersectObjects(plateObjects, true);
     const ghostPlateIntersects = raycaster.intersectObjects(ghostPlateObjects, true);
 
-    // Check rods first (prioritize real rods over ghost rods)
+    // Priority order: real rods > ghost rods > plates > ghost plates
+
+    // 1. Check real rods first (highest priority)
     for (const hit of rodIntersects) {
       const userData = hit.object.userData;
 
@@ -563,7 +565,19 @@ export function setupInteractions(
       }
     }
 
-    // Then check plates
+    // 2. Check ghost rods (for rod merge operations)
+    for (const hit of rodIntersects) {
+      const userData = hit.object.userData;
+
+      if (userData?.type === 'ghostRod') {
+        const ghostRodIndex = userData.ghostRodIndex;
+        const ghostRod = shelf.ghostRods[ghostRodIndex];
+        onGhostRodClick(ghostRod);
+        return;
+      }
+    }
+
+    // 3. Then check plates
     for (const hit of plateIntersects) {
       const userData = hit.object.userData;
 
@@ -573,24 +587,12 @@ export function setupInteractions(
       }
     }
 
-    // Finally check ghost elements
+    // 4. Finally check ghost plates (lowest priority)
     for (const hit of ghostPlateIntersects) {
       const userData = hit.object.userData;
 
       if (userData?.type === 'ghost_plate') {
         onGhostPlateClick(userData.ghostPlate);
-        return;
-      }
-    }
-
-    // Check ghost rods last
-    for (const hit of rodIntersects) {
-      const userData = hit.object.userData;
-
-      if (userData?.type === 'ghostRod') {
-        const ghostRodIndex = userData.ghostRodIndex;
-        const ghostRod = shelf.ghostRods[ghostRodIndex];
-        onGhostRodClick(ghostRod);
         return;
       }
     }
