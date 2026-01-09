@@ -109,6 +109,7 @@ export function setupInteractions(
   }
 
   function onRodClick(rodId: number, hitPoint?: THREE.Vector3) {
+    console.log(`onRodClick called: rodId=${rodId}, hitPoint.y=${hitPoint?.y}`);
     console.log(`Removing segment from rod ${rodId}`);
 
     const segmentIndex = hitPoint ? calculateRodSegmentIndex(rodId, hitPoint.y) : 0;
@@ -125,6 +126,7 @@ export function setupInteractions(
   }
 
   function onPlateClick(plateId: number, hitPoint?: THREE.Vector3) {
+    console.log(`onPlateClick called: plateId=${plateId}, hitPoint=${hitPoint ? `(${hitPoint.x}, ${hitPoint.y}, ${hitPoint.z})` : 'undefined'}`);
     console.log(`Removing segment from plate ${plateId}`);
 
     const plate = shelf.plates.get(plateId);
@@ -560,6 +562,7 @@ export function setupInteractions(
       const userData = hit.object.userData;
 
       if (userData?.type === 'rod' || userData?.type === 'connection_rod') {
+        console.log(`Click handler: detected ${userData.type} with rodId=${userData.rodId}`);
         onRodClick(userData.rodId, hit.point);
         return;
       }
@@ -584,6 +587,7 @@ export function setupInteractions(
       if (userData?.type === 'ghost_rod' || userData?.type === 'ghost_connection_rod') {
         // These ghost rods are part of ghost plates (rod extensions)
         // Click the associated ghost plate instead
+        console.log(`Click handler: detected ${userData.type} (ghost rod from plate), ghostPlateIndex=${userData.ghostPlateIndex}`);
         const ghostPlateIndex = userData.ghostPlateIndex;
         if (ghostPlateIndex !== undefined && shelf.ghostPlates[ghostPlateIndex]) {
           onGhostPlateClick(shelf.ghostPlates[ghostPlateIndex]);
@@ -597,6 +601,7 @@ export function setupInteractions(
       const userData = hit.object.userData;
 
       if (userData?.type === 'plate') {
+        console.log(`Click handler: detected plate with plateId=${userData.plateId}`);
         onPlateClick(userData.plateId, hit.point);
         return;
       }
