@@ -684,13 +684,30 @@ function rebuildShelfGeometry(
     // Render ghost rods for this ghost plate (only if legal)
     if (ghostPlate.legal && ghostPlate.rodModifications) {
       for (const rodMod of ghostPlate.rodModifications) {
-        // Render complete new rod
         const rodSKU = getRodSKU(rodMod.newSkuId!);
         if (!rodSKU) continue;
 
+        // Determine the correct position for the ghost rod visualization
+        // For extensions: show the full extended rod at the rod's actual position (overlaps with existing rod)
+        // For new rods: show at the creation position
+        let rodPosition: { x: number, y: number };
+
+        if (rodMod.type === 'extend' && rodMod.affectedRodIds && rodMod.affectedRodIds.length > 0) {
+          // Extension: render the full extended rod at the rod's current position
+          const existingRod = shelf.rods.get(rodMod.affectedRodIds[0]);
+          if (!existingRod) continue;
+
+          // For down extensions, rodMod.position contains the adjusted position (shifted down)
+          // For up extensions, use the existing rod's position (stays the same)
+          rodPosition = rodMod.direction === 'down' ? rodMod.position : existingRod.position;
+        } else {
+          // Create/merge: use the position from the modification
+          rodPosition = rodMod.position;
+        }
+
         const ghostRod: Rod = {
           sku_id: rodMod.newSkuId!,
-          position: rodMod.position,
+          position: rodPosition,
           attachmentPoints: calculateAttachmentPositions(rodSKU).map(y => ({ y }))
         };
 
