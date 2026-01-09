@@ -565,7 +565,7 @@ export function setupInteractions(
       }
     }
 
-    // 2. Check ghost rods (for rod merge operations)
+    // 2. Check ghost rods (for rod merge operations and rod extensions)
     for (const hit of rodIntersects) {
       const userData = hit.object.userData;
 
@@ -574,6 +574,21 @@ export function setupInteractions(
         const ghostRod = shelf.ghostRods[ghostRodIndex];
         onGhostRodClick(ghostRod);
         return;
+      }
+    }
+
+    // Also check ghost_rod type (from rod modifications/extensions in ghost plates)
+    for (const hit of ghostPlateIntersects) {
+      const userData = hit.object.userData;
+
+      if (userData?.type === 'ghost_rod' || userData?.type === 'ghost_connection_rod') {
+        // These ghost rods are part of ghost plates (rod extensions)
+        // Click the associated ghost plate instead
+        const ghostPlateIndex = userData.ghostPlateIndex;
+        if (ghostPlateIndex !== undefined && shelf.ghostPlates[ghostPlateIndex]) {
+          onGhostPlateClick(shelf.ghostPlates[ghostPlateIndex]);
+          return;
+        }
       }
     }
 
