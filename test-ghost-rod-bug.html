@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Ghost Rod Bug Test</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+  <div id="container"></div>
+  <script type="module">
+    import { decodeShelf } from './src/shelf-encoding.js';
+    import { regenerateGhostRods } from './src/shelf-model.js';
+    
+    const working = '{"v":2,"r":[[0,-300,12],[600,-300,12],[1200,-300,12],[1800,200,1],[2400,200,1]],"p":[[0,3,[0,1,2]],[200,3,[1,2,3]],[400,3,[0,1,2]],[700,3,[0,1,2]],[-300,3,[0,1,2]]]}';
+    const broken = '{"v":2,"r":[[0,-300,12],[600,-300,12],[1200,-300,12],[1800,200,1],[2400,200,1]],"p":[[0,3,[0,1,2]],[200,4,[1,2,3,4]],[400,3,[0,1,2]],[700,3,[0,1,2]],[-300,3,[0,1,2]]]}';
+    
+    console.log("=== WORKING CONFIG ===");
+    const shelfWorking = decodeShelf(working);
+    regenerateGhostRods(shelfWorking);
+    console.log("Ghost rods:", shelfWorking.ghostRods);
+    
+    console.log("\n=== BROKEN CONFIG ===");
+    const shelfBroken = decodeShelf(broken);
+    regenerateGhostRods(shelfBroken);
+    console.log("Ghost rods:", shelfBroken.ghostRods);
+    
+    // Detailed analysis
+    shelfBroken.ghostRods.forEach((gr, i) => {
+      console.log(`\nGhost Rod ${i}:`);
+      console.log(`  Bottom Rod ID: ${gr.bottomRodId}, Top Rod ID: ${gr.topRodId}`);
+      console.log(`  Position: (${gr.position.x}, ${gr.position.y})`);
+      console.log(`  SKU ID: ${gr.sku_id}`);
+      console.log(`  Attachment Points:`, gr.attachmentPoints);
+      
+      const bottomRod = shelfBroken.rods.get(gr.bottomRodId);
+      const topRod = shelfBroken.rods.get(gr.topRodId);
+      console.log(`  Bottom Rod Position: (${bottomRod?.position.x}, ${bottomRod?.position.y})`);
+      console.log(`  Top Rod Position: (${topRod?.position.x}, ${topRod?.position.y})`);
+    });
+  </script>
+</body>
+</html>

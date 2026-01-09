@@ -684,23 +684,42 @@ function rebuildShelfGeometry(
     // Render ghost rods for this ghost plate (only if legal)
     if (ghostPlate.legal && ghostPlate.rodModifications) {
       for (const rodMod of ghostPlate.rodModifications) {
-        // Render complete new rod
         const rodSKU = getRodSKU(rodMod.newSkuId!);
         if (!rodSKU) continue;
 
-        const ghostRod: Rod = {
-          sku_id: rodMod.newSkuId!,
-          position: rodMod.position,
-          attachmentPoints: calculateAttachmentPositions(rodSKU).map(y => ({ y }))
-        };
+        // For extensions, use visualY and visualHeight to show only the extension part
+        // For new rods, use the full rod position and SKU
+        if (rodMod.type === 'extend' && rodMod.visualY !== undefined && rodMod.visualHeight !== undefined) {
+          // Create a minimal rod representation for the extension segment
+          const ghostRod: Rod = {
+            sku_id: rodMod.newSkuId!,
+            position: { x: rodMod.position.x, y: rodMod.visualY },
+            attachmentPoints: [{ y: 0 }, { y: rodMod.visualHeight }]
+          };
 
-        const meshes = createRodMeshes(ghostRod, true, ghostOpacity);
-        meshes.forEach(mesh => {
-          mesh.userData.type = 'ghost_rod';
-          mesh.userData.ghostPlateIndex = index;
-          mesh.renderOrder = 1; // Render after solid geometry for correct transparency
-          scene.add(mesh);
-        });
+          const meshes = createRodMeshes(ghostRod, true, ghostOpacity);
+          meshes.forEach(mesh => {
+            mesh.userData.type = 'ghost_rod';
+            mesh.userData.ghostPlateIndex = index;
+            mesh.renderOrder = 1;
+            scene.add(mesh);
+          });
+        } else {
+          // Render complete new rod for create/merge actions
+          const ghostRod: Rod = {
+            sku_id: rodMod.newSkuId!,
+            position: rodMod.position,
+            attachmentPoints: calculateAttachmentPositions(rodSKU).map(y => ({ y }))
+          };
+
+          const meshes = createRodMeshes(ghostRod, true, ghostOpacity);
+          meshes.forEach(mesh => {
+            mesh.userData.type = 'ghost_rod';
+            mesh.userData.ghostPlateIndex = index;
+            mesh.renderOrder = 1;
+            scene.add(mesh);
+          });
+        }
       }
     }
   });
