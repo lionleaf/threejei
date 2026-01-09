@@ -2421,17 +2421,30 @@ export function regenerateGhostRods(shelf: Shelf): void {
         gaps.push(combinedAbsoluteYs[i + 1] - combinedAbsoluteYs[i]);
       }
 
-      // Search for a matching SKU with these exact gaps
-      const matchingSKU = AVAILABLE_RODS.find(sku => {
+      // First try to find an exact-span match (same number of spans/gaps)
+      let matchingSKU = AVAILABLE_RODS.find(sku => {
         if (sku.spans.length !== gaps.length) return false;
         return sku.spans.every((span, i) => Math.abs(span - gaps[i]) < POSITION_TOLERANCE_MM);
       });
 
+      // If no exact match, allow matching SKUs that have MORE attachment points
+      // as long as all existing attachment absolute positions are present in the
+      // SKU's attachment positions (i.e. the SKU's positions are a superset of
+      // the observed attachment points). This permits merging across longer
+      // gaps where the SKU has extra intermediate attachment points.
+      if (!matchingSKU) {
+        matchingSKU = AVAILABLE_RODS.find(sku => {
+          const skuPositions = calculateAttachmentPositions(sku).map(p => p + bottomRod.position.y);
+          if (skuPositions.length < combinedAbsoluteYs.length) return false;
+          return combinedAbsoluteYs.every(absY =>
+            skuPositions.some(sp => Math.abs(sp - absY) < POSITION_TOLERANCE_MM)
+          );
+        });
+      }
+
       if (matchingSKU) {
-        // Calculate attachment points for the merged rod (relative to position.y)
-        const mergedAttachmentPoints: AttachmentPoint[] = combinedAbsoluteYs.map(absY => ({
-          y: absY - bottomRod.position.y
-        }));
+        // Use the SKU's attachment positions (relative to bottomRod.position.y)
+        const mergedAttachmentPoints: AttachmentPoint[] = calculateAttachmentPositions(matchingSKU).map(y => ({ y }));
 
         shelf.ghostRods.push({
           bottomRodId,

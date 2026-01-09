@@ -276,8 +276,27 @@ export function setupInteractions(
     // Update raycaster
     raycaster.setFromCamera(pointer, camera);
 
-    // Test for intersections with all scene objects (recursive: true checks nested objects)
-    const intersects = raycaster.intersectObjects(scene.children, true);
+    // Raycast rods and plates separately to prioritize rods
+    const rodObjects = scene.children.filter((child: any) =>
+      child.userData?.type === 'rod' ||
+      child.userData?.type === 'connection_rod' ||
+      child.userData?.type === 'ghostRod'
+    );
+    const plateObjects = scene.children.filter((child: any) =>
+      child.userData?.type === 'plate'
+    );
+    const ghostPlateObjects = scene.children.filter((child: any) =>
+      child.userData?.type === 'ghost_plate' ||
+      child.userData?.type === 'ghost_rod' ||
+      child.userData?.type === 'ghost_connection_rod'
+    );
+
+    const rodIntersects = raycaster.intersectObjects(rodObjects, true);
+    const plateIntersects = raycaster.intersectObjects(plateObjects, true);
+    const ghostPlateIntersects = raycaster.intersectObjects(ghostPlateObjects, true);
+
+    // Combine intersects with rods prioritized
+    const intersects = [...rodIntersects, ...plateIntersects, ...ghostPlateIntersects];
 
     // Clear all hover states first
     shelf.plates.forEach(plate => {
@@ -359,7 +378,7 @@ export function setupInteractions(
           }
         }
         break; // Plates take priority
-      } else if (userData?.type === 'rod') {
+      } else if (userData?.type === 'rod' || userData?.type === 'connection_rod') {
         const rodId = userData.rodId;
         const rod = shelf.rods.get(rodId);
         if (rod && tooltipContainer) {
@@ -514,30 +533,61 @@ export function setupInteractions(
     pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
     raycaster.setFromCamera(pointer, camera);
-    const intersects = raycaster.intersectObjects(scene.children, true);
 
-    // Find first hit with userData.type (plate, ghost_plate, or rod)
-    // Priority order: plates > rods > ghost plates > ghost rods
-    for (const hit of intersects) {
+    // Raycast rods and plates separately to prioritize rods
+    const rodObjects = scene.children.filter((child: any) =>
+      child.userData?.type === 'rod' ||
+      child.userData?.type === 'connection_rod' ||
+      child.userData?.type === 'ghostRod'
+    );
+    const plateObjects = scene.children.filter((child: any) =>
+      child.userData?.type === 'plate'
+    );
+    const ghostPlateObjects = scene.children.filter((child: any) =>
+      child.userData?.type === 'ghost_plate' ||
+      child.userData?.type === 'ghost_rod' ||
+      child.userData?.type === 'ghost_connection_rod'
+    );
+
+    const rodIntersects = raycaster.intersectObjects(rodObjects, true);
+    const plateIntersects = raycaster.intersectObjects(plateObjects, true);
+    const ghostPlateIntersects = raycaster.intersectObjects(ghostPlateObjects, true);
+
+    // Check rods first (prioritize real rods over ghost rods)
+    for (const hit of rodIntersects) {
+      const userData = hit.object.userData;
+
+      if (userData?.type === 'rod' || userData?.type === 'connection_rod') {
+        onRodClick(userData.rodId, hit.point);
+        return;
+      }
+    }
+
+    // Then check plates
+    for (const hit of plateIntersects) {
       const userData = hit.object.userData;
 
       if (userData?.type === 'plate') {
         onPlateClick(userData.plateId, hit.point);
-        return; // Plates take priority
-      } else if (userData?.type === 'rod') {
-        onRodClick(userData.rodId, hit.point);
-        return; // Real rods take priority over ghosts
+        return;
       }
     }
 
-    // If no plate or rod was hit, check for ghost elements
-    for (const hit of intersects) {
+    // Finally check ghost elements
+    for (const hit of ghostPlateIntersects) {
       const userData = hit.object.userData;
 
       if (userData?.type === 'ghost_plate') {
         onGhostPlateClick(userData.ghostPlate);
         return;
-      } else if (userData?.type === 'ghostRod') {
+      }
+    }
+
+    // Check ghost rods last
+    for (const hit of rodIntersects) {
+      const userData = hit.object.userData;
+
+      if (userData?.type === 'ghostRod') {
         const ghostRodIndex = userData.ghostRodIndex;
         const ghostRod = shelf.ghostRods[ghostRodIndex];
         onGhostRodClick(ghostRod);

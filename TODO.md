@@ -7,9 +7,6 @@
 
 ## General Improvements
 - [ ] Add measurements
-[ ] Fix length calculation of measurement stick
-
-
 
 # Backlog (DO NOT IMPLEMENT yet)
 [ ] Delete rod -> long plate
@@ -18,5 +15,4 @@
 [ ] Make it possible to swap 200 vs 300
 [ ] Don't end up with lonely rods
 [ ] Merge rods; too easy to misclick the plate
-[ ] 
 

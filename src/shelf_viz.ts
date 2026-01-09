@@ -147,7 +147,12 @@ function createRodMeshes(
 
     // Position at the attachment point, centered in Z
     connectionRod.position.set(rod.position.x, attachmentY + (isGhost ? 1 : 0), length / 2 + (isGhost ? 0.5 : 0));
-    connectionRod.userData = { type: isGhost ? 'ghost_connection_rod' : 'connection_rod' };
+
+    if (isGhost) {
+      connectionRod.userData = { type: 'ghost_connection_rod' };
+    } else {
+      connectionRod.userData = { type: 'connection_rod', rodId: rodId };
+    }
 
     meshes.push(connectionRod);
   });
