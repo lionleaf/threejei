@@ -536,12 +536,19 @@ export function setupInteractions(
 
     raycaster.setFromCamera(pointer, camera);
 
-    // Raycast all objects together - this gives us hits sorted by distance from camera
-    const allIntersects = raycaster.intersectObjects(scene.children, true);
+    // Raycast all rod-like objects together (real rods + ghost rods) sorted by distance
+    const allRodObjects = scene.children.filter((child: any) =>
+      child.userData?.type === 'rod' ||
+      child.userData?.type === 'connection_rod' ||
+      child.userData?.type === 'ghostRod' ||
+      child.userData?.type === 'ghost_rod' ||
+      child.userData?.type === 'ghost_connection_rod'
+    );
 
-    // Process hits in order of distance (closest first)
-    // Priority within same distance: ghost rods > real rods > plates > ghost plates
-    for (const hit of allIntersects) {
+    const rodIntersects = raycaster.intersectObjects(allRodObjects, true);
+
+    // Check rod hits in distance order, with ghost rods having priority over real rods
+    for (const hit of rodIntersects) {
       const userData = hit.object.userData;
 
       // Priority 1: Ghost rods (rod extensions/merges)
@@ -567,8 +574,20 @@ export function setupInteractions(
         onRodClick(userData.rodId, hit.point);
         return;
       }
+    }
 
-      // Priority 3: Plates
+    // No rod hits - now check plates
+    const allPlateObjects = scene.children.filter((child: any) =>
+      child.userData?.type === 'plate' ||
+      child.userData?.type === 'ghost_plate'
+    );
+
+    const plateIntersects = raycaster.intersectObjects(allPlateObjects, true);
+
+    for (const hit of plateIntersects) {
+      const userData = hit.object.userData;
+
+      // Priority 3: Real plates
       if (userData?.type === 'plate') {
         console.log(`Click handler: detected plate with plateId=${userData.plateId}`);
         onPlateClick(userData.plateId, hit.point);
